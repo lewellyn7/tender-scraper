@@ -1,0 +1,32 @@
+<!-- Global Animation Styles -->
+<style>
+.page-enter{opacity:0;transform:translateY(12px)}
+.page-enter-active{opacity:1;transform:translateY(0);transition:opacity .35s,transform .35s}
+.page-leave-active{opacity:0;transform:translateY(-8px);transition:opacity .25s,transform .25s}
+
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .5s,transform .5s}
+.reveal.revealed{opacity:1;transform:translateY(0)}
+.reveal-left{opacity:0;transform:translateX(-24px);transition:opacity .5s,transform .5s}
+.reveal-left.revealed{opacity:1;transform:translateX(0)}
+.reveal-right{opacity:0;transform:translateX(24px);transition:opacity .5s,transform .5s}
+.reveal-right.revealed{opacity:1;transform:translateX(0)}
+.reveal-scale{opacity:0;transform:scale(0.94);transition:opacity .4s,transform .4s}
+.reveal-scale.revealed{opacity:1;transform:scale(1)}
+
+.anim-card{transition:transform .22s cubic-bezier(.34,1.56,.64,1),box-shadow .22s,border-color .22s;cursor:pointer}
+.anim-card:hover{transform:translateY(-4px) scale(1.015);box-shadow:0 12px 28px -4px rgba(0,0,0,.14),0 6px 14px -2px rgba(0,0,0,.08);border-color:rgba(59,130,246,.35)}
+.anim-card:active{transform:translateY(-1px) scale(.99)}
+
+.anim-btn{position:relative;overflow:hidden}
+.anim-btn::after{content:"";position:absolute;border-radius:50%;background:rgba(255,255,255,.45);transform:scale(0);opacity:1;pointer-events:none}
+.anim-btn:active::after{transform:scale(3);opacity:0;transition:transform .5s,opacity .5s}
+
+.toast-container{position:fixed;top:5rem;right:1.25rem;z-index:9999;display:flex;flex-direction:column;gap:.5rem;pointer-events:none}
+.toast-item{pointer-events:auto;padding:.875rem 1.25rem;border-radius:.625rem;box-shadow:0 8px 24px rgba(0,0,0,.12);display:flex;align-items:center;gap:.625rem;font-size:.875rem;font-weight:500;min-width:260px;max-width:360px;animation:toastIn .4s cubic-bezier(.34,1.56,.64,1) forwards}
+.toast-item.toast-exit{animation:toastOut .3s ease forwards}
+.toast-success{background:rgba(16,185,129,.95);color:#fff}
+.toast-error{background:rgba(239,68,68,.95);color:#fff}
+.toast-info{background:rgba(59,130,246,.95);color:#fff}
+.toast-warning{background:rgba(245,158,11,.95);color:#fff}
+@keyframes toastIn{from{opacity:0;transform:translateX(110%)}to{opacity:1;transform:translateX(0)}}
+@keyframes toastOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(110%}}

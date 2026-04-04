@@ -1,0 +1,62 @@
+"""全局常量"""
+
+
+class TimeConstants:
+    SESSION_EXPIRY_SECONDS = 7 * 24 * 3600
+    LOCKOUT_DURATION_SECONDS = 30 * 60
+    HTTP_TIMEOUT_SECONDS = 30
+    CACHE_TTL_SECONDS = 60
+    LOG_RETENTION_DAYS = 7
+
+
+class SecurityConstants:
+    PASSWORD_HASH_ITERATIONS = 100_000
+    MAX_LOGIN_ATTEMPTS = 5
+    RATE_LIMIT_PER_MINUTE = 60
+    CSRF_TOKEN_LENGTH = 32
+    MAX_DEVICES_PER_USER = 3
+    SESSION_TOKEN_LENGTH = 32
+
+
+class PaginationConstants:
+    DEFAULT_PAGE_SIZE = 20
+    MAX_PAGE_SIZE = 100
+    DEFAULT_LOG_LIMIT = 200
+    MAX_LOG_LIMIT = 500
+    DEFAULT_FAVORITES_LIMIT = 500
+
+
+class BudgetConstants:
+    SMALL_PROJECT_YUAN = 100_000
+    MEDIUM_PROJECT_YUAN = 1_000_000
+    LARGE_PROJECT_YUAN = 10_000_000
+
+
+class SimilarityConstants:
+    DEFAULT_THRESHOLD = 0.7
+    HIGH_THRESHOLD = 0.85
+    LOW_THRESHOLD = 0.5
+
+
+class BatchConstants:
+    DEFAULT_BATCH_SIZE = 100
+    MAX_BATCH_SIZE = 1000
+
+
+class ExportConstants:
+    MAX_KEYWORD_HEAT_ITEMS = 20
+    MAX_SOURCE_DIST_ITEMS = 10
+
+
+class CacheConstants:
+    DEFAULT_CACHE_TTL = 3600
+    PROJECT_CACHE_TTL = 60
+
+
+class DBConstants:
+    """数据库常量"""
+
+    DEFAULT_BATCH_SIZE = 100
+    MAX_BATCH_SIZE = 1000
+    CONNECTION_TIMEOUT_SECONDS = 30
+    CACHE_SIZE_PAGES = 64000

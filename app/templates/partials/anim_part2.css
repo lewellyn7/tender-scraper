@@ -1,0 +1,39 @@
+.modal-overlay{transition:opacity .25s}
+.modal-overlay:not(.modal-active){opacity:0;pointer-events:none}
+.modal-overlay.modal-active{opacity:1}
+.modal-panel{transition:opacity .3s,transform .3s cubic-bezier(.34,1.56,.64,1);transform:scale(.88) translateY(16px)}
+.modal-overlay.modal-active .modal-panel{opacity:1;transform:scale(1) translateY(0)}
+
+.stagger-item{opacity:0;transform:translateY(16px);transition:opacity .4s,transform .4s}
+.stagger-item.stagger-visible{opacity:1;transform:translateY(0)}
+
+.skeleton{background:linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:.375rem}
+.dark .skeleton{background:linear-gradient(90deg,#1f2937 25%,#374151 50%,#1f2937 75%);background-size:200% 100%}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+@keyframes pulseSoft{0%,100%{opacity:1}50%{opacity:.6}}
+.pulse-soft{animation:pulseSoft 2s ease-in-out infinite}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{animation:spin .8s linear infinite}
+
+@keyframes bounceIn{0%{opacity:0;transform:scale(.3)}50%{transform:scale(1.06)}70%{transform:scale(.96)}100%{opacity:1;transform:scale(1)}}
+.bounceIn{animation:bounceIn .45s ease forwards}
+
+.flap-num{display:inline-block;animation:flap .35s ease forwards}
+@keyframes flap{0%{transform:rotateX(0)}50%{transform:rotateX(-90deg);opacity:.5}100%{transform:rotateX(0)}}
+
+.hover-glow{transition:box-shadow .3s}
+.hover-glow:hover{box-shadow:0 0 20px 2px rgba(59,130,246,.25)}
+
+.progress-anim{transition:width 1s cubic-bezier(.4,0,.2,1)}
+
+@keyframes badgePop{0%{transform:scale(0)}70%{transform:scale(1.2)}100%{transform:scale(1)}}
+.badge-pop{animation:badgePop .4s ease forwards}
+
+.tab-track{position:relative}
+.tab-indicator{position:absolute;bottom:0;height:2px;background:#3b82f6;border-radius:1px;transition:left .3s cubic-bezier(.4,0,.2,1),width .3s cubic-bezier(.4,0,.2,1)}
+
+@keyframes drawLine{from{width:0;opacity:0}to{width:100%;opacity:1}}
+.draw-line{animation:drawLine .6s ease forwards}
+</style>

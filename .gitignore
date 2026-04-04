@@ -4,22 +4,10 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
 venv/
 ENV/
-.venv
-*.egg-info/
-dist/
-build/
-
-# 环境变量
-.env
-.env.local
-
-# 输出文件
-output/*.xlsx
-output/*.csv
-logs/*.log
+env/
+.venv/
 
 # IDE
 .idea/
@@ -27,6 +15,36 @@ logs/*.log
 *.swp
 *.swo
 
-# OS
+# 输出文件 (保留目录结构)
+output/*.xlsx
+output/*.png
+output/*.log
+!output/.gitkeep
+
+# 日志
+logs/
+*.log
+
+# 环境变量
+.env
+
+# 临时文件
+*.tmp
+*.bak
 .DS_Store
 Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 测试
+.coverage
+htmlcov/
+.pytest_cache/
+
+# 环境
+.env.local
+.env.*.local

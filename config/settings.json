@@ -1,0 +1,8 @@
+{
+  "tasks": [
+    { "name": "重庆工程", "url": "https://www.cqggzy.com/jyxx/transaction_detail.html", "keywords": "智慧,智能,数字化,系统,平台,LED,园区", "enabled": true },
+    { "name": "重庆政府采购", "url": "https://www.ccgp-chongqing.gov.cn/info-notice/procument-notice", "keywords": "智慧,智能,数字化,系统,平台,LED,园区", "enabled": true }
+  ],
+  "schedule": { "enabled": true, "times": "10:00, 14:00, 18:00" },
+  "config": { "days": 3, "auto_update": true, "match_mode": "any" }
+}

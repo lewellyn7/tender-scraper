@@ -1,0 +1,58 @@
+# OpenClaw 插件配置
+
+# 基础配置
+plugin:
+  name: "my-openclaw-plugin"
+  version: "1.0.0"
+  description: "自定义 OpenClaw 插件"
+  author: "your-name"
+
+# 工具注册配置
+tools:
+  enabled:
+    - "filesystem"
+    - "web"
+    - "custom"
+  
+  registry:
+    # 工具元数据声明
+    metadata:
+      category: "productivity"
+      tags:
+        - "automation"
+        - "ai"
+      permissions:
+        - "file:read"
+        - "file:write"
+        - "network:access"
+
+# 并发调度配置
+scheduler:
+  maxConcurrent: 5
+  maxRetries: 3
+  retryDelay: 1000  # ms
+  timeout: 30000    # ms
+  queueSize: 100
+
+# 会话内存配置
+memory:
+  enabled: true
+  maxSessions: 10
+  sessionTimeout: 3600000  # 1 hour
+  autoSummarize: true
+  summaryThreshold: 10     # 消息数触发摘要
+  persistence:
+    enabled: true
+    path: "./data/memory"
+    compression: true
+
+# 日志配置
+logging:
+  level: "info"
+  format: "json"
+  output: "./logs/plugin.log"
+
+# 环境变量
+env:
+  OPENCLAW_API_KEY: "${OPENCLAW_API_KEY}"
+  OPENCLAW_ENDPOINT: "http://localhost:3000"

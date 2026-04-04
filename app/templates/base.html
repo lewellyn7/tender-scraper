@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}招投标采集系统{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { 
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    animation: {
+                        'fade-in': 'fadeIn 0.3s ease-out',
+                        'slide-up': 'slideUp 0.3s ease-out',
+                    },
+                    keyframes: {
+                        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+                        slideUp: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <style>[x-cloak] { display: none !important; }</style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors duration-200">
+    <!-- 用户信息存储 -->
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.store('theme', localStorage.getItem('theme') || 'light');
+            Alpine.store('user', {
+                role: '{{ user_info.role if user_info else "guest" }}',
+                username: '{{ user_info.username if user_info else "" }}',
+                display_name: '{{ user_info.display_name if user_info else "" }}'
+            });
+            if (Alpine.store('theme') === 'dark') { document.documentElement.classList.add('dark'); }
+        });
+    </script>
+
+    <nav class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0 flex items-center">
+                        <span class="text-2xl">📊</span>
+                        <span class="ml-2 text-xl font-bold text-gray-900 dark:text-white">招投标采集</span>
+                    </div>
+                    <div class="hidden sm:ml-6 sm:flex sm:space-x-1">
+                        <!-- 所有用户可见 -->
+                        <a href="/" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md" 
+                           x-show="$store.user.role !== 'guest'">仪表盘</a>
+                        <a href="/content" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md">采集内容</a>
+                        <a href="/data" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md">数据管理</a>
+                        <!-- 收藏需要 viewer 或更高 -->
+                        <a href="/favorites" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md"
+                           x-show="$store.user.role === 'viewer' || $store.user.role === 'operator' || $store.user.role === 'admin'">⭐ 收藏</a>
+                        <!-- 分析需要 viewer 或更高 -->
+                        <a href="/analytics" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md"
+                           x-show="$store.user.role === 'viewer' || $store.user.role === 'operator' || $store.user.role === 'admin'">📈 分析</a>
+                        <!-- 日志需要 operator 或更高 -->
+                        <a href="/logs" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md"
+                           x-show="$store.user.role === 'operator' || $store.user.role === 'admin'">📋 日志</a>
+                        <!-- 设置对所有人可见，但内容不同 -->
+                        <a href="/settings" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md">⚙️ 设置</a>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <!-- 用户角色显示 -->
+                    <div x-show="$store.user.role !== 'guest'" class="flex items-center gap-2 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 rounded-full">
+                        <span class="text-xs font-medium text-blue-600 dark:text-blue-400" x-text="$store.user.display_name || $store.user.username"></span>
+                        <span class="text-xs px-1.5 py-0.5 bg-blue-200 dark:bg-blue-800 rounded text-blue-700 dark:text-blue-300" x-text="$store.user.role"></span>
+                    </div>
+                    <!-- 登录/注册按钮 -->
+                    <div x-show="$store.user.role === 'guest'">
+                        <a href="/settings" class="text-sm text-blue-600 hover:text-blue-500">登录 / 注册</a>
+                    </div>
+                    <!-- 移动端菜单按钮 -->
+                    <button @click="mobileMenuOpen = !mobileMenuOpen" class="md:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors">
+                        <svg x-show="!mobileMenuOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                        <svg x-show="mobileMenuOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                    <button @click="toggleTheme()" class="p-2 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition" title="切换主题">
+                        <svg x-show="$store.theme === 'light'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                        <svg x-show="$store.theme === 'dark'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    </button>
+                    {% if stats %}<span class="text-xs text-gray-400 hidden md:block">最后运行: {{ stats.last_run }}</span>{% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 移动端菜单 -->
+    <div x-show="mobileMenuOpen" x-transition class="md:hidden bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 py-4 px-4">
+        <div class="flex flex-col space-y-2">
+            <a href="/" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50">
+                <span class="mr-3">🏠</span>仪表盘
+            </a>
+            <a href="/content" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50">
+                <span class="mr-3">📋</span>采集内容
+            </a>
+            <a href="/data" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50">
+                <span class="mr-3">💾</span>数据管理
+            </a>
+            <a href="/favorites" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50">
+                <span class="mr-3">⭐</span>收藏
+            </a>
+            <a href="/settings" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50">
+                <span class="mr-3">⚙️</span>设置
+            </a>
+        </div>
+    </div>
+
+    <!-- 回到顶部按钮 -->
+    <button x-data="{ show: false }" x-init="window.addEventListener('scroll', () => { show = window.scrollY > 300 })" 
+            x-show="show" x-transition
+            @click="window.scrollTo({ top: 0, behavior: 'smooth' })"
+            class="fixed bottom-6 right-6 p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg hover:shadow-xl transition-all z-50">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+    </button>
+
+    <main class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        {% include "partials/animations.html" %}
+    {% block content %}{% endblock %}
+    </main>
+    <script>
+        // 移动端菜单状态
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('mobileMenuOpen', () => ({ open: false }));
+        });
+
+        function toggleTheme() {
+            const s = Alpine.store('theme');
+            s === 'light' ? (s = 'dark', document.documentElement.classList.add('dark')) : (s = 'light', document.documentElement.classList.remove('dark'));
+            Alpine.store('theme', s);
+            localStorage.setItem('theme', s);
+        }
+        document.querySelectorAll('.nav-link').forEach(link => {
+            if (link.getAttribute('href') === window.location.pathname) {
+                link.classList.add('text-blue-600', 'dark:text-blue-400', 'bg-blue-50', 'dark:bg-blue-900/30');
+            } else {
+                link.classList.add('text-gray-500', 'dark:text-gray-400');
+            }
+        });
+    </script>
+</body>
+</html>

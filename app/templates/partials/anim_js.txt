@@ -1,0 +1,164 @@
+
+// Global Animation JS
+(function() {
+  function initScrollReveal() {
+    var els = document.querySelectorAll('.reveal,.reveal-left,.reveal-right,.reveal-scale');
+    if (!els.length) return;
+    var obs = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          var el = entry.target;
+          var delay = el.dataset.delay || 0;
+          setTimeout(function() { el.classList.add('revealed'); }, parseInt(delay));
+          obs.unobserve(el);
+        }
+      });
+    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+    els.forEach(function(el) { obs.observe(el); });
+  }
+
+  function countUp(el, target, duration) {
+    var start = 0;
+    var step = target / (duration / 16);
+    var current = start;
+    var timer = setInterval(function() {
+      current += step;
+      if (current >= target) { current = target; clearInterval(timer); }
+      el.textContent = Math.round(current).toLocaleString();
+    }, 16);
+  }
+
+  window.showToast = function(msg, type, duration) {
+    type = type || 'info';
+    duration = duration || 3500;
+    var container = document.getElementById('toastContainer');
+    if (!container) return;
+    var icons = {
+      success: '<svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>',
+      error: '<svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>',
+      info: '<svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+      warning: '<svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>'
+    };
+    var toast = document.createElement('div');
+    toast.className = 'toast-item toast-' + type;
+    toast.innerHTML = (icons[type] || '') + '<span>' + msg + '</span>';
+    container.appendChild(toast);
+    setTimeout(function() {
+      toast.classList.add('toast-exit');
+      setTimeout(function() { toast.remove(); }, 320);
+    }, duration);
+  };
+
+  window.openModal = function(id) {
+    var overlay = document.getElementById(id);
+    if (overlay) overlay.classList.add('modal-active');
+    document.body.style.overflow = 'hidden';
+  };
+  window.closeModal = function(id) {
+    var overlay = document.getElementById(id);
+    if (overlay) overlay.classList.remove('modal-active');
+    document.body.style.overflow = '';
+  };
+
+  function initCountUps() {
+    var obs = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          var el = entry.target;
+          var target = parseInt(el.dataset.countTo || el.textContent);
+          if (!isNaN(target)) countUp(el, target, 1200);
+          obs.unobserve(el);
+        }
+      });
+    }, { threshold: 0.5 });
+    document.querySelectorAll('.count-up').forEach(function(el) { obs.observe(el); });
+  }
+
+  function initPageAnim() {
+    document.body.classList.add('page-enter');
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        document.body.classList.remove('page-enter');
+        document.body.classList.add('page-enter-active');
+        setTimeout(function() { document.body.classList.remove('page-enter-active'); }, 400);
+      });
+    });
+  }
+
+  window.moveTabIndicator = function(track, btn) {
+    var ind = track.querySelector('.tab-indicator');
+    if (!ind) return;
+    ind.style.left = btn.offsetLeft + 'px';
+    ind.style.width = btn.offsetWidth + 'px';
+  };
+
+  window.animateCharts = function() {
+    if (typeof Chart === 'undefined') return;
+    Chart.instances.forEach(function(ci) {
+      ci.reset();
+      ci.update('active');
+    });
+  };
+
+  function staggerAlpineList() {
+    document.querySelectorAll('[x-data]').forEach(function(root) {
+      new MutationObserver(function(mutations) {
+        mutations.forEach(function(m) {
+          if (m.type === 'childList' && m.addedNodes.length) {
+            m.addedNodes.forEach(function(node, i) {
+              if (node.nodeType !== 1) return;
+              node.classList.add('stagger-item');
+              setTimeout(function() { node.classList.add('stagger-visible'); }, i * 60);
+            });
+          }
+        });
+      }).observe(root, { childList: true, subtree: true });
+    });
+  }
+
+  function initStagger() {
+    var lists = document.querySelectorAll('[x-data]');
+    lists.forEach(function(root) {
+      var observer = new MutationObserver(function() {
+        setTimeout(function() {
+          root.querySelectorAll('.stagger-item').forEach(function(item, i) {
+            if (!item.classList.contains('stagger-visible')) {
+              item.style.transitionDelay = (i * 0.06) + 's';
+              item.classList.add('stagger-visible');
+            }
+          });
+        }, 50);
+      });
+      observer.observe(root, { childList: true, subtree: true });
+    });
+  }
+
+  var ready = function(fn) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', fn);
+    } else { fn(); }
+  };
+
+  ready(function() {
+    initPageAnim();
+    initScrollReveal();
+    initStagger();
+    initCountUps();
+    staggerAlpineList();
+    // trigger chart animations on scroll into view
+    var chartSection = document.querySelector('[x-data]');
+    if (chartSection) {
+      var chartObs = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            window.animateCharts();
+            chartObs.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.3 });
+      chartSection.querySelectorAll('[id$="_chart"]').forEach(function(el) {
+        chartObs.observe(el);
+      });
+    }
+  });
+})();

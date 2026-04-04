@@ -1,0 +1,90 @@
+{
+  "name": "招投标采集自动化",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "collection",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "接收采集触发",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "tender-collection"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:9099/api/n8n/trigger-collection",
+        "method": "POST",
+        "body": {
+          "source": "all",
+          "days": 3,
+          "wait": true
+        },
+        "options": {}
+      },
+      "name": "触发采集任务",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:9099/api/n8n/latest",
+        "method": "GET",
+        "qs": {
+          "limit": 50,
+          "matched_only": true
+        },
+        "options": {}
+      },
+      "name": "获取采集结果",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "operation": "listToString",
+        "value": "",
+        "separator": "\n",
+        "combineAll": true
+      },
+      "name": "格式化输出",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 1,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "from": "noreply@example.com",
+        "to": "user@example.com",
+        "subject": "=?utf-8?B?5q2m5YiG6LSn5pyf5LuF5q2m5pyf5q2m5YiG6LSn?=",
+        "body": "={{ $json.data.length }} 条新招标信息",
+        "options": {}
+      },
+      "name": "发送邮件通知",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "接收采集触发": {
+      "main": [[{"node": "触发采集任务", "type": "main", "index": 0}]]
+    },
+    "触发采集任务": {
+      "main": [[{"node": "获取采集结果", "type": "main", "index": 0}]]
+    },
+    "获取采集结果": {
+      "main": [[{"node": "格式化输出", "type": "main", "index": 0}]]
+    },
+    "格式化输出": {
+      "main": [[{"node": "发送邮件通知", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {},
+  "staticData": null
+}

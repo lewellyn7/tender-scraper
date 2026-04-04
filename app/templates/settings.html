@@ -1,0 +1,552 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="toast-container" id="toastContainer"></div>
+<div x-data="enhancedSettings()" x-init="init()" class="space-y-6">
+  <div class="border-b border-gray-200 dark:border-gray-700">
+    <nav class="flex gap-1 -mb-px">
+      <button @click="activeTab='notifications'" class="px-4 py-2 text-sm font-medium border-b-2" :class="activeTab==='notifications' ? 'border-blue-600 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500'">通知设置</button>
+      <button @click="activeTab='presets'" class="px-4 py-2 text-sm font-medium border-b-2" :class="activeTab==='presets' ? 'border-blue-600 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500'">筛选预设</button>
+      <button @click="activeTab='backup'" class="px-4 py-2 text-sm font-medium border-b-2" :class="activeTab==='backup' ? 'border-blue-600 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500'">配置备份</button>
+      <button @click="activeTab='duplicates'" class="px-4 py-2 text-sm font-medium border-b-2" :class="activeTab==='duplicates' ? 'border-blue-600 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500'">重复检测</button>
+      <button x-show="$store.user.role === 'admin'" @click="activeTab='users'" class="px-4 py-2 text-sm font-medium border-b-2" :class="activeTab==='users' ? 'border-blue-600 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500'">👥 用户管理</button>
+      <!-- 数据库备份 Tab - 仅管理员可见 -->
+      <button x-show="$store.user.role === 'admin'" @click="activeTab='dbbackup'" class="px-4 py-2 text-sm font-medium border-b-2" :class="activeTab==='dbbackup' ? 'border-blue-600 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500'">💾 数据库备份</button>
+      <button x-show="$store.user.role !== 'guest'" @click="activeTab='account'" class="px-4 py-2 text-sm font-medium border-b-2" :class="activeTab==='account' ? 'border-blue-600 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500'">我的账户</button>
+    </nav>
+  </div>
+  <!-- Notifications Tab -->
+  <div x-show="activeTab==='notifications'" class="space-y-4">
+    <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Telegram 推送设置</h2>
+      <div class="grid md:grid-cols-2 gap-6">
+        <div class="space-y-4">
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" x-model="notif.enabled" class="w-5 h-5 rounded text-blue-600">
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">启用 Telegram 通知</span>
+          </label>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bot Token</label>
+            <input type="password" x-model="notif.bot_token" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600 text-sm" placeholder="123456:ABC-DEF...">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Chat ID</label>
+            <input type="text" x-model="notif.chat_id" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600 text-sm" placeholder="-1001234567890">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">最低预算阈值 (万元，留空不限)</label>
+            <input type="text" x-model="notif.min_budget" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600 text-sm" placeholder="100">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">推送阈值 (达到N条后推送)</label>
+            <input type="number" x-model="notif.notify_on_count" min="1" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600 text-sm">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">关键词过滤 (逗号分隔，留空推送所有匹配)</label>
+            <input type="text" x-model="notif.keywords_str" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600 text-sm" placeholder="智慧城市, 数字化, 智能化">
+          </div>
+          <div class="flex gap-3 mt-4">
+            <button @click="saveNotifConfig()" class="anim-btn class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">保存通知设置</button>
+            <button @click="testNotification()" class="anim-btn class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm hover:bg-gray-300 dark:hover:bg-gray-600">发送测试</button>
+          </div>
+          <p x-show="notifMsg" class="mt-2 text-sm" :class="notifMsg.startsWith('ERROR') ? 'text-red-600' : 'text-green-600'" x-text="notifMsg"></p>
+        </div>
+        <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 text-sm text-gray-600 dark:text-gray-400">
+          <h3 class="font-medium text-gray-700 dark:text-gray-300 mb-2">配置说明</h3>
+          <ul class="space-y-1 list-disc list-inside">
+            <li>Bot Token: 从 @BotFather 获取</li>
+            <li>Chat ID: 使用 @userinfobot 获取</li>
+            <li>最低预算: 只推送预算不低于此值的项目</li>
+            <li>关键词过滤: 只有包含指定关键词才会推送</li>
+            <li>推送阈值: 积累N条匹配项目后发送汇总通知</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Presets Tab -->
+  <div x-show="activeTab==='presets'" class="space-y-4">
+    <div class="flex justify-between items-center">
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">筛选预设</h2>
+      <button @click="openPresetModal()" class="anim-btn class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">+ 新建预设</button>
+    </div>
+    <div class="anim-card bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 dark:bg-gray-900">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">名称</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">关键词</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">类型</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">日期范围</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">默认</th>
+            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+          <template x-for="p in presets" :key="p.id">
+            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+              <td class="px-4 py-3 font-medium text-gray-900 dark:text-white" x-text="p.name"></td>
+              <td class="px-4 py-3 text-gray-500 dark:text-gray-400" x-text="p.filter_config?.keyword || '-'"></td>
+              <td class="px-4 py-3 text-gray-500 dark:text-gray-400" x-text="p.filter_config?.category || '-'"></td>
+              <td class="px-4 py-3 text-gray-500 dark:text-gray-400" x-text="(p.filter_config?.date_start || '-') + ' ~ ' + (p.filter_config?.date_end || '-')"></td>
+              <td class="px-4 py-3"><span x-show="p.is_default" class="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded">默认</span></td>
+              <td class="px-4 py-3 text-right">
+                <button @click="loadPresetToForm(p)" class="text-blue-600 hover:text-blue-800 text-xs mr-2">编辑</button>
+                <button @click="deletePreset(p.preset_key)" class="text-red-600 hover:text-red-800 text-xs">删除</button>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="presets.length === 0">
+            <td colspan="6" class="px-4 py-8 text-center text-gray-400">暂无预设</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <!-- Preset Modal -->
+    <div x-show="showPresetModal" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div @click.outside="showPresetModal = false" class="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-lg shadow-xl">
+        <h3 class="text-lg font-bold mb-4 text-gray-900 dark:text-white" x-text="editingPreset ? '编辑预设' : '新建预设'"></h3>
+        <div class="space-y-4">
+          <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">预设名称</label><input type="text" x-model="presetForm.name" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600"></div>
+          <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">预设Key (唯一标识)</label><input type="text" x-model="presetForm.preset_key" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder="my_preset_1"></div>
+          <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">关键词 (逗号分隔)</label><input type="text" x-model="presetForm.keyword" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder="智慧城市, 数字化"></div>
+          <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">项目类型</label><input type="text" x-model="presetForm.category" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder="政府采购"></div>
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">开始日期</label><input type="date" x-model="presetForm.date_start" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600"></div>
+            <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">结束日期</label><input type="date" x-model="presetForm.date_end" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600"></div>
+          </div>
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="presetForm.is_default" class="w-4 h-4 rounded text-blue-600"><span class="text-sm text-gray-700 dark:text-gray-300">设为默认预设</span></label>
+        </div>
+        <div class="flex gap-3 justify-end mt-6">
+          <button @click="showPresetModal = false" class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">取消</button>
+          <button @click="savePreset()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Backup Tab -->
+  <div x-show="activeTab==='backup'" class="space-y-4">
+    <div class="flex justify-between items-center">
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">配置备份与恢复</h2>
+      <div class="flex gap-2">
+        <button @click="backupConfig()" class="anim-btn class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">创建备份</button>
+        <label class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm cursor-pointer hover:bg-gray-300 dark:hover:bg-gray-600">
+          导入配置<input type="file" @change="importConfig($event)" accept=".json" class="hidden">
+        </label>
+      </div>
+    </div>
+    <div class="anim-card bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 dark:bg-gray-900">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">版本</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">描述</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">创建时间</th>
+            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+          <template x-for="b in backups" :key="b.id">
+            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+              <td class="px-4 py-3 font-medium text-gray-900 dark:text-white" x-text="b.version_label"></td>
+              <td class="px-4 py-3 text-gray-500 dark:text-gray-400" x-text="b.description || '-'"></td>
+              <td class="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs" x-text="b.created_at ? b.created_at.replace('T',' ').slice(0,19) : '-'"></td>
+              <td class="px-4 py-3 text-right">
+                <button @click="restoreBackup(b.id)" class="text-blue-600 hover:text-blue-800 text-xs mr-2">恢复</button>
+                <button @click="exportBackup(b)" class="text-green-600 hover:text-green-800 text-xs">导出</button>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="backups.length === 0">
+            <td colspan="4" class="px-4 py-8 text-center text-gray-400">暂无备份</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <!-- 数据库备份 Tab -->
+  <div x-show="activeTab==='dbbackup' && $store.user.role === 'admin'" x-transition class="space-y-4">
+    <div class="flex justify-between items-center">
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">💾 数据库文件备份</h2>
+      <div class="flex gap-2">
+        <button @click="createDbBackup()" class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">📦 创建备份</button>
+        <button @click="cleanupDbBackups()" class="px-4 py-2 bg-orange-600 text-white rounded text-sm hover:bg-orange-700">🧹 清理旧备份</button>
+      </div>
+    </div>
+    <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 text-sm text-blue-700 dark:text-blue-300">
+      <p class="font-medium">💡 数据库备份说明</p>
+      <ul class="mt-2 space-y-1 text-xs">
+        <li>• 备份会创建整个数据库文件的副本，包含所有数据</li>
+        <li>• 备份文件存储在 <code class="bg-blue-100 dark:bg-blue-800 px-1 rounded">config/db_backups/</code> 目录</li>
+        <li>• 建议定期创建备份，或在重要操作前备份</li>
+        <li>• 系统会自动清理超过 10 个的旧备份</li>
+      </ul>
+    </div>
+    <div class="bg-white dark:bg-gray-800 rounded-lg border overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 dark:bg-gray-900">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">文件名</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">大小</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">创建时间</th>
+            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+          <template x-for="b in dbBackups" :key="b.path">
+            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+              <td class="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400" x-text="b.filename"></td>
+              <td class="px-4 py-3 text-gray-500" x-text="b.size_mb + ' MB'"></td>
+              <td class="px-4 py-3 text-gray-500 text-xs" x-text="b.created_at ? b.created_at.replace('T',' ').slice(0,19) : '-'"></td>
+              <td class="px-4 py-3 text-right">
+                <button @click="restoreDbBackup(b.path)" class="text-blue-600 hover:text-blue-800 text-xs mr-2">恢复</button>
+                <button @click="downloadDbBackup(b)" class="text-green-600 hover:text-green-800 text-xs mr-2">下载</button>
+                <button @click="deleteDbBackup(b.path)" class="text-red-600 hover:text-red-800 text-xs">删除</button>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="dbBackups.length === 0">
+            <td colspan="4" class="px-4 py-8 text-center text-gray-400">暂无备份</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Duplicates Tab -->
+  <div x-show="activeTab==='duplicates'" class="space-y-4">
+    <div class="flex justify-between items-center">
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">重复项目检测</h2>
+      <div class="flex gap-3 items-center">
+        <label class="text-sm text-gray-600 dark:text-gray-400">相似度阈值:</label>
+        <input type="range" x-model="dupThreshold" min="0.3" max="0.95" step="0.05" class="w-32">
+        <span class="text-sm font-mono w-12" x-text="dupThreshold"></span>
+        <button @click="findDuplicates()" class="anim-btn class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">检测</button>
+      </div>
+    </div>
+    <div x-show="dupLoading" class="text-center py-12 text-gray-500">检测中...</div>
+    <div x-show="!dupLoading && dupGroups.length === 0" class="text-center py-12 text-gray-400">
+      <p>点击"检测"按钮开始重复项目检测</p>
+    </div>
+    <div class="space-y-3" x-show="!dupLoading && dupGroups.length > 0">
+      <p class="text-sm text-gray-500 dark:text-gray-400">发现 <span class="font-bold text-red-500" x-text="dupGroups.length"></span> 组重复项目</p>
+      <template x-for="(group, gi) in dupGroups" :key="gi">
+        <div class="anim-card bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">重复组 #<span x-text="gi + 1"></span> (<span x-text="group.length"></span> 个)</p>
+          <div class="space-y-2">
+            <template x-for="(item, ii) in group" :key="ii">
+              <div class="flex items-center gap-3 text-sm" :class="ii > 0 ? 'ml-4 pl-4 border-l-2 border-gray-300 dark:border-gray-600' : ''">
+                <span class="text-xs px-2 py-0.5 rounded" :class="ii === 0 ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200'" x-text="ii === 0 ? '原始' : '重复'"></span>
+                <span class="flex-1 text-gray-900 dark:text-gray-200 truncate" x-text="item.title"></span>
+                <span class="text-xs text-gray-500 font-mono" x-show="ii > 0" x-text="(item.similarity * 100).toFixed(0) + '%'"></span>
+                <a :href="item.url" target="_blank" class="text-blue-500 hover:text-blue-700 text-xs shrink-0">查看</a>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Account Tab -->
+  <div x-show="activeTab==='account'" class="space-y-4">
+    <div class="bg-white dark:bg-gray-800 rounded-lg border p-6">
+      <h2 class="text-lg font-semibold mb-4">我的账户</h2>
+      <div class="space-y-4 max-w-md">
+        <div><label class="block text-sm mb-1">用户名</label><input type="text" x-model="accountForm.username" disabled class="w-full border rounded px-3 py-2 bg-gray-100 dark:bg-gray-900"></div>
+        <div><label class="block text-sm mb-1">显示名称</label><input type="text" x-model="accountForm.display_name" class="w-full border rounded px-3 py-2"></div>
+        <div><label class="block text-sm mb-1">角色</label><input type="text" x-model="accountForm.role" disabled class="w-full border rounded px-3 py-2 bg-gray-100 dark:bg-gray-900"></div>
+        <hr class="border-gray-200 dark:border-gray-700">
+        <h3 class="text-sm font-medium">修改密码</h3>
+        <div><label class="block text-sm mb-1">当前密码</label><input type="password" x-model="accountForm.old_password" class="w-full border rounded px-3 py-2"></div>
+        <div><label class="block text-sm mb-1">新密码</label><input type="password" x-model="accountForm.new_password" class="w-full border rounded px-3 py-2"></div>
+        <button @click="saveAccount()" class="px-4 py-2 bg-blue-600 text-white rounded">保存更改</button>
+        <p x-show="accountMsg" class="text-sm" :class="accountMsg.startsWith('ERROR') ? 'text-red-600' : 'text-green-600'" x-text="accountMsg"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Users Tab (Admin Only) -->
+  <div x-show="activeTab==='users' && $store.user.role === 'admin'" class="space-y-4">
+    <div class="flex justify-between items-center">
+      <h2 class="text-lg font-semibold">用户管理</h2>
+      <button @click="openUserModal()" class="px-4 py-2 bg-blue-600 text-white rounded text-sm">+ 新建用户</button>
+    </div>
+    <div class="grid grid-cols-4 gap-4">
+      <div class="bg-white dark:bg-gray-800 rounded-lg border p-4"><p class="text-2xl font-bold text-blue-600" x-text="userStats.total || 0"></p><p class="text-sm text-gray-500">总用户</p></div>
+      <div class="bg-white dark:bg-gray-800 rounded-lg border p-4"><p class="text-2xl font-bold text-green-600" x-text="userStats.active || 0"></p><p class="text-sm text-gray-500">活跃</p></div>
+      <div class="bg-white dark:bg-gray-800 rounded-lg border p-4"><p class="text-2xl font-bold text-purple-600" x-text="userStats.admins || 0"></p><p class="text-sm text-gray-500">管理员</p></div>
+      <div class="bg-white dark:bg-gray-800 rounded-lg border p-4"><p class="text-2xl font-bold text-orange-600" x-text="userStats.operators || 0"></p><p class="text-sm text-gray-500">操作员</p></div>
+    </div>
+    <div class="bg-white dark:bg-gray-800 rounded-lg border overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 dark:bg-gray-900">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">用户名</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">显示名称</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">角色</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">最后登录</th>
+            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+          <template x-for="u in users" :key="u.user_id">
+            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+              <td class="px-4 py-3 font-medium" x-text="u.username"></td>
+              <td class="px-4 py-3 text-gray-500" x-text="u.display_name || '-'"></td>
+              <td class="px-4 py-3">
+                <select @change="updateUserRole(u.user_id, $event.target.value)" class="text-xs border rounded px-2 py-1 bg-white dark:bg-gray-700">
+                  <option value="viewer" :selected="u.role === 'viewer'">viewer</option>
+                  <option value="operator" :selected="u.role === 'operator'">operator</option>
+                  <option value="admin" :selected="u.role === 'admin'">admin</option>
+                </select>
+              </td>
+              <td class="px-4 py-3">
+                <button @click="toggleUserEnabled(u.user_id, u.enabled)" class="text-xs px-2 py-1 rounded" :class="u.enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'" x-text="u.enabled ? '启用' : '禁用'"></button>
+              </td>
+              <td class="px-4 py-3 text-gray-500 text-xs" x-text="u.last_login ? u.last_login.replace('T',' ').slice(0,19) : '从未'"></td>
+              <td class="px-4 py-3 text-right">
+                <button @click="openUserModal(u)" class="text-blue-600 hover:text-blue-800 text-xs mr-2">编辑</button>
+                <button @click="resetUserPassword(u.user_id)" class="text-orange-600 hover:text-orange-800 text-xs mr-2">重置密码</button>
+                <button @click="deleteUser(u.user_id)" class="text-red-600 hover:text-red-800 text-xs">删除</button>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="users.length === 0"><td colspan="6" class="px-4 py-8 text-center text-gray-400">暂无用户</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <!-- User Modal -->
+    <div x-show="showUserModal" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div @click.outside="showUserModal = false" class="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md shadow-xl">
+        <h3 class="text-lg font-bold mb-4" x-text="editingUser ? '编辑用户' : '新建用户'"></h3>
+        <div class="space-y-4">
+          <div><label class="block text-sm mb-1">用户名</label><input type="text" x-model="userForm.username" class="w-full border rounded px-3 py-2" :disabled="editingUser"></div>
+          <div x-show="!editingUser"><label class="block text-sm mb-1">密码</label><input type="password" x-model="userForm.password" class="w-full border rounded px-3 py-2"></div>
+          <div><label class="block text-sm mb-1">显示名称</label><input type="text" x-model="userForm.display_name" class="w-full border rounded px-3 py-2"></div>
+          <div><label class="block text-sm mb-1">角色</label>
+            <select x-model="userForm.role" class="w-full border rounded px-3 py-2">
+              <option value="viewer">viewer - 查看者</option>
+              <option value="operator">operator - 操作员</option>
+              <option value="admin">admin - 管理员</option>
+            </select>
+          </div>
+          <div x-show="editingUser"><label class="flex items-center gap-2"><input type="checkbox" x-model="userForm.enabled" class="w-4 h-4 rounded"><span class="text-sm">启用账户</span></label></div>
+        </div>
+        <div class="flex gap-3 justify-end mt-6">
+          <button @click="showUserModal = false" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">取消</button>
+          <button @click="saveUser()" class="px-4 py-2 bg-blue-600 text-white rounded">保存</button>
+        </div>
+        <p x-show="userMsg" class="mt-3 text-sm" :class="userMsg.startsWith('ERROR') ? 'text-red-600' : 'text-green-600'" x-text="userMsg"></p>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function enhancedSettings() {
+  var _showToast = showToast;
+
+  return {
+    // 数据库备份
+    dbBackups: [],
+    // 用户管理
+    users: [],
+    userStats: {},
+    showUserModal: false,
+    editingUser: null,
+    userForm: { username: "", password: "", display_name: "", role: "viewer", enabled: true },
+    userMsg: "",
+    // 账户设置
+    accountForm: { username: "", display_name: "", role: "", old_password: "", new_password: "" },
+    accountMsg: "",
+    activeTab: "notifications",
+    notif: { enabled: false, bot_token: "", chat_id: "", min_budget: "", keywords_filter: [], notify_on_count: 1, keywords_str: "" },
+    notifMsg: "",
+    presets: [],
+    showPresetModal: false,
+    editingPreset: null,
+    presetForm: { name: "", preset_key: "", keyword: "", category: "", date_start: "", date_end: "", is_default: false },
+    backups: [],
+    dupThreshold: 0.7,
+    dupGroups: [],
+    dupLoading: false,
+    async init() {
+      await this.loadNotifConfig();
+      await this.loadPresets();
+      await this.loadBackups();
+      await this.loadUserInfo();
+      if (window.Alpine && Alpine.store('user') && Alpine.store('user').role === 'admin') {
+        await this.loadUsers();
+        await this.loadDbBackups();
+      }
+    },
+    async loadNotifConfig() { const r = await fetch("/api/notifications/config"); const d = await r.json(); this.notif = { ...d, keywords_str: (d.keywords_filter||[]).join(", ") }; },
+    async saveNotifConfig() { this.notifMsg=""; const kws = this.notif.keywords_str.split(",").map(k=>k.trim()).filter(Boolean); const r = await fetch("/api/notifications/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...this.notif,keywords_filter:kws})}); const d = await r.json(); this.notifMsg = d.success ? "保存成功!" : "保存失败"; },
+    async testNotification() { this.notifMsg=""; const r = await fetch("/api/notifications/test",{method:"POST"}); const d = await r.json(); this.notifMsg = d.success ? "测试消息已发送!" : "发送失败: "+(d.error||"未知错误"); },
+    // ========== 账户 ==========
+    async loadUserInfo() {
+      try {
+        const d = await fetch('/api/users/me').then(r => r.json());
+        this.accountForm = { username: d.username, display_name: d.display_name || d.username, role: d.role, old_password: "", new_password: "" };
+      } catch (e) { /* 未登录 */ }
+    },
+    async saveAccount() {
+      this.accountMsg = "";
+      try {
+        if (this.accountForm.new_password) {
+          await fetch('/api/users/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old_password: this.accountForm.old_password, new_password: this.accountForm.new_password })
+          });
+        }
+        this.accountMsg = "保存成功!";
+        this.accountForm.old_password = "";
+        this.accountForm.new_password = "";
+      } catch (e) { this.accountMsg = "ERROR: " + e.message; }
+    },
+
+    // ========== 用户管理 (admin) ==========
+    async loadUsers() {
+      try {
+        const d = await fetch('/api/users/admin/list').then(r => r.json());
+        this.users = d.users || [];
+        const sd = await fetch('/api/users/stats').then(r => r.json());
+        this.userStats = sd;
+      } catch (e) { console.error(e); }
+    },
+    openUserModal(u = null) {
+      this.editingUser = u;
+      this.userMsg = "";
+      if (u) {
+        this.userForm = { username: u.username, password: "", display_name: u.display_name || u.username, role: u.role, enabled: !!u.enabled };
+      } else {
+        this.userForm = { username: "", password: "", display_name: "", role: "viewer", enabled: true };
+      }
+      this.showUserModal = true;
+    },
+    async saveUser() {
+      this.userMsg = "";
+      try {
+        if (this.editingUser) {
+          await fetch(`/api/users/admin/update/${this.editingUser.user_id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ display_name: this.userForm.display_name, role: this.userForm.role, enabled: this.userForm.enabled })
+          });
+        } else {
+          if (!this.userForm.password) { this.userMsg = "ERROR: 密码不能为空"; return; }
+          await fetch('/api/users/admin/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: this.userForm.username, password: this.userForm.password, display_name: this.userForm.display_name, role: this.userForm.role })
+          });
+        }
+        this.showUserModal = false;
+        await this.loadUsers();
+      } catch (e) { this.userMsg = "ERROR: " + e.message; }
+    },
+    async updateUserRole(uid, role) {
+      try {
+        await fetch(`/api/users/admin/update/${uid}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }) });
+        await this.loadUsers();
+      } catch (e) { alert("更新失败: " + e.message); }
+    },
+    async toggleUserEnabled(uid, currentEnabled) {
+      try {
+        await fetch(`/api/users/admin/update/${uid}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !currentEnabled }) });
+        await this.loadUsers();
+      } catch (e) { alert("更新失败: " + e.message); }
+    },
+    async resetUserPassword(uid) {
+      const pwd = prompt("请输入新密码:");
+      if (!pwd) return;
+      try {
+        await fetch(`/api/users/admin/reset-password/${uid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ new_password: pwd }) });
+        alert("密码已重置");
+      } catch (e) { alert("重置失败: " + e.message); }
+    },
+    async deleteUser(uid) {
+      if (!confirm("确认删除此用户?")) return;
+      try {
+        await fetch(`/api/users/admin/delete/${uid}`, { method: 'DELETE' });
+        await this.loadUsers();
+      } catch (e) { alert("删除失败: " + e.message); }
+    },
+
+    // ========== 数据库备份 ==========
+    async loadDbBackups() {
+      try {
+        const d = await fetchJSON('/api/db/backups');
+        this.dbBackups = d.backups || [];
+      } catch (e) { console.error('加载数据库备份失败:', e); }
+    },
+    async createDbBackup() {
+      try {
+        const d = await fetchJSON('/api/db/backup', { method: 'POST' });
+        if (d.success) {
+          showToast('数据库备份创建成功!', 'success');
+          await this.loadDbBackups();
+        } else {
+          showToast('备份失败: ' + (d.error || '未知错误'), 'error');
+        }
+      } catch (e) { showToast('备份失败: ' + e.message, 'error'); }
+    },
+    async restoreDbBackup(path) {
+      if (!confirm("确认从此备份恢复数据库？当前数据将被覆盖！")) return;
+      if (!confirm("这是最后一次确认，恢复后将无法撤销！")) return;
+      try {
+        const d = await fetchJSON('/api/db/restore', { method: 'POST', body: JSON.stringify({ backup_path: path }) });
+        if (d.success) {
+          showToast('数据库恢复成功!', 'success');
+        } else {
+          showToast('恢复失败: ' + (d.error || '未知错误'), 'error');
+        }
+      } catch (e) { showToast('恢复失败: ' + e.message, 'error'); }
+    },
+    async deleteDbBackup(path) {
+      if (!confirm("确认删除此备份？")) return;
+      try {
+        const d = await fetchJSON('/api/db/backup', { method: 'DELETE', body: JSON.stringify({ backup_path: path }) });
+        if (d.success) {
+          showToast('备份已删除', 'success');
+          await this.loadDbBackups();
+        } else {
+          showToast('删除失败', 'error');
+        }
+      } catch (e) { showToast('删除失败: ' + e.message, 'error'); }
+    },
+    async cleanupDbBackups() {
+      if (!confirm("确认清理旧备份？将保留最近的 10 个备份。")) return;
+      try {
+        const d = await fetchJSON('/api/db/cleanup', { method: 'POST', body: JSON.stringify({ keep_count: 10 }) });
+        if (d.success) {
+          showToast(`已清理 ${d.deleted} 个旧备份`, 'success');
+          await this.loadDbBackups();
+        }
+      } catch (e) { showToast('清理失败: ' + e.message, 'error'); }
+    },
+    async downloadDbBackup(b) {
+      try {
+        const link = document.createElement('a');
+        link.href = '/api/db/backup/download?path=' + encodeURIComponent(b.path);
+        link.download = b.filename;
+        link.click();
+      } catch (e) { showToast('下载失败: ' + e.message, 'error'); }
+    },
+
+    async loadPresets() { const r = await fetch("/api/presets"); const d = await r.json(); this.presets = d.presets||[]; },
+    openPresetModal() { this.editingPreset=null; this.presetForm={name:"",preset_key:"",keyword:"",category:"",date_start:"",date_end:"",is_default:false}; this.showPresetModal=true; },
+    loadPresetToForm(p) { this.editingPreset=p; this.presetForm={name:p.name,preset_key:p.preset_key,keyword:p.filter_config?.keyword||"",category:p.filter_config?.category||"",date_start:p.filter_config?.date_start||"",date_end:p.filter_config?.date_end||"",is_default:!!p.is_default}; this.showPresetModal=true; },
+    async savePreset() { await fetch("/api/presets",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:this.presetForm.name,preset_key:this.presetForm.preset_key,filter_config:{keyword:this.presetForm.keyword,category:this.presetForm.category,date_start:this.presetForm.date_start,date_end:this.presetForm.date_end},is_default:this.presetForm.is_default})}); this.showPresetModal=false; await this.loadPresets(); },
+    async deletePreset(key) { if(!confirm("确认删除此预设?"))return; await fetch("/api/presets/"+key,{method:"DELETE"}); await this.loadPresets(); },
+    async loadBackups() { const r = await fetch("/api/config/backups"); const d = await r.json(); this.backups = d.backups||[]; },
+    async backupConfig() { const label = prompt("请输入备份版本标签:","v"+new Date().toISOString().slice(0,10).replace(/-/g,"")); if(!label)return; const desc = prompt("描述 (可选):","")||""; const sr = await fetch("/api/settings"); const st = await sr.json(); await fetch("/api/config/backup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({version_label:label,config_data:st,description:desc})}); await this.loadBackups(); alert("备份已创建: "+label); },
+    async restoreBackup(id) { if(!confirm("确认恢复此备份? 当前配置将被覆盖."))return; const r = await fetch("/api/config/restore/"+id,{method:"POST"}); const d = await r.json(); if(d.backup&&d.backup.config_data){await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d.backup.config_data)}); alert("配置已恢复!");} },
+    async exportBackup(b) { const r = await fetch("/api/config/restore/"+b.id,{method:"POST"}); const d = await r.json(); if(d.backup){const blob=new Blob([JSON.stringify(d.backup.config_data,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=b.version_label+".json";a.click();URL.revokeObjectURL(url);} },
+    async importConfig(event) { const file=event.target.files[0]; if(!file)return; const text=await file.text(); try{const data=JSON.parse(text);await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});alert("配置已导入!");}catch(e){alert("导入失败: "+e);} },
+    async findDuplicates() { this.dupLoading=true; try{const r=await fetch("/api/duplicates?threshold="+this.dupThreshold);const d=await r.json();this.dupGroups=d.duplicates||[];}finally{this.dupLoading=false;} }
+  }
+}
+</script>
+{% endblock %}

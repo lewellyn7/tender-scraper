@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="toast-container" id="toastContainer"></div>
+<div x-data="logsApp()" x-init="init()">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white">运行日志</h1>
+    <div class="flex gap-3 items-center">
+      <select x-model="levelFilter" @change="loadLogs()" class="border rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 dark:border-gray-600">
+        <option value="">全部级别</option>
+        <option value="INFO">INFO</option>
+        <option value="WARNING">WARNING</option>
+        <option value="ERROR">ERROR</option>
+      </select>
+      <input type="number" x-model="limit" @change="loadLogs()" min="50" max="500" class="border rounded px-3 py-1.5 text-sm w-24 bg-white dark:bg-gray-800 dark:border-gray-600">
+      <span class="text-sm text-gray-500 dark:text-gray-400">条</span>
+      <button @click="loadLogs()" class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">刷新</button>
+      <button @click="clearLogs()" class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700">清理</button>
+    </div>
+  </div>
+
+  <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 grid grid-cols-4 gap-4 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+      <span>时间</span><span>级别</span><span>来源</span><span>消息</span>
+    </div>
+    <div x-show="loading" class="text-center py-12 text-gray-500">加载中...</div>
+    <div x-show="!loading && logs.length === 0" class="text-center py-12 text-gray-400">暂无日志</div>
+    <div class="max-h-[70vh] overflow-y-auto">
+      <template x-for="log in logs" :key="log.id">
+        <div class="px-4 py-2 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 grid grid-cols-4 gap-4 text-sm items-center"
+             :class="{\'bg-red-50 dark:bg-red-950/30\': log.log_level === \'ERROR\',
+                         \'bg-yellow-50 dark:bg-yellow-950/30\': log.log_level === \'WARNING\',
+                         \'bg-green-50 dark:bg-green-950/30\': log.log_level === \'INFO\'}">
+          <span class="text-xs text-gray-500 dark:text-gray-400 font-mono" x-text="formatTime(log.created_at)"></span>
+          <span class="font-mono font-bold text-xs" :class="getLevelClass(log.log_level)" x-text="log.log_level"></span>
+          <span class="text-xs text-gray-500 dark:text-gray-400" x-text="log.source"></span>
+          <span class="text-gray-700 dark:text-gray-300 text-xs break-all" x-text="log.message"></span>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
+<script>
+function logsApp() {
+  return {
+    logs: [],
+    levelFilter: "",
+    limit: 200,
+    loading: false,
+    async init() { await this.loadLogs(); },
+    async loadLogs() {
+      this.loading = true;
+      try {
+        const url = "/api/logs?limit=" + this.limit + (this.levelFilter ? "&level=" + this.levelFilter : "");
+        const res = await fetch(url);
+        const data = await res.json();
+        this.logs = data.logs || [];
+      } finally { this.loading = false; }
+    },
+    async clearLogs() {
+      if (!confirm("确认清理7天前的日志?")) return;
+      await fetch("/api/logs?before_days=7", { method: "DELETE" });
+      await this.loadLogs();
+    },
+    formatTime(t) {
+      if (!t) return "-";
+      return t.replace("T", " ").slice(0, 19);
+    },
+    getLevelClass(level) {
+      return { ERROR: "text-red-600 dark:text-red-400", WARNING: "text-yellow-600 dark:text-yellow-400", INFO: "text-green-600 dark:text-green-400" }[level] || "text-gray-500";
+    }
+  }
+}
+</script>
+{% endblock %}

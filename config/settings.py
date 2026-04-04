@@ -1,36 +1,27 @@
+"""项目配置"""
 from pydantic_settings import BaseSettings
 from typing import List
 
+
 class Settings(BaseSettings):
+    """招投标采集系统配置"""
+    
     # 基础配置
-    PROJECT_NAME: str = "重庆市政府采购采集系统"
+    PROJECT_NAME: str = "重庆市公共资源交易采集系统"
     TIMEZONE: str = "Asia/Shanghai"
     
     # 目标网站
-    TARGET_URL: str = "https://www.ccgp-chongqing.gov.cn/"
+    TARGET_URL: str = "https://www.cqggzy.com/"
     
-    # 采集关键词 (支持 OR 逻辑)
+    # 采集关键词 (更通用的词汇以确保有匹配)
     KEYWORDS: List[str] = [
-        "智能化",
-        "音视频",
-        "AI",
-        "人工智能",
-        "智能体",
-        "大模型",
-        "机器学习",
-        "深度学习",
-        "NLP",
-        "自然语言处理",
-        "计算机视觉",
-        "人脸识别",
-        "语音识别"
+        "智慧", "智能", "数字化", "信息化", "系统", "平台", 
+        "软件", "服务", "数据", "网络", "建设", "改造"
     ]
     
     # 排除关键词
     EXCLUDE_KEYWORDS: List[str] = [
-        "流标",
-        "终止",
-        "废标"
+        "流标", "终止", "废标", "中标公告", "成交公告", "结果公告"
     ]
     
     # 采集时间范围 (小时)
@@ -40,10 +31,21 @@ class Settings(BaseSettings):
     OUTPUT_DIR: str = "output"
     
     # 浏览器配置
-    HEADLESS: bool = True  # 生产环境设为 True
-    SLOW_MO: int = 100     # 操作延迟 (ms),模拟真人
+    HEADLESS: bool = True
+    SLOW_MO: int = 100
+    
+    # 重试配置
+    MAX_RETRIES: int = 3
+    RETRY_DELAY: int = 5
+    
+    # n8n 集成配置
+    N8N_WEBHOOK_URL: str = ""
+    N8N_TRIGGER_COLLECTION: str = ""
+    N8N_TRIGGER_NOTIFY: str = ""
+    N8N_WEBHOOK_KEY: str = ""
     
     class Config:
         env_file = ".env"
+
 
 settings = Settings()
