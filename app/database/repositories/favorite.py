@@ -1,4 +1,4 @@
-"""收藏仓储"""
+"""收藏数据仓储"""
 
 from typing import List
 
@@ -37,8 +37,8 @@ class FavoriteRepository(BaseRepository):
             with self.db._get_conn() as conn:
                 conn.execute(
                     """INSERT OR REPLACE INTO favorites
-                    (project_url, title, source_url, tender_type, budget,
-                     publish_date, updated_at)
+                    (project_url, title, source_url, tender_type,
+                     budget, publish_date, updated_at)
                     VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
                     (
                         project.get("project_url"),
@@ -126,3 +126,23 @@ class FavoriteRepository(BaseRepository):
                 except Exception:
                     pass
         return count
+
+    def count(self, status: str = None) -> int:
+        """获取收藏数量"""
+        if status:
+            row = self.conn.execute(
+                "SELECT COUNT(*) FROM favorites WHERE status=?", (status,)
+            ).fetchone()
+        else:
+            row = self.conn.execute("SELECT COUNT(*) FROM favorites").fetchone()
+        return row[0] if row else 0
+
+    def search(self, keyword: str, limit: int = 100) -> List[dict]:
+        """搜索收藏"""
+        rows = self.conn.execute(
+            """SELECT * FROM favorites
+            WHERE title LIKE ? OR description LIKE ?
+            ORDER BY updated_at DESC LIMIT ?""",
+            (f"%{keyword}%", f"%{keyword}%", limit),
+        ).fetchall()
+        return [dict(r) for r in rows]

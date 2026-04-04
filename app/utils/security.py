@@ -151,6 +151,15 @@ def verify_password(password: str, pwd_hash: str, salt: str) -> bool:
     return hmac.compare_digest(computed_hash, pwd_hash)
 
 
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-XSS-Protection": "1; mode=block",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;",
+}
+
+
 def get_security_headers() -> Dict[str, str]:
     """获取安全响应头"""
     return {
