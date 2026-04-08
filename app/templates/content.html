@@ -3,82 +3,127 @@
 {% block content %}
 <div x-data="contentData()" x-init="loadContent()">
     <div class="max-w-7xl mx-auto">
-        <!-- 统计卡片 -->
-        <div class="grid grid-cols-4 gap-4 mb-6">
-            <div class="bg-white rounded-lg shadow p-4">
-                <div class="text-sm text-gray-500">总采集</div>
-                <div class="text-2xl font-bold text-blue-600" x-text="stats.total">0</div>
+
+        <!-- ========== Stats Cards ========== -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+            <div class="anim-card bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs text-gray-500">总采集</p>
+                <p class="text-2xl font-bold text-blue-600 dark:text-blue-400" x-text="stats.total || '—'">—</p>
             </div>
-            <div class="bg-white rounded-lg shadow p-4">
-                <div class="text-sm text-gray-500">已匹配</div>
-                <div class="text-2xl font-bold text-green-600" x-text="stats.filtered">0</div>
+            <div class="anim-card bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs text-gray-500">已匹配</p>
+                <p class="text-2xl font-bold text-green-600" x-text="stats.filtered || '—'">—</p>
             </div>
-            <div class="bg-white rounded-lg shadow p-4">
-                <div class="text-sm text-gray-500">匹配率</div>
-                <div class="text-2xl font-bold text-yellow-600" x-text="stats.success_rate">0%</div>
+            <div class="anim-card bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs text-gray-500">匹配率</p>
+                <p class="text-2xl font-bold text-yellow-600" x-text="stats.success_rate || '—'">—</p>
             </div>
-            <div class="bg-white rounded-lg shadow p-4">
-                <div class="text-sm text-gray-500">最后更新</div>
-                <div class="text-lg font-bold text-gray-700" x-text="stats.last_run">-</div>
+            <div class="anim-card bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs text-gray-500">最后更新</p>
+                <p class="text-sm font-bold text-gray-700 dark:text-gray-200" x-text="stats.last_run || '—'">—</p>
             </div>
         </div>
 
-        <!-- 内容列表 -->
-        <div class="bg-white rounded-lg shadow">
-            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                <h3 class="text-lg font-semibold text-gray-900">📋 采集内容列表</h3>
-                <div class="flex gap-2">
-                    <input type="text" x-model="searchKeyword" @input="filterContent()" 
-                           class="px-3 py-1 border rounded text-sm" placeholder="搜索关键词...">
-                    <select x-model="filterType" @change="filterContent()" class="px-3 py-1 border rounded text-sm">
+        <!-- ========== List card ========== -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+
+            <!-- Header -->
+            <div class="px-4 sm:px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-wrap justify-between items-center gap-3">
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white">📋 采集内容列表</h3>
+                <div class="flex flex-wrap gap-2">
+                    <input type="text" x-model="searchKeyword" @input.debounce.350ms="filterContent()"
+                           class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm
+                                  bg-white dark:bg-gray-700 dark:text-white placeholder-gray-400
+                                  focus:outline-none focus:ring-2 focus:ring-blue-500 w-40 sm:w-52 transition"
+                           placeholder="搜索关键词...">
+                    <select x-model="filterType" @change="filterContent()"
+                            class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm
+                                   bg-white dark:bg-gray-700 dark:text-white">
                         <option value="">全部类型</option>
                         <option value="政府采购">政府采购</option>
                         <option value="工程建设">工程建设</option>
                     </select>
-                    <button @click="exportData()" class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700">导出Excel</button>
+                    <button @click="exportData()"
+                            class="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition shadow-sm">
+                        导出Excel
+                    </button>
                 </div>
             </div>
 
-            <!-- 内容卡片 -->
-            <div class="divide-y divide-gray-200">
+            <!-- Skeleton -->
+            <div x-show="loading" class="p-6 space-y-3">
+                <template x-for="i in 6" :key="i">
+                    <div class="skeleton h-20 rounded-lg"></div>
+                </template>
+            </div>
+
+            <!-- Cards list -->
+            <div x-show="!loading && filteredItems.length > 0" class="divide-y divide-gray-100 dark:divide-gray-700">
                 <template x-for="item in filteredItems" :key="item.url">
-                    <div class="p-4 hover:bg-gray-50">
-                        <div class="flex justify-between items-start">
-                            <div class="flex-1">
-                                <h4 class="text-sm font-medium text-gray-900 mb-1" x-text="item.title"></h4>
-                                <div class="flex flex-wrap gap-2 text-xs text-gray-500">
-                                    <span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded" x-text="item.type"></span>
-                                    <span x-show="item.keywords_matched" class="px-2 py-0.5 bg-green-100 text-green-800 rounded" x-text="'匹配: ' + item.keywords_matched"></span>
-                                    <span x-text="item.publish_date"></span>
-                                    <span x-show="item.budget" x-text="'预算: ' + item.budget"></span>
+                    <div class="p-4 sm:p-5 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
+                        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
+                            <div class="flex-1 min-w-0">
+                                <!-- Title -->
+                                <h4 class="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 mb-1.5"
+                                    x-text="item.title"></h4>
+                                <!-- Meta badges -->
+                                <div class="flex flex-wrap items-center gap-1.5 text-xs text-gray-500 mb-1.5">
+                                    <span class="px-2 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 rounded font-medium"
+                                          x-text="item.type || '-'"></span>
+                                    <span x-show="item.keywords_matched"
+                                          class="px-2 py-0.5 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 rounded"
+                                          x-text="'匹配: ' + item.keywords_matched"></span>
+                                    <span x-text="item.publish_date || '-'"></span>
+                                </div>
+                                <!-- Budget / contact row -->
+                                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                                    <span x-show="item.budget" class="text-orange-600 font-medium"
+                                          x-text="'预算: ' + item.budget"></span>
+                                    <span x-show="item.contact_name" x-text="'联系人: ' + item.contact_name"></span>
+                                    <span x-show="item.contact_phone" x-text="'电话: ' + item.contact_phone"></span>
                                 </div>
                             </div>
-                            <a :href="item.url" target="_blank" class="ml-4 text-blue-600 hover:text-blue-800 text-sm">查看原文 →</a>
-                        </div>
-                        <div x-show="item.contact_name || item.contact_phone" class="mt-2 text-xs text-gray-600">
-                            <span x-show="item.contact_name" x-text="'联系人: ' + item.contact_name"></span>
-                            <span x-show="item.contact_phone" class="ml-3" x-text="'电话: ' + item.contact_phone"></span>
+                            <!-- Actions -->
+                            <div class="flex items-center gap-2 shrink-0">
+                                <a :href="item.url" target="_blank"
+                                   class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm font-medium transition">
+                                    查看原文
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                                    </svg>
+                                </a>
+                            </div>
                         </div>
                     </div>
                 </template>
             </div>
 
-            <!-- 空状态 -->
-            <div x-show="filteredItems.length === 0" class="p-12 text-center text-gray-500">
-                暂无采集内容
+            <!-- Empty state -->
+            <div x-show="!loading && filteredItems.length === 0"
+                 class="flex flex-col items-center justify-center py-16 text-gray-400 px-4">
+                <svg class="w-14 h-14 mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <p class="text-sm">暂无采集内容</p>
             </div>
 
-            <!-- 分页 -->
-            <div x-show="totalPages > 1" class="px-6 py-4 border-t border-gray-200 flex justify-between items-center">
-                <div class="text-sm text-gray-500">
-                    显示 <span x-text="(currentPage - 1) * pageSize + 1"></span> - <span x-text="Math.min(currentPage * pageSize, totalItems)"></span> 条，共 <span x-text="totalItems"></span> 条
-                </div>
-                <div class="flex gap-2">
-                    <button @click="prevPage()" :disabled="currentPage === 1" 
-                            class="px-3 py-1 border rounded text-sm disabled:opacity-50">上一页</button>
-                    <span class="px-3 py-1 text-sm" x-text="currentPage + ' / ' + totalPages"></span>
+            <!-- Pagination -->
+            <div x-show="totalPages > 1"
+                 class="px-4 sm:px-6 py-4 border-t border-gray-100 dark:border-gray-700 flex flex-wrap justify-between items-center gap-3">
+                <p class="text-xs text-gray-500">
+                    显示 <span x-text="(currentPage - 1) * pageSize + 1"></span>–<span x-text="Math.min(currentPage * pageSize, totalItems)"></span> 条，共 <span x-text="totalItems"></span> 条
+                </p>
+                <div class="flex gap-1.5">
+                    <button @click="prevPage()" :disabled="currentPage === 1"
+                            class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                        上一页
+                    </button>
+                    <span class="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400" x-text="currentPage + ' / ' + totalPages"></span>
                     <button @click="nextPage()" :disabled="currentPage === totalPages"
-                            class="px-3 py-1 border rounded text-sm disabled:opacity-50">下一页</button>
+                            class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                        下一页
+                    </button>
                 </div>
             </div>
         </div>
@@ -90,7 +135,8 @@ function contentData() {
     return {
         items: [],
         filteredItems: [],
-        stats: { total: 0, filtered: 0, success_rate: '0%', last_run: '-' },
+        stats: { total: 0, filtered: 0, success_rate: '—', last_run: '—' },
+        loading: false,
         searchKeyword: '',
         filterType: '',
         currentPage: 1,
@@ -99,44 +145,41 @@ function contentData() {
         totalPages: 1,
 
         async loadContent() {
+            this.loading = true;
             try {
-                const res = await fetch('/api/projects?limit=200');
-                const data = await res.json();
-                this.items = data.data || [];
-                this.totalItems = data.total || 0;
-                this.totalPages = Math.ceil(this.totalItems / this.pageSize);
+                const [projRes, statsRes] = await Promise.all([
+                    fetch('/api/projects?limit=200'),
+                    fetch('/api/stats').catch(() => ({ ok: false })),
+                ]);
+                const projData  = await projRes.json();
+                this.items       = projData.data || projData.projects || [];
+                this.totalItems  = projData.total || this.items.length;
+                this.totalPages  = Math.ceil(this.totalItems / this.pageSize) || 1;
+                if (statsRes.ok) this.stats = await statsRes.json();
                 this.filterContent();
-
-                const statsRes = await fetch('/api/stats');
-                this.stats = await statsRes.json();
-            } catch (e) {
-                console.error('加载失败:', e);
-            }
+            } catch(e) { console.error('加载失败:', e); }
+            this.loading = false;
         },
 
         filterContent() {
-            let filtered = this.items;
+            let f = this.items;
             if (this.searchKeyword) {
                 const kw = this.searchKeyword.toLowerCase();
-                filtered = filtered.filter(item => 
-                    item.title.toLowerCase().includes(kw) || 
-                    (item.keywords_matched && item.keywords_matched.toLowerCase().includes(kw))
+                f = f.filter(item =>
+                    (item.title || '').toLowerCase().includes(kw) ||
+                    (item.keywords_matched || '').toLowerCase().includes(kw)
                 );
             }
-            if (this.filterType) {
-                filtered = filtered.filter(item => item.type === this.filterType);
-            }
-            this.filteredItems = filtered.slice((this.currentPage - 1) * this.pageSize, this.currentPage * this.pageSize);
-            this.totalItems = filtered.length;
-            this.totalPages = Math.ceil(this.totalItems / this.pageSize) || 1;
+            if (this.filterType) f = f.filter(item => item.type === this.filterType);
+            this.filteredItems = f.slice((this.currentPage - 1) * this.pageSize, this.currentPage * this.pageSize);
+            this.totalItems    = f.length;
+            this.totalPages    = Math.ceil(this.totalItems / this.pageSize) || 1;
         },
 
         prevPage() { if (this.currentPage > 1) { this.currentPage--; this.filterContent(); } },
         nextPage() { if (this.currentPage < this.totalPages) { this.currentPage++; this.filterContent(); } },
 
-        exportData() {
-            window.location.href = '/api/export';
-        }
+        exportData() { window.location.href = '/api/export'; },
     };
 }
 </script>

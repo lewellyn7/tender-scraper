@@ -4,7 +4,9 @@ from fastapi import APIRouter
 
 from .analytics import router as analytics_router
 from .annotations_presets import router as annotations_presets_router
+from .bidder_qualifications import router as bidder_qualifications_router
 from .config_backup import router as config_backup_router
+from .document_upload import router as document_upload_router
 from .favorites import router as favorites_router
 from .logs import router as logs_router
 from .notifications_settings import router as notifications_settings_router
@@ -19,3 +21,5 @@ api_router.include_router(logs_router)
 api_router.include_router(annotations_presets_router)
 api_router.include_router(config_backup_router)
 api_router.include_router(notifications_settings_router)
+api_router.include_router(bidder_qualifications_router)
+api_router.include_router(document_upload_router)

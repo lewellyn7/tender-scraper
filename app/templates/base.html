@@ -4,9 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}招投标采集系统{% endblock %}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Preconnect to CDN origins -->
+    <link rel="preconnect" href="https://cdn.tailwindcss.com">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+
+    <!-- Tailwind CDN (loaded once, deferred) -->
+    <script src="https://cdn.tailwindcss.com" defer></script>
     <script>
-        tailwind.config = { 
+        tailwind.config = {
             darkMode: 'class',
             theme: {
                 extend: {
@@ -15,18 +24,26 @@
                         'slide-up': 'slideUp 0.3s ease-out',
                     },
                     keyframes: {
-                        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+                        fadeIn:  { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
                         slideUp: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
                     }
                 }
             }
         }
     </script>
+
+    <!-- Shared stylesheet -->
+    <link rel="stylesheet" href="/static/css/app.css">
+
+    {% block extra_head %}{% endblock %}
+
+    <!-- Alpine.js (deferred) -->
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <style>[x-cloak] { display: none !important; }</style>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors duration-200">
-    <!-- 用户信息存储 -->
+
+    <!-- User & theme store (must be inline before Alpine init) -->
     <script>
         document.addEventListener('alpine:init', () => {
             Alpine.store('theme', localStorage.getItem('theme') || 'light');
@@ -35,114 +52,220 @@
                 username: '{{ user_info.username if user_info else "" }}',
                 display_name: '{{ user_info.display_name if user_info else "" }}'
             });
-            if (Alpine.store('theme') === 'dark') { document.documentElement.classList.add('dark'); }
+            Alpine.store('nav', { mobileOpen: false });
+            if (Alpine.store('theme') === 'dark') document.documentElement.classList.add('dark');
         });
     </script>
 
+    <!-- ========== NAVBAR ========== -->
     <nav class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
-                <div class="flex items-center">
-                    <div class="flex-shrink-0 flex items-center">
+                <!-- Logo -->
+                <div class="flex items-center min-w-0">
+                    <a href="/" class="flex items-center gap-2 flex-shrink-0">
                         <span class="text-2xl">📊</span>
-                        <span class="ml-2 text-xl font-bold text-gray-900 dark:text-white">招投标采集</span>
-                    </div>
-                    <div class="hidden sm:ml-6 sm:flex sm:space-x-1">
-                        <!-- 所有用户可见 -->
-                        <a href="/" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md" 
-                           x-show="$store.user.role !== 'guest'">仪表盘</a>
-                        <a href="/content" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md">采集内容</a>
-                        <a href="/data" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md">数据管理</a>
-                        <!-- 收藏需要 viewer 或更高 -->
-                        <a href="/favorites" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md"
-                           x-show="$store.user.role === 'viewer' || $store.user.role === 'operator' || $store.user.role === 'admin'">⭐ 收藏</a>
-                        <!-- 分析需要 viewer 或更高 -->
-                        <a href="/analytics" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md"
-                           x-show="$store.user.role === 'viewer' || $store.user.role === 'operator' || $store.user.role === 'admin'">📈 分析</a>
-                        <!-- 日志需要 operator 或更高 -->
-                        <a href="/logs" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md"
-                           x-show="$store.user.role === 'operator' || $store.user.role === 'admin'">📋 日志</a>
-                        <!-- 设置对所有人可见，但内容不同 -->
-                        <a href="/settings" class="nav-link inline-flex items-center px-3 py-2 text-sm font-medium rounded-md">⚙️ 设置</a>
+                        <span class="hidden sm:block text-xl font-bold text-gray-900 dark:text-white tracking-tight">招投标采集</span>
+                    </a>
+                    <!-- Desktop nav links -->
+                    <div class="hidden md:flex md:ml-6 md:space-x-0.5">
+                        <a href="/" class="nav-link nav-link--desk" x-show="$store.user.role !== 'guest'">
+                            <span class="mr-1">🏠</span>仪表盘
+                        </a>
+                        <a href="/content" class="nav-link nav-link--desk">📋<span class="nav-label">采集内容</span></a>
+                        <a href="/data" class="nav-link nav-link--desk">💾<span class="nav-label">数据管理</span></a>
+                        <a href="/favorites" class="nav-link nav-link--desk"
+                           x-show="$store.user.role === 'viewer' || $store.user.role === 'operator' || $store.user.role === 'admin'">
+                            ⭐<span class="nav-label">收藏</span>
+                        </a>
+                        <a href="/analytics" class="nav-link nav-link--desk"
+                           x-show="$store.user.role === 'viewer' || $store.user.role === 'operator' || $store.user.role === 'admin'">
+                            📈<span class="nav-label">分析</span>
+                        </a>
+                        <a href="/logs" class="nav-link nav-link--desk"
+                           x-show="$store.user.role === 'operator' || $store.user.role === 'admin'">
+                            📋<span class="nav-label">日志</span>
+                        </a>
+                        <a href="/qualifications" class="nav-link nav-link--desk"
+                           x-show="$store.user.role !== 'guest'">
+                            📜<span class="nav-label">资质</span>
+                        </a>
+                        <a href="/settings" class="nav-link nav-link--desk">⚙️<span class="nav-label">设置</span></a>
                     </div>
                 </div>
-                <div class="flex items-center gap-3">
-                    <!-- 用户角色显示 -->
-                    <div x-show="$store.user.role !== 'guest'" class="flex items-center gap-2 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 rounded-full">
-                        <span class="text-xs font-medium text-blue-600 dark:text-blue-400" x-text="$store.user.display_name || $store.user.username"></span>
-                        <span class="text-xs px-1.5 py-0.5 bg-blue-200 dark:bg-blue-800 rounded text-blue-700 dark:text-blue-300" x-text="$store.user.role"></span>
+
+                <!-- Right cluster -->
+                <div class="flex items-center gap-2 sm:gap-3">
+                    <!-- User badge (logged in) -->
+                    <div x-show="$store.user.role !== 'guest'"
+                         class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/30 rounded-full">
+                        <span class="text-xs font-medium text-blue-600 dark:text-blue-400 truncate max-w-[80px]"
+                              x-text="$store.user.display_name || $store.user.username"></span>
+                        <span class="text-xs px-1.5 py-0.5 bg-blue-200 dark:bg-blue-800 rounded text-blue-700 dark:text-blue-300"
+                              x-text="$store.user.role"></span>
                     </div>
-                    <!-- 登录/注册按钮 -->
-                    <div x-show="$store.user.role === 'guest'">
-                        <a href="/settings" class="text-sm text-blue-600 hover:text-blue-500">登录 / 注册</a>
-                    </div>
-                    <!-- 移动端菜单按钮 -->
-                    <button @click="mobileMenuOpen = !mobileMenuOpen" class="md:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors">
-                        <svg x-show="!mobileMenuOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-                        <svg x-show="mobileMenuOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    <!-- Login link (guest) -->
+                    <a x-show="$store.user.role === 'guest'" href="/settings"
+                       class="hidden sm:inline-flex text-sm text-blue-600 hover:text-blue-500 font-medium">
+                        登录 / 注册
+                    </a>
+                    <!-- Theme toggle -->
+                    <button @click="toggleTheme()"
+                            class="p-2 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                            title="切换主题" aria-label="切换明暗主题">
+                        <!-- Sun (shown in dark mode) -->
+                        <svg x-show="$store.theme === 'dark'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                        </svg>
+                        <!-- Moon (shown in light mode) -->
+                        <svg x-show="$store.theme === 'light'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                        </svg>
                     </button>
-                    <button @click="toggleTheme()" class="p-2 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition" title="切换主题">
-                        <svg x-show="$store.theme === 'light'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
-                        <svg x-show="$store.theme === 'dark'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    <!-- Mobile hamburger -->
+                    <button @click="$store.nav.mobileOpen = !$store.nav.mobileOpen"
+                            class="md:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition"
+                            aria-label="打开菜单">
+                        <svg x-show="!$store.nav.mobileOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                        </svg>
+                        <svg x-show="$store.nav.mobileOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
                     </button>
-                    {% if stats %}<span class="text-xs text-gray-400 hidden md:block">最后运行: {{ stats.last_run }}</span>{% endif %}
                 </div>
+            </div>
+        </div>
+
+        <!-- Mobile bottom sheet nav -->
+        <div class="md:hidden" x-show="$store.nav.mobileOpen" x-transition>
+            <div class="border-t border-gray-100 dark:border-gray-700 py-3 px-4 space-y-1">
+                <a href="/" class="mobile-nav-item" x-show="$store.user.role !== 'guest'">🏠 仪表盘</a>
+                <a href="/content" class="mobile-nav-item">📋 采集内容</a>
+                <a href="/data" class="mobile-nav-item">💾 数据管理</a>
+                <a href="/favorites" class="mobile-nav-item"
+                   x-show="$store.user.role === 'viewer' || $store.user.role === 'operator' || $store.user.role === 'admin'">⭐ 收藏</a>
+                <a href="/analytics" class="mobile-nav-item"
+                   x-show="$store.user.role === 'viewer' || $store.user.role === 'operator' || $store.user.role === 'admin'">📈 分析</a>
+                <a href="/logs" class="mobile-nav-item"
+                   x-show="$store.user.role === 'operator' || $store.user.role === 'admin'">📋 日志</a>
+                <a href="/qualifications" class="mobile-nav-item"
+                   x-show="$store.user.role !== 'guest'">📜 资质管理</a>
+                <a href="/settings" class="mobile-nav-item">⚙️ 设置</a>
             </div>
         </div>
     </nav>
 
-    <!-- 移动端菜单 -->
-    <div x-show="mobileMenuOpen" x-transition class="md:hidden bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 py-4 px-4">
-        <div class="flex flex-col space-y-2">
-            <a href="/" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50">
-                <span class="mr-3">🏠</span>仪表盘
-            </a>
-            <a href="/content" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50">
-                <span class="mr-3">📋</span>采集内容
-            </a>
-            <a href="/data" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50">
-                <span class="mr-3">💾</span>数据管理
-            </a>
-            <a href="/favorites" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50">
-                <span class="mr-3">⭐</span>收藏
-            </a>
-            <a href="/settings" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50">
-                <span class="mr-3">⚙️</span>设置
-            </a>
-        </div>
-    </div>
-
-    <!-- 回到顶部按钮 -->
-    <button x-data="{ show: false }" x-init="window.addEventListener('scroll', () => { show = window.scrollY > 300 })" 
-            x-show="show" x-transition
-            @click="window.scrollTo({ top: 0, behavior: 'smooth' })"
-            class="fixed bottom-6 right-6 p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg hover:shadow-xl transition-all z-50">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
-    </button>
-
+    <!-- ========== MAIN CONTENT ========== -->
     <main class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         {% include "partials/animations.html" %}
-    {% block content %}{% endblock %}
+        {% block content %}{% endblock %}
     </main>
-    <script>
-        // 移动端菜单状态
-        document.addEventListener('alpine:init', () => {
-            Alpine.data('mobileMenuOpen', () => ({ open: false }));
-        });
 
+    <!-- ========== BACK TO TOP ========== -->
+    <button x-data="{ visible: false }"
+            x-init="window.addEventListener('scroll', () => { visible = window.scrollY > 300 })"
+            x-show="visible" x-transition
+            @click="window.scrollTo({ top: 0, behavior: 'smooth' })"
+            class="fixed bottom-6 right-6 p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg hover:shadow-xl transition-all z-50"
+            aria-label="回到顶部">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/>
+        </svg>
+    </button>
+
+    <!-- ========== LIGHTWEIGHT SVG MASCOT (replaces 500KB Three.js) ========== -->
+    <div id="mascot-container" x-data="{ bouncing: false }" @click="bouncing=true; showMascotToast(); setTimeout(() => bouncing=false, 750)">
+        <svg id="mascot-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 150" width="100" height="125"
+             :class="{ 'rabbit-bounce': bouncing }">
+            <!-- Ears -->
+            <ellipse cx="42" cy="28" rx="11" ry="30" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"
+                     transform="rotate(-8 42 28)"/>
+            <ellipse cx="42" cy="30" rx="6" ry="20" fill="#fce7f3" transform="rotate(-8 42 30)"/>
+            <ellipse cx="78" cy="28" rx="11" ry="30" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"
+                     transform="rotate(8 78 28)"/>
+            <ellipse cx="78" cy="30" rx="6" ry="20" fill="#fce7f3" transform="rotate(8 78 30)"/>
+            <!-- Body -->
+            <ellipse cx="60" cy="105" rx="38" ry="42" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
+            <!-- Head -->
+            <ellipse cx="60" cy="68" rx="30" ry="28" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
+            <!-- Eyes -->
+            <ellipse cx="48" cy="65" rx="6" ry="7" fill="#1e293b"/>
+            <ellipse cx="72" cy="65" rx="6" ry="7" fill="#1e293b"/>
+            <circle cx="50" cy="63" r="2.5" fill="#fff"/>
+            <circle cx="74" cy="63" r="2.5" fill="#fff"/>
+            <!-- Nose -->
+            <ellipse cx="60" cy="75" rx="5" ry="3.5" fill="#f9a8d4"/>
+            <!-- Mouth -->
+            <path d="M52 80 Q60 87 68 80" stroke="#f472b6" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            <!-- Whiskers -->
+            <line x1="15" y1="72" x2="43" y2="74" stroke="#d1d5db" stroke-width="1" stroke-linecap="round"/>
+            <line x1="15" y1="78" x2="43" y2="78" stroke="#d1d5db" stroke-width="1" stroke-linecap="round"/>
+            <line x1="77" y1="74" x2="105" y2="72" stroke="#d1d5db" stroke-width="1" stroke-linecap="round"/>
+            <line x1="77" y1="78" x2="105" y2="78" stroke="#d1d5db" stroke-width="1" stroke-linecap="round"/>
+            <!-- Front paws -->
+            <ellipse cx="35" cy="120" rx="13" ry="9" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
+            <ellipse cx="85" cy="120" rx="13" ry="9" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
+            <!-- Feet -->
+            <ellipse cx="40" cy="138" rx="17" ry="9" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
+            <ellipse cx="80" cy="138" rx="17" ry="9" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
+            <!-- Tail -->
+            <circle cx="98" cy="108" r="12" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
+        </svg>
+    </div>
+
+    <!-- ========== SCRIPTS ========== -->
+    <script>
+        // Theme toggle
         function toggleTheme() {
             const s = Alpine.store('theme');
-            s === 'light' ? (s = 'dark', document.documentElement.classList.add('dark')) : (s = 'light', document.documentElement.classList.remove('dark'));
-            Alpine.store('theme', s);
-            localStorage.setItem('theme', s);
+            const next = s === 'light' ? 'dark' : 'light';
+            Alpine.store('theme', next);
+            next === 'dark'
+                ? document.documentElement.classList.add('dark')
+                : document.documentElement.classList.remove('dark');
+            localStorage.setItem('theme', next);
         }
-        document.querySelectorAll('.nav-link').forEach(link => {
-            if (link.getAttribute('href') === window.location.pathname) {
-                link.classList.add('text-blue-600', 'dark:text-blue-400', 'bg-blue-50', 'dark:bg-blue-900/30');
-            } else {
-                link.classList.add('text-gray-500', 'dark:text-gray-400');
-            }
+
+        // Active nav link highlighting
+        document.addEventListener('alpine:init', () => {
+            const path = window.location.pathname;
+            document.querySelectorAll('.nav-link').forEach(link => {
+                const href = link.getAttribute('href');
+                if (href === path) {
+                    link.classList.add('text-blue-600', 'dark:text-blue-400', 'bg-blue-50', 'dark:bg-blue-900/30');
+                } else {
+                    link.classList.add('text-gray-500', 'dark:text-gray-400', 'hover:text-gray-700', 'dark:hover:text-gray-200',
+                                     'hover:bg-gray-50', 'dark:hover:bg-gray-700/30');
+                }
+            });
         });
+
+        // Toast helper (available globally)
+        function showToast(msg, type = 'success') {
+            const container = document.getElementById('toastContainer') || (() => {
+                const c = document.createElement('div');
+                c.id = 'toastContainer';
+                c.className = 'toast-container';
+                document.body.appendChild(c);
+                return c;
+            })();
+            const el = document.createElement('div');
+            el.className = `toast-message toast-${type}`;
+            el.textContent = msg;
+            container.appendChild(el);
+            setTimeout(() => {
+                el.classList.add('toast-exit');
+                setTimeout(() => el.remove(), 300);
+            }, 3000);
+        }
+
+        // Mascot toast
+        function showMascotToast() {
+            showToast('你好！我是 Jarvis！有事随时叫我 🦞', 'info');
+        }
     </script>
 </body>
 </html>

@@ -1,0 +1,401 @@
+{% extends "base.html" %}
+
+{% block title %}资质文档上传 - 招投标采集系统{% endblock %}
+
+{% block extra_head %}
+<style>
+  .upload-zone {
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #f8fafc;
+    margin-bottom: 24px;
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: #3b82f6;
+    background: #eff6ff;
+  }
+  .upload-zone .icon { font-size: 48px; margin-bottom: 12px; }
+  .upload-zone .hint { color: #64748b; font-size: 14px; }
+
+  .progress-wrap { display: none; margin-bottom: 24px; }
+  .progress-wrap.active { display: block; }
+  .progress-bar-bg {
+    background: #e2e8f0;
+    border-radius: 8px;
+    height: 8px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    background: linear-gradient(90deg, #3b82f6, #6366f1);
+    height: 100%;
+    width: 0%;
+    border-radius: 8px;
+    transition: width 0.3s ease;
+  }
+  .progress-label { font-size: 13px; color: #64748b; margin-top: 6px; }
+
+  .result-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+    background: #fff;
+  }
+  .result-card.success { border-left: 4px solid #22c55e; }
+  .result-card.error { border-left: 4px solid #ef4444; }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .field-item { }
+  .field-label { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+  .field-value { font-size: 15px; font-weight: 500; color: #1e293b; margin-top: 2px; }
+  .field-value.empty { color: #cbd5e1; font-style: italic; }
+
+  .confidence-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .confidence-high { background: #dcfce7; color: #16a34a; }
+  .confidence-mid { background: #fef9c3; color: #ca8a04; }
+  .confidence-low { background: #fee2e2; color: #dc2626; }
+
+  .status-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .status-valid { background: #dcfce7; color: #16a34a; }
+  .status-expired { background: #fee2e2; color: #dc2626; }
+  .status-pending { background: #fef9c3; color: #ca8a04; }
+
+  #file-input { display: none; }
+  .file-name-display { font-weight: 600; color: #1e293b; margin-bottom: 8px; }
+
+  .btn-upload {
+    background: linear-gradient(135deg, #3b82f6, #6366f1);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .btn-upload:hover { opacity: 0.9; }
+  .btn-upload:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .section-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+
+  .history-list { margin-top: 32px; }
+  .history-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    background: #fff;
+    font-size: 14px;
+  }
+  .history-item:hover { background: #f8fafc; }
+  .history-name { font-weight: 600; color: #1e293b; }
+  .history-meta { color: #64748b; font-size: 12px; margin-top: 2px; }
+
+  .raw-text-preview {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: 8px;
+    padding: 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 12px;
+    white-space: pre-wrap;
+    display: none;
+  }
+  .raw-text-preview.visible { display: block; }
+  .toggle-raw { font-size: 12px; color: #3b82f6; cursor: pointer; margin-top: 8px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto; padding: 32px 16px;">
+
+  <div class="section-title">📄 资质文档上传与分析</div>
+
+  <!-- 上传区域 -->
+  <div class="upload-zone" id="upload-zone">
+    <div class="icon">📎</div>
+    <div style="font-size: 16px; font-weight: 600; color: #1e293b; margin-bottom: 8px;">
+      点击或拖拽文件到此处上传
+    </div>
+    <div class="hint">
+      支持 PDF、JPG、PNG 格式，文件大小不超过 10MB
+    </div>
+    <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png">
+  </div>
+
+  <!-- 上传进度 -->
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-bar-bg">
+      <div class="progress-bar-fill" id="progress-fill"></div>
+    </div>
+    <div class="progress-label" id="progress-label">上传中...</div>
+  </div>
+
+  <!-- 文件信息 -->
+  <div id="file-info" style="display: none; margin-bottom: 16px;">
+    <div class="file-name-display" id="file-name"></div>
+  </div>
+
+  <!-- 分析结果 -->
+  <div id="result-area"></div>
+
+  <!-- 关联资质选项 -->
+  <div id="qualification-link" style="display: none; margin-bottom: 16px;">
+    <label style="font-size: 14px; color: #64748b;">关联已有资质记录（可选）：</label>
+    <select id="qual-select" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #cbd5e1; margin-top: 4px;">
+      <option value="">-- 不关联，创建新记录 --</option>
+    </select>
+  </div>
+
+  <!-- 上传按钮 -->
+  <div style="text-align: center; margin-bottom: 32px;">
+    <button class="btn-upload" id="upload-btn" disabled>
+      🚀 开始分析与上传
+    </button>
+  </div>
+
+  <!-- 最近分析历史 -->
+  <div class="history-list" id="history-area">
+    <div class="section-title" style="font-size: 16px;">📋 最近上传</div>
+    <div id="history-list"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const zone = document.getElementById('upload-zone');
+  const fileInput = document.getElementById('file-input');
+  const uploadBtn = document.getElementById('upload-btn');
+  const progressWrap = document.getElementById('progress-wrap');
+  const progressFill = document.getElementById('progress-fill');
+  const progressLabel = document.getElementById('progress-label');
+  const fileInfo = document.getElementById('file-info');
+  const fileName = document.getElementById('file-name');
+  const resultArea = document.getElementById('result-area');
+  const qualSelect = document.getElementById('qual-select');
+  const qualLink = document.getElementById('qual-link');
+  const historyList = document.getElementById('history-list');
+
+  let selectedFile = null;
+
+  // 加载最近资质列表
+  async function loadRecentQualifications() {
+    try {
+      const resp = await fetch('/api/bidder-qualifications?page_size=50');
+      const data = await resp.json();
+      const items = data.items || [];
+      qualSelect.innerHTML = '<option value="">-- 不关联，创建新记录 --</option>';
+      items.forEach(q => {
+        const opt = document.createElement('option');
+        opt.value = q.id;
+        opt.textContent = `#${q.id} ${q.name} (${q.category || '未分类'} | ${q.status || '有效'})`;
+        qualSelect.appendChild(opt);
+      });
+    } catch (e) {
+      console.warn('Failed to load qualifications:', e);
+    }
+  }
+
+  loadRecentQualifications();
+
+  // 文件选择
+  zone.addEventListener('click', () => fileInput.click());
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+  fileInput.addEventListener('change', e => {
+    if (e.target.files[0]) handleFile(e.target.files[0]);
+  });
+
+  function handleFile(file) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    const allowed = ['pdf', 'jpg', 'jpeg', 'png'];
+    if (!allowed.includes(ext)) {
+      alert(`不支持的格式: .${ext}，仅支持 PDF、JPG、PNG`);
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert('文件超过 10MB 限制');
+      return;
+    }
+    selectedFile = file;
+    fileName.textContent = `📄 ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    fileInfo.style.display = 'block';
+    uploadBtn.disabled = false;
+    resultArea.innerHTML = '';
+    qualLink.style.display = 'block';
+
+    // 先分析不上传
+    analyzeOnly(file);
+  }
+
+  async function analyzeOnly(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    progressWrap.classList.add('active');
+    progressFill.style.width = '30%';
+    progressLabel.textContent = 'AI 分析中...';
+
+    try {
+      const resp = await fetch('/api/documents/analyze-only', { method: 'POST', body: formData });
+      const data = await resp.json();
+      progressFill.style.width = '100%';
+
+      if (data.success) {
+        renderResult(data.fields, data.raw_text, true);
+      } else {
+        resultArea.innerHTML = `<div class="result-card error">
+          <div style="font-weight:600; color:#dc2626;">分析失败</div>
+          <div style="color:#64748b; margin-top:4px;">${data.error || '未知错误'}</div>
+        </div>`;
+      }
+    } catch (e) {
+      resultArea.innerHTML = `<div class="result-card error">
+        <div style="font-weight:600; color:#dc2626;">请求失败</div>
+        <div style="color:#64748b; margin-top:4px;">${e.message}</div>
+      </div>`;
+    } finally {
+      setTimeout(() => {
+        progressWrap.classList.remove('active');
+        progressFill.style.width = '0%';
+      }, 1000);
+    }
+  }
+
+  function renderResult(fields, rawText, isPreview) {
+    const conf = fields.confidence || 0;
+    const confClass = conf >= 0.8 ? 'high' : conf >= 0.5 ? 'mid' : 'low';
+    const confLabel = conf >= 0.8 ? '高置信度' : conf >= 0.5 ? '中置信度' : '低置信度';
+    const statusClass = fields.status === '有效' ? 'valid' : fields.status === '过期' ? 'expired' : 'pending';
+
+    const html = `
+      <div class="result-card success">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+          <div style="font-weight:700; font-size:16px;">${fields.name || '未知资质'}</div>
+          <div>
+            <span class="confidence-badge confidence-${confClass}">${confLabel} ${(conf * 100).toFixed(0)}%</span>
+            <span class="status-badge status-${statusClass}" style="margin-left:8px;">${fields.status || '有效'}</span>
+          </div>
+        </div>
+        <div class="field-grid">
+          ${fieldItem('资质名称', fields.name)}
+          ${fieldItem('资质类别', fields.category)}
+          ${fieldItem('资质等级', fields.level)}
+          ${fieldItem('证书编号', fields.certificate_no)}
+          ${fieldItem('有效期', fields.valid_from && fields.valid_to ? `${fields.valid_from} 至 ${fields.valid_to}` : (fields.valid_to || '长期'))}
+          ${fieldItem('发证机关', fields.issuer)}
+          ${fieldItem('分析方法', fields.method || 'AI智能分析')}
+        </div>
+        ${rawText ? `<div class="toggle-raw" onclick="this.nextElementSibling.classList.toggle('visible')">📜 查看原始文本</div><div class="raw-text-preview">${escapeHtml(rawText)}</div>` : ''}
+      </div>
+    `;
+    if (isPreview) {
+      resultArea.innerHTML = html;
+    }
+    return html;
+  }
+
+  function fieldItem(label, value) {
+    const val = value || '—';
+    const cls = value ? '' : 'empty';
+    return `<div class="field-item"><div class="field-label">${label}</div><div class="field-value ${cls}">${val}</div></div>`;
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // 上传并保存
+  uploadBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = '上传中...';
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    const qid = qualSelect.value;
+    if (qid) formData.append('qualification_id', qid);
+
+    progressWrap.classList.add('active');
+    progressFill.style.width = '50%';
+    progressLabel.textContent = '上传并保存到数据库...';
+
+    try {
+      const resp = await fetch('/api/documents/upload', { method: 'POST', body: formData });
+      const data = await resp.json();
+      progressFill.style.width = '100%';
+
+      if (data.success) {
+        resultArea.innerHTML = renderResult(data.fields, '', false);
+        resultArea.innerHTML += `
+          <div style="padding:12px 16px; background:#f0fdf4; border-radius:8px; margin-top:8px; font-size:14px;">
+            ✅ 资质记录已保存！ID: <strong>#${data.qualification_id}</strong>
+            ${data.analysis_note ? `<div style="color:#64748b; margin-top:4px;">${data.analysis_note}</div>` : ''}
+          </div>`;
+        selectedFile = null;
+        fileInput.value = '';
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = '🚀 开始分析与上传';
+      } else {
+        resultArea.innerHTML = `
+          <div class="result-card error">
+            <div style="font-weight:600; color:#dc2626;">上传失败</div>
+            <div style="color:#64748b; margin-top:4px;">${data.error || '未知错误'}</div>
+          </div>`;
+        uploadBtn.disabled = false;
+      }
+    } catch (e) {
+      resultArea.innerHTML = `<div class="result-card error"><div style="font-weight:600; color:#dc2626;">请求失败: ${e.message}</div></div>`;
+      uploadBtn.disabled = false;
+    } finally {
+      setTimeout(() => {
+        progressWrap.classList.remove('active');
+        progressFill.style.width = '0%';
+      }, 1500);
+    }
+  });
+</script>
+{% endblock %}

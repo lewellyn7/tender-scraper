@@ -1,5 +1,6 @@
 """数据库路由"""
 
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Query
@@ -8,6 +9,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from app.database import get_db
 
 router = APIRouter(prefix="/api/db", tags=["数据库"])
+
+# 允许下载的备份根目录（防止路径遍历）
+BACKUP_ROOT = Path(__file__).parent.parent.parent.parent / "data" / "backups"
 
 
 @router.post("/backup")
@@ -53,8 +57,13 @@ def cleanup_old_backups(keep_count: int = Body(10, ge=1)):
 
 @router.get("/backup/download")
 def download_backup(path: str = Query(...)):
-    """下载备份文件"""
-    p = Path(path)
+    """下载备份文件 — 仅允许备份目录内的文件"""
+    # 解析并安全化路径：禁止 ../ 分隔符逃逸
+    p = Path(path).resolve()
+    try:
+        p.relative_to(BACKUP_ROOT.resolve())
+    except ValueError:
+        return JSONResponse({"error": "禁止访问此路径"}, status_code=403)
     if not p.exists():
         return JSONResponse({"error": "文件不存在"}, status_code=404)
-    return FileResponse(path, filename=p.name, media_type="application/octet-stream")
+    return FileResponse(str(p), filename=p.name, media_type="application/octet-stream")

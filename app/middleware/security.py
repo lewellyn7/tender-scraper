@@ -69,7 +69,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """简单速率限制中间件"""
+    """简单速率限制中间件（已修复内存泄漏）"""
 
     def __init__(self, app, max_per_minute: int = 100):
         super().__init__(app)
@@ -82,6 +82,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         current_minute = int(time.time() / 60)
         key = f"{client_ip}:{current_minute}"
 
+        # 清理旧记录 (每次请求主动清理，避免内存泄漏)
+        cutoff_minute = current_minute - 1  # 保留最近1分钟的记录
+        self._requests = {
+            k: v for k, v in self._requests.items() if int(k.split(":")[1]) >= cutoff_minute
+        }
+
         # 检查限制
         if key in self._requests:
             count = self._requests[key]
@@ -90,12 +96,5 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             self._requests[key] = count + 1
         else:
             self._requests[key] = 1
-
-        # 清理旧记录
-        if current_minute % 60 == 0:
-            cutoff = current_minute - 60
-            self._requests = {
-                k: v for k, v in self._requests.items() if int(k.split(":")[1]) > cutoff
-            }
 
         return await call_next(request)

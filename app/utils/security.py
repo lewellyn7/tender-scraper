@@ -1,11 +1,16 @@
 """安全工具模块"""
 
+import bcrypt
 import hmac
+import os
 import re
+import secrets
 import time
 from collections import defaultdict
 from functools import wraps
 from typing import Callable, Dict, List, Tuple
+
+from app.constants import SecurityConstants
 
 # CSRF 安全头
 CSRF_HEADERS = ["X-CSRF-Token", "X-Session-Token"]
@@ -133,22 +138,36 @@ def generate_request_id() -> str:
     return secrets.token_hex(16)
 
 
-def hash_password(password: str, salt: str) -> Tuple[str, str]:
-    """密码哈希"""
-    import hashlib
+def hash_password(password: str, salt: str = None) -> Tuple[str, str]:
+    """密码哈希（bcrypt，自动生成 salt）"""
+    if salt is None:
+        salt = bcrypt.gensalt().decode()
+    pwd_hash = bcrypt.hashpw(password.encode(), salt.encode()).decode()
+    return pwd_hash, salt
 
-    if not salt:
-        import secrets
 
-        salt = secrets.token_hex(16)
-    pwd_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000)
+def verify_password(password: str, pwd_hash: str, salt: str = None) -> bool:
+    """验证密码（兼容新旧格式）"""
+    try:
+        # 尝试 bcrypt 验证
+        return bcrypt.checkpw(password.encode(), pwd_hash.encode())
+    except Exception:
+        # 兼容旧 PBKDF2 格式
+        if salt:
+            computed_hash, _ = _hash_password_pbdkf2(password, salt)
+            return hmac.compare_digest(computed_hash, pwd_hash)
+        return False
+
+
+def _hash_password_pbdkf2(password: str, salt: str) -> Tuple[str, str]:
+    """旧版 PBKDF2 哈希（仅用于兼容）"""
+    pwd_hash = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode(),
+        salt.encode(),
+        SecurityConstants.PASSWORD_HASH_ITERATIONS,
+    )
     return pwd_hash.hex(), salt
-
-
-def verify_password(password: str, pwd_hash: str, salt: str) -> bool:
-    """验证密码"""
-    computed_hash, _ = hash_password(password, salt)
-    return hmac.compare_digest(computed_hash, pwd_hash)
 
 
 SECURITY_HEADERS = {
@@ -158,6 +177,50 @@ SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;",
 }
+
+
+# ── 账户锁定 ──────────────────────────────────────────────────
+
+_failed_login_counts: Dict[str, int] = {}
+_locked_accounts: Dict[str, float] = {}
+
+
+def check_lockout(username: str) -> bool:
+    """检查账户是否被锁定（30分钟自动解锁）"""
+    if username in _locked_accounts:
+        if time.time() - _locked_accounts[username] < SecurityConstants.LOCKOUT_DURATION_SECONDS:
+            return True
+        del _locked_accounts[username]
+    return False
+
+
+def record_failed_login(username: str) -> bool:
+    """记录一次失败登录，达到阈值后锁定账户"""
+    global _failed_login_counts, _locked_accounts
+    _failed_login_counts[username] = _failed_login_counts.get(username, 0) + 1
+    if _failed_login_counts[username] >= SecurityConstants.MAX_LOGIN_ATTEMPTS:
+        _locked_accounts[username] = time.time()
+        _failed_login_counts.pop(username, None)
+        return True  # locked
+    return False
+
+
+def clear_failed_login(username: str) -> None:
+    """清除失败记录（登录成功后调用）"""
+    _failed_login_counts.pop(username, None)
+
+
+# ── Webhook Key 验证 ──────────────────────────────────────────
+
+def validate_webhook_key(key: str) -> bool:
+    """
+    验证 x-n8n-webhook-key 是否与 N8N_WEBHOOK_KEY 环境变量匹配。
+    用于统一 n8n webhook 认证入口。
+    """
+    expected = os.getenv("N8N_WEBHOOK_KEY")
+    if not expected:
+        raise ValueError("N8N_WEBHOOK_KEY 环境变量必须设置")
+    return hmac.compare_digest(key, expected)
 
 
 def get_security_headers() -> Dict[str, str]:

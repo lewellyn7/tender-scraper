@@ -1,0 +1,142 @@
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: "smtp.example.com:587"
+  smtp_from: "alert@tender-scraper.local"
+  smtp_auth_username: "alert@tender-scraper.local"
+  smtp_auth_password: "${SMTP_PASSWORD}"
+
+# 告警路由树
+route:
+  # 按 severity 和 component 分组
+  group_by: ["alertname", "severity", "component"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: "default"
+  routes:
+    # ── 资质类告警 → 专发资质管理员 ────────────────────
+    - match:
+        component: "qualification"
+      receiver: "qualification-alerts"
+      group_by: ["alertname", "qualification_name"]
+      group_wait: 10s
+      group_interval: 1h
+      repeat_interval: 12h
+      routes:
+        # 过期告警 → 最高优先级
+        - match:
+            severity: "critical"
+          receiver: "qualification-alerts-critical"
+          continue: true
+
+    # ── 严重服务告警 → 值班人员 ─────────────────────────
+    - match:
+        severity: "critical"
+        component: "service"
+      receiver: "on-call"
+      group_wait: 10s
+
+    # ── 爬虫故障 → 采集负责人 ───────────────────────────
+    - match:
+        component: "scraper"
+        severity: "critical"
+      receiver: "scraper-alerts"
+
+    # ── 日志异常 → SRE ─────────────────────────────────
+    - match:
+        component: "logging"
+        severity: "critical"
+      receiver: "sre-alerts"
+
+# 接收者定义
+receivers:
+  # 默认接收（Webhook 统一入口）
+  - name: "default"
+    webhook_configs:
+      - url: "http://web:8000/alerts/webhook"
+        send_resolved: true
+        max_alerts: 100
+
+  # 资质告警普通（30 天内）
+  - name: "qualification-alerts"
+    webhook_configs:
+      - url: "http://web:8000/alerts/webhook"
+        send_resolved: true
+    # 同时发邮件
+    email_configs:
+      - to: "qualification-admin@example.com"
+        headers:
+          subject: "【资质管理】即将到期提醒 - {{ .GroupLabels.alertname }}"
+
+  # 资质告警紧急（7 天内 / 已过期）
+  - name: "qualification-alerts-critical"
+    webhook_configs:
+      - url: "http://web:8000/alerts/webhook"
+        send_resolved: true
+        # 紧急告警同时触发多个通道
+    email_configs:
+      - to: "qualification-admin@example.com,lewellyn@example.com"
+        headers:
+          subject: "🚨【紧急】资质{{ .GroupLabels.alertname }} - 请立即处理！"
+        send_resolved: true
+    # PagerDuty / 飞书机器人等可在此扩展
+    # - pagerduty_configs:
+    #     - service_key: "${PAGERDUTY_KEY}"
+
+  # 服务故障告警
+  - name: "on-call"
+    webhook_configs:
+      - url: "http://web:8000/alerts/webhook"
+        send_resolved: true
+    email_configs:
+      - to: "oncall@example.com"
+        headers:
+          subject: "【P0】{{ .GroupLabels.alertname }} - 服务故障"
+
+  # 爬虫告警
+  - name: "scraper-alerts"
+    webhook_configs:
+      - url: "http://web:8000/alerts/webhook"
+        send_resolved: true
+    email_configs:
+      - to: "scraper-team@example.com"
+        headers:
+          subject: "【爬虫告警】{{ .GroupLabels.alertname }}"
+
+  # SRE 日志告警
+  - name: "sre-alerts"
+    webhook_configs:
+      - url: "http://web:8000/alerts/webhook"
+        send_resolved: true
+    email_configs:
+      - to: "sre@example.com"
+        headers:
+          subject: "【日志告警】{{ .GroupLabels.alertname }}"
+
+# 抑制规则：资质严重告警抑制资质普通告警
+inhibit_rules:
+  - source_match:
+      severity: "critical"
+      component: "qualification"
+    target_match:
+      severity: "warning"
+      component: "qualification"
+    equal: ["alertname", "qualification_name"]
+
+  # 服务崩溃抑制所有关联告警
+  - source_match:
+      severity: "critical"
+      alertname: "ServiceDown"
+    target_match_re:
+      severity: "warning"
+      component: "scraper"
+    equal: ["instance"]
+
+  # 严重错误日志抑制一般错误日志
+  - source_match:
+      severity: "critical"
+      component: "logging"
+    target_match:
+      severity: "warning"
+      component: "logging"
+    equal: ["instance"]

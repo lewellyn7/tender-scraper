@@ -40,14 +40,45 @@ STEALTH_SCRIPT = """
 
 
 class StealthBrowser:
-    """反检测浏览器"""
+    """反检测浏览器 - 基于 Playwright"""
 
-    def __init__(self):
-        self.page = None
+    def __init__(self, headless: bool = True, slow_mo: int = 0):
+        self.headless = headless
+        self.slow_mo = slow_mo
+        self._playwright = None
+        self._browser = None
+        self._context = None
+
+    async def start(self):
+        """启动浏览器"""
+        from playwright.async_api import async_playwright
+        self._playwright = await async_playwright().start()
+        self._browser = await self._playwright.chromium.launch(
+            headless=self.headless,
+            slow_mo=self.slow_mo,
+        )
+        self._context = await self._browser.new_context(
+            user_agent=self.get_random_user_agent(),
+        )
+
+    async def new_page(self):
+        """创建新页面"""
+        page = await self._context.new_page()
+        page = await self.stealth_page(page)
+        return page
+
+    async def close(self):
+        """关闭浏览器"""
+        if self._context:
+            await self._context.close()
+        if self._browser:
+            await self._browser.close()
+        if self._playwright:
+            await self._playwright.stop()
 
     async def stealth_page(self, page):
         """应用反检测措施"""
-        await page.evaluateOnNewDocument(STEALTH_SCRIPT)
+        await page.add_init_script(STEALTH_SCRIPT)
         return page
 
     async def random_scroll(self, page):

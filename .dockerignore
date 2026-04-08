@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.py[cod]
+*.egg-info
+.eggs
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Docs & Configs (不需要进入镜像)
+*.md
+ARCHITECTURE.md
+AUDIT_REPORT.md
+CODE_QUALITY_CRITIQUE.md
+CRITICAL_REVIEW_REPORT.md
+CRITICAL_SECURITY_AUDIT.md
+FINAL_AUDIT_REPORT.md
+MERGE_REPORT.md
+PROJECT_REVIEW_FINAL.md
+TODO_AUDIT_FIXES.md
+UPDATED_AUDIT_REPORT.md
+notes/
+docs/
+config/
+tests/
+monitoring/
+
+# Local data
+*.db
+*.db-shm
+*.db-wal
+logs/
+output/
+archive/
+data/
+db_backups/
+
+# Secrets
+.env
+.env.*
+!.env.example

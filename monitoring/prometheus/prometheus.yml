@@ -1,0 +1,58 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmgr:9093
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # ── Prometheus 自身 ─────────────────────────────────
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ── Web 服务（标准 /metrics + 资质/日志扩展端点） ────
+  - job_name: "tender-scraper-web"
+    static_configs:
+      - targets: ["web:8000"]
+    scrape_interval: 30s
+    scrape_timeout: 15s
+    # 标准 prometheus_client 指标（HTTP 请求、进程资源）
+    metrics_path: "/metrics"
+    # 扩展指标通过同一 /metrics 前缀下的子路径暴露：
+    # - /metrics/qualifications  → 资质指标
+    # - /metrics/logs           → 日志聚合指标
+    # Prometheus 会自动抓取所有路径（/metrics + /metrics/qualifications + /metrics/logs）
+    # 如需明确区分，可取消注释放开下方 override
+    # metric_relabel_configs:
+    #   - source_labels: [__metrics_path__]
+    #     regex: "(.*)"
+    #     target_label: metrics_path_full
+    #     replacement: "${1}"
+
+  # ── Grafana ─────────────────────────────────────────
+  - job_name: "grafana"
+    static_configs:
+      - targets: ["grafana:3000"]
+
+  # ── Alertmanager ────────────────────────────────────
+  - job_name: "alertmanager"
+    static_configs:
+      - targets: ["alertmgr:9093"]
+
+  # ── 日志文件直采（备选方案：node_exporter textfile） ──
+  # 启用条件：宿主机部署 node_exporter --collector.textfile.directory=/var/lib/node_exporter
+  # 将 scraper 日志统计写入该目录，由 Prometheus 抓取
+  # - job_name: "node-textfile"
+  #   static_configs:
+  #     - targets: ["host:9100"]
+  #   relabel_configs:
+  #     - source_labels: [__address__]
+  #       target_label: instance
+  #       replacement: "tender-scraper-host"

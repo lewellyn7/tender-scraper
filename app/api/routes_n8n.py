@@ -1,10 +1,12 @@
 """n8n 工作流集成接口"""
 
 import asyncio
+import ipaddress
 import json
 import os
 import sys
 import time
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
@@ -16,12 +18,59 @@ from loguru import logger
 sys_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, sys_path)
 
+from app.utils.security import validate_webhook_key  # noqa: E402
+
 router = APIRouter(prefix="/api/n8n", tags=["n8n集成"])
 
 # n8n webhook 配置
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
 N8N_TRIGGER_COLLECTION = os.getenv("N8N_TRIGGER_COLLECTION", "")  # 触发采集的 webhook URL
 N8N_TRIGGER_NOTIFY = os.getenv("N8N_TRIGGER_NOTIFY", "")  # 触发通知的 webhook URL
+
+# ─── SSRF 防护 ───────────────────────────────────────────────
+_BLOCKED_NETWORKS = {
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),   # AWS/Azure metadata
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("100.64.0.0/10"),   # CGN
+    ipaddress.ip_network("192.0.0.0/24"),
+    ipaddress.ip_network("192.0.2.0/24"),
+    ipaddress.ip_network("198.51.100.0/24"),
+    ipaddress.ip_network("203.0.113.0/24"),
+    ipaddress.ip_network("224.0.0.0/4"),     # Multicast
+    ipaddress.ip_network("255.255.255.255/32"),
+}
+
+
+def _is_url_safe(target_url: str) -> bool:
+    """Validate URL is not pointing to an internal/dangerous address."""
+    try:
+        parsed = urllib.parse.urlparse(target_url)
+        host = parsed.hostname
+        port = parsed.port
+        if not host:
+            return False
+        # Reject literal IPv4 addresses that land in blocked ranges
+        try:
+            addr = ipaddress.ip_address(host)
+            if any(addr in net for net in _BLOCKED_NETWORKS):
+                return False
+        except ValueError:
+            # Not an IP literal — also block known localhost aliases
+            if host.lower() in ("localhost", "localhost.localdomain", "ip6-localhost"):
+                return False
+        # Block dangerous ports
+        if port in {22, 23, 25, 445, 3389, 5900}:
+            return False
+        # Only https allowed (http allowed only for local dev)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        return True
+    except Exception:
+        return False
 
 
 # ========== 触发采集 ==========
@@ -42,12 +91,7 @@ async def trigger_collection(
     - URL: http://localhost:9099/api/n8n/trigger-collection
     - Body: {"source":"all","days":3}
     """
-    # 认证检查
-    # 禁止使用默认密钥
-    expected_key = os.getenv("N8N_WEBHOOK_KEY")
-    if not expected_key:
-        raise ValueError("N8N_WEBHOOK_KEY 环境变量必须设置")
-    if expected_key and x_n8n_webhook_key != expected_key:
+    if not validate_webhook_key(x_n8n_webhook_key):
         raise HTTPException(status_code=401, detail="Invalid webhook key")
 
     # 构建采集任务参数
@@ -155,6 +199,13 @@ async def push_to_n8n(
     n8n_url: str = Body(..., description="n8n webhook URL"),
 ):
     """推送指定项目到 n8n workflow"""
+    # SSRF protection: validate target URL
+    if not _is_url_safe(n8n_url):
+        raise HTTPException(
+            status_code=400,
+            detail="n8n_url 指向不允许的地址（内网/危险端口/无效 URL）",
+        )
+
     data_file = Path(sys_path) / "output" / "latest.json"
     with open(data_file, encoding="utf-8") as f:
         data = json.load(f)
@@ -192,11 +243,7 @@ async def n8n_callback(
     x_n8n_webhook_key: str = Header(None, alias="x-n8n-webhook-key"),
 ):
     """n8n 回调接口 - 处理 n8n workflow 的返回结果"""
-    # 禁止使用默认密钥
-    expected_key = os.getenv("N8N_WEBHOOK_KEY")
-    if not expected_key:
-        raise ValueError("N8N_WEBHOOK_KEY 环境变量必须设置")
-    if expected_key and x_n8n_webhook_key != expected_key:
+    if not validate_webhook_key(x_n8n_webhook_key):
         raise HTTPException(status_code=401, detail="Invalid webhook key")
 
     logger.info(f"📥 n8n 回调 [{action}]: {data}")

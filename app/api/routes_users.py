@@ -1,12 +1,8 @@
 """用户管理路由"""
 
-import hashlib
-import hmac
 import os
 import secrets
 import sys
-import time
-from typing import Dict
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query
 
@@ -16,47 +12,23 @@ sys_path = os.path.dirname(
 )  # noqa: E402
 sys.path.insert(0, sys_path)  # noqa: E402
 
-from app.constants import SecurityConstants  # noqa: E402
 from app.database import get_db  # noqa: E402
-from app.utils.security import rate_limit, sanitize_input  # noqa: E402
+from app.utils.security import (  # noqa: E402
+    check_lockout,
+    clear_failed_login,
+    hash_password,
+    rate_limit,
+    record_failed_login,
+    sanitize_input,
+    verify_password,
+)
 from app.utils.session import (  # noqa: E402
     create_session,
     delete_session,
     get_user_from_session,
 )
 
-_failed_login_counts: Dict[str, int] = {}
-_locked_accounts: Dict[str, float] = {}
-
 router = APIRouter(prefix="/api/users", tags=["用户管理"])
-
-
-def _hash_password(password: str, salt: str = None) -> tuple:
-    """密码哈希"""
-    if not salt:
-        salt = secrets.token_hex(16)
-    pwd_hash = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode(),
-        salt.encode(),
-        SecurityConstants.PASSWORD_HASH_ITERATIONS,
-    )
-    return pwd_hash.hex(), salt
-
-
-def _verify_password(password: str, pwd_hash: str, salt: str) -> bool:
-    """验证密码"""
-    computed_hash, _ = _hash_password(password, salt)
-    return hmac.compare_digest(computed_hash, pwd_hash)
-
-
-def _check_lockout(username: str) -> bool:
-    """检查账户是否被锁定"""
-    if username in _locked_accounts:
-        if time.time() - _locked_accounts[username] < SecurityConstants.LOCKOUT_DURATION_SECONDS:
-            return True
-        del _locked_accounts[username]
-    return False
 
 
 @router.post("/register", summary="用户注册", description="创建新用户账户")
@@ -79,7 +51,7 @@ async def register(
     if existing:
         raise HTTPException(status_code=409, detail="用户名已存在")
 
-    pwd_hash, salt = _hash_password(password)
+    pwd_hash, salt = hash_password(password)
     user_id = secrets.token_hex(16)
 
     db.create_user(
@@ -105,22 +77,17 @@ async def login(
     """用户登录"""
     username_sanitized = sanitize_input(username, 32)
 
-    if _check_lockout(username_sanitized):
+    if check_lockout(username_sanitized):
         raise HTTPException(status_code=423, detail="账户已被锁定，请30分钟后再试")
 
     db = get_db()
     user = db.get_user_by_username(username_sanitized)
 
-    if not user or not _verify_password(password, user["password_hash"], user["password_salt"]):
-        _failed_login_counts[username_sanitized] = (
-            _failed_login_counts.get(username_sanitized, 0) + 1
-        )
-        if _failed_login_counts[username_sanitized] >= SecurityConstants.MAX_LOGIN_ATTEMPTS:
-            _locked_accounts[username_sanitized] = time.time()
-            del _failed_login_counts[username_sanitized]
+    if not user or not verify_password(password, user["password_hash"], user["password_salt"]):
+        record_failed_login(username_sanitized)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
-    _failed_login_counts.pop(username_sanitized, None)
+    clear_failed_login(username_sanitized)
     db.update_user_last_login(user["user_id"])
 
     token = create_session(user["user_id"], user["role"])
@@ -172,10 +139,10 @@ async def change_password(
     db = get_db()
     db_user = db.get_user_by_id(user["user_id"])
 
-    if not _verify_password(old_password, db_user["password_hash"], db_user["password_salt"]):
+    if not verify_password(old_password, db_user["password_hash"], db_user["password_salt"]):
         raise HTTPException(status_code=401, detail="原密码错误")
 
-    new_hash, new_salt = _hash_password(new_password)
+    new_hash, new_salt = hash_password(new_password)
     db.update_user_password(user["user_id"], new_hash, new_salt)
 
     return {"status": "ok"}
@@ -205,7 +172,7 @@ async def admin_create_user(
     if existing:
         raise HTTPException(status_code=409, detail="用户名已存在")
 
-    pwd_hash, salt = _hash_password(password)
+    pwd_hash, salt = hash_password(password)
     user_id = secrets.token_hex(16)
 
     db.create_user(

@@ -1,4 +1,8 @@
-"""报表生成模块 - 生成 Excel 报表 (增强版)"""
+"""报表生成模块 - 生成 Excel 报表 V2
+
+字段名统一使用英文（与 extract_project_info 输出保持一致），
+导出时重命名为中文列名。
+"""
 
 import os
 from datetime import datetime
@@ -7,105 +11,84 @@ import pandas as pd
 from loguru import logger
 
 
+# 中文列名映射
+COLUMN_RENAME = {
+    "title": "项目名称",
+    "type": "类型",
+    "publish_date": "发布日期",
+    "publish_date_raw": "原始日期",
+    "url": "链接",
+    "source_url": "来源页",
+    "content_preview": "内容摘要",
+    "budget": "预算金额",
+    "deadline": "截止日期",
+    "region": "所属区域",
+    "tender_type": "项目类型",
+    "keywords_matched": "关键词匹配",
+    "contact_name": "联系人",
+    "contact_phone": "联系电话",
+    "contact_email": "邮箱",
+    "attachments_count": "附件数",
+    "attachments": "附件列表",
+    "scraped_at": "采集时间",
+    "scraped_by": "采集器版本",
+    "business_type": "业务类型",
+    "info_type": "信息类型",
+    "project_overview": "项目概况",
+    "bidder_requirements": "投标人资格要求",
+    "submission_deadline": "递交截止时间",
+    "bid_amount": "中标金额",
+}
+
+
 class ReportGenerator:
-    """招投标报表生成器 - 增强版 (支持 18 字段)"""
+    """招投标报表生成器 V2"""
 
     def __init__(self, output_dir: str = "output"):
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
 
     def generate_excel(self, projects: list, filename_prefix: str = "tender") -> str:
-        """生成 Excel 报表 (增强版)"""
+        """生成 Excel 报表"""
         if not projects:
             logger.warning("⚠️ 无数据可生成报表")
             return ""
 
         try:
-            # 转换为 DataFrame
             df = pd.DataFrame(projects)
 
-            # 定义列顺序 (18 字段完整版)
-            columns_order = [
-                "项目名称",
-                "类型",
-                "发布日期",
-                "原始日期",
-                "分类",
-                "预算金额",
-                "截止日期",
-                "所属区域",
-                "项目类型",
-                "关键词匹配",
-                "内容摘要",
-                "联系人",
-                "联系电话",
-                "邮箱",
-                "链接",
-                "来源页",
-                "采集时间",
-                "采集器版本",
+            # 重命名为中文列名
+            rename = {k: v for k, v in COLUMN_RENAME.items() if k in df.columns}
+            df = df.rename(columns=rename)
+
+            # 选择优先列顺序
+            priority_cols = [
+                "项目名称", "类型", "发布日期", "预算金额", "截止日期",
+                "所属区域", "关键词匹配", "中标金额", "联系人", "联系电话",
+                "业务类型", "信息类型", "项目概况", "投标人资格要求",
+                "内容摘要", "链接", "来源页", "采集时间", "采集器版本",
+                "附件数", "附件列表", "递交截止时间",
             ]
+            available = [c for c in priority_cols if c in df.columns]
+            remaining = [c for c in df.columns if c not in priority_cols]
+            df = df[available + remaining]
 
-            # 映射旧字段名到新字段名
-            field_mapping = {
-                "项目名称": "title",
-                "类型": "type",
-                "发布日期": "publish_date",
-                "匹配关键词": "keywords_matched",
-                "链接": "url",
-                "来源网站": "source_url",
-                "预算金额": "budget",
-                "联系人": "contact_name",
-                "联系电话": "contact_phone",
-                "邮箱": "contact_email",
-                "内容摘要": "content_preview",
-                "截止日期": "deadline",
-                "所属区域": "region",
-                "项目类型": "tender_type",
-                "原始日期": "publish_date_raw",
-                "分类": "category",
-                "来源页": "source_url",
-                "采集时间": "scraped_at",
-                "采集器版本": "scraped_by",
-            }
-
-            # 选择可用列
-            available_columns = []
-            for col in columns_order:
-                mapped = field_mapping.get(col, col)
-                if mapped in df.columns:
-                    available_columns.append(mapped)
-
-            # 确保有数据
-            if not available_columns:
-                available_columns = list(df.columns)
-
-            df = df[available_columns]
-
-            # 重命名为中文
-            rename_map = {v: k for k, v in field_mapping.items() if v in available_columns}
-            df = df.rename(columns=rename_map)
-
-            # 生成文件名
+            # 生成文件
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{filename_prefix}_{timestamp}.xlsx"
             filepath = os.path.join(self.output_dir, filename)
 
-            # 写入 Excel
             with pd.ExcelWriter(filepath, engine="openpyxl") as writer:
                 df.to_excel(writer, sheet_name="采购项目", index=False)
-
-                # 自动调整列宽
-                worksheet = writer.sheets["采购项目"]
+                ws = writer.sheets["采购项目"]
                 for i, col in enumerate(df.columns):
-                    max_length = max(df[col].astype(str).map(len).max(), len(col)) + 2
-                    worksheet.column_dimensions[chr(65 + i)].width = min(max_length, 60)
+                    max_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
+                    ws.column_dimensions[chr(65 + i) if i < 26 else "A"].width = min(max_len, 60)
 
             logger.info(f"✅ Excel 报表已生成：{filepath}")
             return filepath
-
         except Exception:
-            logger.exception("Report generation error")
+            logger.exception("报表生成异常")
             return ""
 
     def generate_summary(self, projects: list) -> str:
@@ -113,31 +96,24 @@ class ReportGenerator:
         if not projects:
             return "今日无相关采购项目"
 
-        summary = []
-        summary.append(f"## 采购项目汇总 ({len(projects)} 条)\n")
+        lines = [f"## 采购项目汇总 ({len(projects)} 条)\n"]
 
-        # 统计信息
         with_budget = sum(1 for p in projects if p.get("budget"))
         with_contact = sum(1 for p in projects if p.get("contact_name"))
+        lines.append(f"📊 统计：有预算 {with_budget} 条，有联系人 {with_contact} 条\n")
 
-        summary.append(f"📊 统计: 有预算 {with_budget} 条, 有联系人 {with_contact} 条\n")
-
-        # 按类型分组
         by_type = {}
         for p in projects:
-            p_type = p.get("type", p.get("category", "未知"))
-            if p_type not in by_type:
-                by_type[p_type] = []
-            by_type[p_type].append(p)
+            t = p.get("type") or p.get("category", "未知")
+            by_type.setdefault(t, []).append(p)
 
         for p_type, items in by_type.items():
-            summary.append(f"### {p_type} ({len(items)} 条)")
+            lines.append(f"### {p_type} ({len(items)} 条)")
             for item in items:
-                title = item.get("title", "无标题")[:40]
-                keywords = item.get("keywords_matched", "")
+                title = (item.get("title") or "无标题")[:40]
+                kw = item.get("keywords_matched", "")
                 budget = item.get("budget", "")
-                budget_str = f" | 预算: {budget}" if budget else ""
-                summary.append(f"- {title}... [{keywords}]{budget_str}")
-            summary.append("")
-
-        return "\n".join(summary)
+                b_str = f" | 预算: {budget}" if budget else ""
+                lines.append(f"- {title}... [{kw}]{b_str}")
+            lines.append("")
+        return "\n".join(lines)

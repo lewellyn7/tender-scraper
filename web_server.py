@@ -16,6 +16,9 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
 from app.api.routes import api_router
 from app.api import routes_n8n, routes_users
+from app.api.routes.document_upload import router as document_upload_router
+from app.api.routes.pages import router as pages_router
+from app.api.metrics import router as metrics_router
 from app.middleware.security import SecurityHeadersMiddleware, RequestLoggingMiddleware, RateLimitMiddleware
 from app.middleware.csrf import CSRFProtectionMiddleware
 import uvicorn
@@ -54,12 +57,23 @@ app.add_middleware(CSRFProtectionMiddleware)
 app.include_router(api_router)
 app.include_router(routes_n8n.router)
 app.include_router(routes_users.router)
+app.include_router(document_upload_router)
+app.include_router(pages_router)
+app.include_router(metrics_router)
 
 # 静态文件
 STATIC_DIR = Path(__file__).parent / "app" / "static"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+# ── 健康检查 & 指标端点 ──────────────────────────────────
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "service": "tender-scraper"}
+
+# Prometheus 指标端点 — 统一入口，同时服务标准 process/http 指标和自定义资质/日志指标
+# make_asgi_app() 已移除：它会拦截 /metrics/* 子路径，导致 /metrics/qualifications 等路由失效
+# /metrics 和 /metrics/* 子路由现在全部由 FastAPI 自身处理（见上方 app.include_router）
+
 if __name__ == "__main__":
-    print("🚀 启动 Web 管理界面: http://localhost:9000")
-    uvicorn.run(app, host="0.0.0.0", port=9099)
+    uvicorn.run(app, host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", 9099)))

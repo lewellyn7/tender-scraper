@@ -1,5 +1,11 @@
 """数据模型"""
 
+from app.models.bidder_qualification import (
+    BidderQualification,
+    QualificationCategory,
+    QualificationLevel,
+    QualificationStatus,
+)
 from app.models.schemas import (
     AnnotationCreate,
     AnnotationResponse,
@@ -53,4 +59,8 @@ __all__ = [
     "LogResponse",
     "StatsResponse",
     "PaginatedResponse",
+    "BidderQualification",
+    "QualificationCategory",
+    "QualificationLevel",
+    "QualificationStatus",
 ]

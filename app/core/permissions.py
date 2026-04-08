@@ -190,9 +190,16 @@ def get_perm_config() -> PermissionConfig:
 
 
 def check_permission(user_id: str, permission: Permission) -> bool:
+    """Check if user_id has the given permission.
+
+    Unknown users are always denied — no fallback to admin check.
+    This prevents unauthenticated or unregistered users from gaining
+    access through misconfigured database entries.
+    """
     user = get_perm_config().get_user(user_id)
     if not user:
-        return get_perm_config().is_admin(user_id)
+        # Deny by default: unknown users must be explicitly registered
+        return False
     return user.has_permission(permission)
 
 

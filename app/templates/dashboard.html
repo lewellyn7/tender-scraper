@@ -3,21 +3,15 @@
 {% block content %}
 <div class="toast-container" id="toastContainer"></div>
 <div x-data="dashboardData()" x-init="initData()">
+    <!-- Skeleton loader -->
+    <div x-show="!projects.length && !stats.total" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <template x-for="i in 4" :key="i">
+            <div class="skeleton h-20 rounded-xl"></div>
+        </template>
+    </div>
+
     <!-- 统计卡片 -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div class="anim-card bg-white overflow-hidden rounded-xl shadow-md p-5 border border-gray-100 dark:border-gray-700">
-            <div class="flex items-center">
-                <div class="flex-shrink-0 bg-blue-500 rounded-md p-3">
-                    <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                    </svg>
-                </div>
-                <div class="ml-4">
-                    <p class="text-sm font-medium text-gray-500">采集总数</p>
-                    <p class="text-2xl font-semibold text-gray-900" x-text="stats.total">0</p>
-                </div>
-            </div>
-        </div>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
         <div class="anim-card bg-white overflow-hidden rounded-xl shadow-md p-5 border border-gray-100 dark:border-gray-700">
             <div class="flex items-center">
                 <div class="flex-shrink-0 bg-green-500 rounded-md p-3">
@@ -53,16 +47,16 @@
                 </div>
                 <div class="ml-4">
                     <p class="text-sm font-medium text-gray-500">最后运行</p>
-                    <p class="text-lg font-semibold text-gray-900" x-text="stats.last_run">-</p>
+                    <p class="text-sm font-semibold text-gray-700 dark:text-gray-200" x-text="stats.last_run">-</p>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- 筛选栏 -->
-    <div class="bg-white rounded-lg shadow mb-6 p-4">
-        <div class="flex flex-wrap items-center gap-4">
-            <span class="text-sm font-medium text-gray-700">类型：</span>
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm mb-6 p-4 border border-gray-100 dark:border-gray-700">
+        <div class="flex flex-wrap items-center gap-3">
+            <span class="text-sm font-medium text-gray-600 dark:text-gray-300">类型：</span>
             <button @click="filterType='all'" :class="filterType==='all'?'bg-blue-600 text-white':'bg-gray-200 text-gray-700'" class="px-4 py-2 rounded-lg text-sm font-medium transition">全部 (<span x-text="projects.length"></span>)</button>
             <button @click="filterType='政府采购'" :class="filterType==='政府采购'?'bg-blue-600 text-white':'bg-gray-200 text-gray-700'" class="px-4 py-2 rounded-lg text-sm font-medium transition">政府采购 (<span x-text="projects.filter(p=>p.tender_type==='政府采购').length"></span>)</button>
             <button @click="filterType='工程建设'" :class="filterType==='工程建设'?'bg-blue-600 text-white':'bg-gray-200 text-gray-700'" class="px-4 py-2 rounded-lg text-sm font-medium transition">工程建设 (<span x-text="projects.filter(p=>p.tender_type==='工程建设').length"></span>)</button>
@@ -129,13 +123,13 @@
                                 <!-- 预算金额 -->
                                 <div class="flex items-center" x-show="project.budget">
                                     <span class="text-gray-400 w-16">预算:</span>
-                                    <span class="text-orange-600 font-semibold" x-text="project.budget"></span>
+                                    <span class="text-orange-600 font-semibold" x-text="formatBudgetValue(project.budget)"></span>
                                 </div>
-                                
+
                                 <!-- 中标金额 -->
                                 <div class="flex items-center" x-show="project.bid_amount">
                                     <span class="text-gray-400 w-16">中标:</span>
-                                    <span class="text-green-600 font-semibold" x-text="project.bid_amount"></span>
+                                    <span class="text-green-600 font-semibold" x-text="formatBudgetValue(project.bid_amount)"></span>
                                 </div>
                                 
                                 <!-- 项目概况 -->
@@ -300,9 +294,15 @@ function dashboardData() {
         },
         
         formatBudget(total) {
-            if (total >= 100000000) return (total/100000000).toFixed(2) + ' 亿元';
-            if (total >= 10000) return (total/10000).toFixed(2) + ' 万元';
-            return total.toFixed(0) + ' 元';
+            if (!total) return '-';
+            const n = parseFloat(String(total).replace(/[^\d.]/g, ''));
+            if (isNaN(n)) return total;
+            if (n >= 100000000) return (n/100000000).toFixed(2) + ' 亿元';
+            if (n >= 10000)     return (n/10000).toFixed(2)     + ' 万元';
+            return n.toFixed(0) + ' 元';
+        },
+        formatBudgetValue(val) {
+            return this.formatBudget(val);
         }
     };
 }

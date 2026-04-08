@@ -16,6 +16,40 @@ router = APIRouter(prefix="/api", tags=["项目"])
 SYS_PATH = Path(__file__).parent.parent.parent.parent
 _cache = {"projects": [], "total": 0, "last_load": 0}
 
+# TF-IDF 缓存
+_tfidf_cache = {"matcher": None, "expiry": 0}
+TFIDF_CACHE_TTL = 300  # 5分钟
+
+
+def _batch_load_favorites_and_annotations(urls: list, db):
+    """批量预加载 favorites 和 annotations，避免 N+1 查询"""
+    if not urls:
+        return {}, {}
+    
+    fav_map, ann_map = {}, {}
+    
+    # 批量查询 favorites (2次查询替代 N×2)
+    placeholders = ",".join(["?"] * len(urls))
+    try:
+        fav_rows = db._get_conn().execute(
+            f"SELECT project_url, status FROM favorites WHERE project_url IN ({placeholders})",
+            urls
+        ).fetchall()
+        fav_map = {row["project_url"]: row for row in fav_rows}
+    except Exception:
+        pass
+    
+    try:
+        ann_rows = db._get_conn().execute(
+            f"SELECT project_url, note, priority FROM annotations WHERE project_url IN ({placeholders})",
+            urls
+        ).fetchall()
+        ann_map = {row["project_url"]: row for row in ann_rows}
+    except Exception:
+        pass
+    
+    return fav_map, ann_map
+
 
 def _load_projects():
     now = time.time()
@@ -109,9 +143,13 @@ def get_projects(
     total_f = len(filtered)
     start = (page - 1) * page_size
     page_projects = filtered[start : start + page_size]
+    # 批量预加载 favorites 和 annotations (优化 N+1 查询)
+    urls = [p.get("url", "") for p in page_projects]
+    fav_map, ann_map = _batch_load_favorites_and_annotations(urls, db)
     for p in page_projects:
-        p["is_favorite"] = db.is_favorite(p.get("url", ""))
-        p["annotation"] = db.get_annotation(p.get("url", ""))
+        url = p.get("url", "")
+        p["is_favorite"] = url in fav_map
+        p["annotation"] = ann_map.get(url)
     data_file = SYS_PATH / "output" / "latest.json"
     last_run = "-"
     if data_file.exists():
