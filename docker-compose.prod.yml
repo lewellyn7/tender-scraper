@@ -1,0 +1,196 @@
+# ============================================================
+# 招投标采集系统 - 生产部署配置 (docker-compose.prod.yml)
+#
+# 使用方式:
+#   cp .env.production .env
+#   编辑 .env 填入实际值
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# 本地端口映射 (避免与现有服务冲突):
+#   Web 服务:     8002 (已有 vllm 占 8000/8001)
+#   Prometheus:   9091 (已有 vllm 占 9090)
+#   Grafana:      3002 (已有 valkey-insight 占 3000)
+#   Alertmanager: 9094 (已有 valkey-insight 占 9093)
+# ============================================================
+
+services:
+  # ============================================================
+  # 主采集服务 (FastAPI)
+  # ============================================================
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tender-scraper
+    restart: unless-stopped
+    ports:
+      - "8002:8000"          # Web (内部 8000, 外部 8002)
+    environment:
+      # Database - 使用外部 PostgreSQL (避免重复占用资源)
+      DATABASE_URL: postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5433}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-tender_scraper}
+
+      # Redis - 使用外部 Redis
+      REDIS_HOST: ${REDIS_HOST:-10.8.0.4}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: 0
+
+      # API Keys
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+
+      # 服务器配置
+      ENV: production
+      HOST: 0.0.0.0
+      PORT: 8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # 采集配置
+      CRAWLER_CONCURRENCY: ${CRAWLER_CONCURRENCY:-20}
+      CRAWLER_TIMEOUT: ${CRAWLER_TIMEOUT:-30}
+      CRAWLER_RETRY_MAX: ${CRAWLER_RETRY_MAX:-3}
+
+      # 代理 (可选)
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    networks:
+      - scraper-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    mem_limit: 2g
+    mem_reservation: 512m
+
+  # ============================================================
+  # Prometheus 监控
+  # ============================================================
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    container_name: tender-scraper-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    networks:
+      - scraper-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ============================================================
+  # Grafana 可视化
+  # ============================================================
+  grafana:
+    image: grafana/grafana:11.4.1
+    container_name: tender-scraper-grafana
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3002
+      - GF_SERVER_DOMAIN=localhost:3002
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - scraper-net
+    depends_on:
+      - prometheus
+
+  # ============================================================
+  # Alertmanager 告警
+  # ============================================================
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: tender-scraper-alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9094'
+    ports:
+      - "9094:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    networks:
+      - scraper-net
+
+  # ============================================================
+  # cAdvisor 容器监控
+  # ============================================================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.51.0
+    container_name: tender-scraper-cadvisor
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "9080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - scraper-net
+    depends_on:
+      - redis
+
+  # ============================================================
+  # Redis 缓存 (可选 - 使用外部 Redis 时可禁用)
+  # ============================================================
+  redis:
+    image: valkey/valkey:8-alpine
+    container_name: tender-scraper-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"           # 使用 6380 避免与外部 Redis 6379 冲突
+    command: valkey-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - scraper-net
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+networks:
+  scraper-net:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  alertmanager_data:
+  redis_data:
