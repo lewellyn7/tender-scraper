@@ -49,10 +49,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
-# Install playwright browsers (system chromium)
+# Install playwright browsers (chromium only, deps already installed above)
 ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
 RUN pip install --no-cache-dir playwright==1.44.0 && \
-    playwright install --with-deps chromium && \
+    playwright install chromium && \
     pip uninstall -y playwright
 
 # Copy application code
