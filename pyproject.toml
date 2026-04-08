@@ -31,6 +31,8 @@ exclude = [
     ".venv",
     "build",
     "dist",
+    ".skills",        # OpenClaw workspace
+    ".openclaw",     # OpenClaw config
 ]
 
 [tool.ruff.lint]
