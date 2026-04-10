@@ -327,50 +327,6 @@
 
 <script>
   // Auth helper
-  function authFetch(u,o){return fetch(u,Object.assign({headers:Object.assign({'Content-Type':'application/json'},authHeaders())},o||{}))}
-  function authHeaders(){return localStorage.getItem('session_token')?{'X-Session-Token':localStorage.getItem('session_token')}:{}}
-
-(function() {
-  // ==================== State ====================
-  var state = {
-    qualifications: [],
-    loading: false,
-    total: 0,
-    currentPage: 1,
-    pageSize: 20,
-    search: '',
-    filterCategory: '',
-    filterStatus: '',
-    stats: { total: 0, valid: 0, expiring: 0, expired: 0 },
-    expiringCount: 0,
-    expiringList: [],
-    expiringLoading: false,
-    // Form
-    editingId: null,
-    form: blankForm(),
-    // Match
-    matchTenderId: null,
-    matchTender: null,
-    matchResult: null,
-    matchLoading: false,
-    matchSelectedQ: null,
-    tenderSearch: '',
-    tenderResults: [],
-    tenderSearching: false,
-    selectedTender: null,
-    tenderSearchTimer: null
-  };
-
-  // ==================== DOM Helpers ====================
-  function $(id) { return document.getElementById(id); }
-  function show(el) { if (el) el.classList.remove('hidden'); }
-  function hide(el) { if (el) el.classList.add('hidden'); }
-  function setText(el, text) { if (el) el.textContent = text || '-'; }
-  function escapeHtml(str) { if (!str) return ''; var d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
-
-  function blankForm() {
-    return { name: '', category: '', level: '', certificate_no: '', valid_from: '', valid_to: '', issuer: '', file_path: '', status: '有效', linked_tenders: [] };
-  }
 
   // ==================== Init ====================
   async function init() {

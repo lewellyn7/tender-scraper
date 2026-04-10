@@ -212,6 +212,19 @@
 
     <!-- ========== SCRIPTS ========== -->
     <script>
+        // ── Common Helpers ──────────────────────────────────────────────
+        function $(id) { return document.getElementById(id); }
+        function escapeHtml(str) {
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+        function authHeaders() {
+            var t = localStorage.getItem('session_token');
+            return t ? {'X-Session-Token': t} : {};
+        }
+        function authFetch(u, o) {
+            return fetch(u, Object.assign({headers: Object.assign({'Content-Type': 'application/json'}, authHeaders())}, o || {}));
+        }
+
         // ── Theme toggle ───────────────────────────────────────────────
         function applyTheme(theme) {
             const isDark = theme === 'dark';

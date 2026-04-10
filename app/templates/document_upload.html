@@ -199,41 +199,6 @@
 
 {% block scripts %}
 <script>
-  function authHeaders(){return localStorage.getItem('session_token')?{'X-Session-Token':localStorage.getItem('session_token')}:{}}
-  function authFetch(u,o){return fetch(u,Object.assign({headers:Object.assign({'Content-Type':'application/json'},authHeaders())},o||{}))}
-
-  const zone = document.getElementById('upload-zone');
-  const fileInput = document.getElementById('file-input');
-  const uploadBtn = document.getElementById('upload-btn');
-  const progressWrap = document.getElementById('progress-wrap');
-  const progressFill = document.getElementById('progress-fill');
-  const progressLabel = document.getElementById('progress-label');
-  const fileInfo = document.getElementById('file-info');
-  const fileName = document.getElementById('file-name');
-  const resultArea = document.getElementById('result-area');
-  const qualSelect = document.getElementById('qual-select');
-  const qualLink = document.getElementById('qual-link');
-  const historyList = document.getElementById('history-list');
-
-  let selectedFile = null;
-
-  // 加载最近资质列表
-  async function loadRecentQualifications() {
-    try {
-      const resp = await authFetch('/api/bidder-qualifications?page_size=50');
-      const data = await resp.json();
-      const items = data.items || [];
-      qualSelect.innerHTML = '<option value="">-- 不关联，创建新记录 --</option>';
-      items.forEach(q => {
-        const opt = document.createElement('option');
-        opt.value = q.id;
-        opt.textContent = `#${q.id} ${q.name} (${q.category || '未分类'} | ${q.status || '有效'})`;
-        qualSelect.appendChild(opt);
-      });
-    } catch (e) {
-      console.warn('Failed to load qualifications:', e);
-    }
-  }
 
   loadRecentQualifications();
 
@@ -343,12 +308,6 @@
     const val = value || '—';
     const cls = value ? '' : 'empty';
     return `<div class="field-item"><div class="field-label">${label}</div><div class="field-value ${cls}">${val}</div></div>`;
-  }
-
-  function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
   }
 
   // 上传并保存

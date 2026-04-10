@@ -68,7 +68,6 @@
 function getToken() { return localStorage.getItem('session_token'); }
 function setToken(t) { localStorage.setItem('session_token', t); }
 function clearToken() { localStorage.removeItem('session_token'); }
-function authHeaders() { return getToken() ? {'X-Session-Token': getToken()} : {}; }
 
 // ── Tab Switcher ─────────────────────────────────────────────
 function switchTab(tab) {
@@ -173,7 +172,6 @@ function showError(id, msg) {
   el.classList.remove('hidden');
 }
 
-function $(id) { return document.getElementById(id); }
 
 // ── Enter key ────────────────────────────────────────────────
 $('login-password').addEventListener('keyup', function(e) {

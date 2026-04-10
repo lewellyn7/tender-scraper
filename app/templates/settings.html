@@ -265,14 +265,6 @@
 <script>
 (function() {
   // ==================== Auth Helper ====================
-  function authHeaders() {
-    var t = localStorage.getItem('session_token');
-    return t ? {'X-Session-Token': t} : {};
-  }
-  function authFetch(url, opts) {
-    var headers = Object.assign({'Content-Type': 'application/json'}, authHeaders());
-    return fetch(url, Object.assign({headers: headers}, opts || {}));
-  }
   function getToken() { return localStorage.getItem('session_token'); }
 
   // ==================== State ====================
@@ -308,7 +300,6 @@
   };
 
   // ==================== DOM Helpers ====================
-  function $(id) { return document.getElementById(id); }
   function show(el) { if (el) el.classList.remove('hidden'); }
   function hide(el) { if (el) el.classList.add('hidden'); }
   function setText(el, text) { if (el) el.textContent = text; }
@@ -908,12 +899,6 @@
   }
 
   // ==================== Utils ====================
-  function escapeHtml(str) {
-    if (!str) return '';
-    var div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  }
 
   // ==================== Event Delegation ====================
   function setupEventListeners() {
