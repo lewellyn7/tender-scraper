@@ -48,7 +48,12 @@ def main():
     )
 
     logger.info("[Scheduler] 定时采集调度器已启动 (08:00 / 12:00 / 18:00)")
-    logger.info(f"[Scheduler] 下次执行: {scheduler.get_job('daily_collection').next_run_time}")
+    job = scheduler.get_job("daily_collection")
+    if job:
+        next_time = getattr(job, "next_run_time", None) or getattr(job, "next_run_time_", None)
+        logger.info(f"[Scheduler] 下次执行: {next_time}")
+    else:
+        logger.info("[Scheduler] 下次执行: 未找到 daily_collection job")
 
     try:
         scheduler.start()

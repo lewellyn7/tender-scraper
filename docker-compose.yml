@@ -8,7 +8,7 @@ services:
     container_name: tender-scraper-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis-data:/data
     command: >
@@ -79,7 +79,6 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./output:/app/output
-      - ./logs:/app/logs
       - scraper-data:/app/data
     healthcheck:
       # 注意：容器内部端口是 8000，不是 8888
@@ -128,7 +127,6 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./output:/app/output
-      - ./logs:/app/logs
       - scraper-data:/app/data
     networks:
       - tender-net
