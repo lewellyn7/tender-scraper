@@ -68,6 +68,57 @@ async def test_notification():
 # ========== settings ==========
 
 
+@router.get("/ragflow/config")
+def get_ragflow_config():
+    return JSONResponse({
+        "base_url": os.getenv("RAGFLOW_BASE_URL", "http://localhost:8088"),
+        "api_key": os.getenv("RAGFLOW_API_KEY", "")[:4] + "****" if os.getenv("RAGFLOW_API_KEY") else "",
+        "dataset_id": os.getenv("RAGFLOW_DATASET_ID", ""),
+        "mcp_url": os.getenv("RAGFLOW_MCP_URL", "http://host.docker.internal:9382"),
+    })
+
+
+@router.post("/ragflow/config")
+def update_ragflow_config(
+    base_url: str = Body("http://localhost:8088"),
+    api_key: str = Body(""),
+    dataset_id: str = Body(""),
+    mcp_url: str = Body(""),
+):
+    env_path = pathlib.Path(SYS_PATH) / ".env"
+    lines = []
+    if env_path.exists():
+        lines = env_path.read_text().splitlines()
+    updated_keys = set()
+    new_lines = []
+    for line in lines:
+        if line.startswith("RAGFLOW_BASE_URL="):
+            new_lines.append(f"RAGFLOW_BASE_URL={base_url}")
+            updated_keys.add("RAGFLOW_BASE_URL")
+        elif line.startswith("RAGFLOW_API_KEY="):
+            if api_key:
+                new_lines.append(f"RAGFLOW_API_KEY={api_key}")
+            updated_keys.add("RAGFLOW_API_KEY")
+        elif line.startswith("RAGFLOW_DATASET_ID="):
+            new_lines.append(f"RAGFLOW_DATASET_ID={dataset_id}")
+            updated_keys.add("RAGFLOW_DATASET_ID")
+        elif line.startswith("RAGFLOW_MCP_URL="):
+            new_lines.append(f"RAGFLOW_MCP_URL={mcp_url}")
+            updated_keys.add("RAGFLOW_MCP_URL")
+        else:
+            new_lines.append(line)
+    for key, val in [
+        ("RAGFLOW_BASE_URL", base_url),
+        ("RAGFLOW_API_KEY", api_key),
+        ("RAGFLOW_DATASET_ID", dataset_id),
+        ("RAGFLOW_MCP_URL", mcp_url),
+    ]:
+        if key not in updated_keys and (val or key != "RAGFLOW_API_KEY"):
+            new_lines.append(f"{key}={val}")
+    env_path.write_text("\n".join(new_lines) + "\n")
+    return {"success": True}
+
+
 @router.get("/llm/config")
 def get_llm_config():
     return JSONResponse({

@@ -5,6 +5,7 @@
   <!-- Navigation Tabs -->
   <div class="border-b border-gray-200 dark:border-gray-700">
     <nav class="flex gap-1 -mb-px" id="settingsTabs">
+      <button type="button" data-tab="ragflow" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">📚 RAGFlow</button>
       <button type="button" data-tab="llm" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">🤖 AI 模型</button>
       <button type="button" data-tab="notifications" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">通知设置</button>
       <button type="button" data-tab="presets" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">筛选预设</button>
@@ -69,6 +70,46 @@
   <!-- Presets Tab -->
 
   <!-- LLM Tab -->
+
+  <!-- RAGFlow Tab -->
+  <div id="tab-ragflow" class="tab-content space-y-4 hidden">
+    <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">📚 RAGFlow 知识库配置</h2>
+      <div class="grid md:grid-cols-2 gap-6">
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">RAGFlow 地址</label>
+            <input type="text" id="ragflow-url" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600 text-sm" placeholder="http://localhost:8088" value="http://localhost:8088">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">API Key</label>
+            <input type="password" id="ragflow-api-key" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600 text-sm" placeholder="ragflow-...">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">知识库 ID (Dataset ID)</label>
+            <input type="text" id="ragflow-dataset-id" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600 text-sm" placeholder="cebdf8ee2c1211f18c13d3f5779c3594">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">MCP 地址 <span class="text-xs text-gray-400">(可选)</span></label>
+            <input type="text" id="ragflow-mcp-url" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600 text-sm" placeholder="http://host.docker.internal:9382">
+          </div>
+          <div class="flex gap-3 mt-4">
+            <button type="button" id="btn-save-ragflow" class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">保存配置</button>
+          </div>
+          <p id="ragflow-msg" class="mt-2 text-sm hidden"></p>
+        </div>
+        <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 text-sm text-gray-600 dark:text-gray-400">
+          <h3 class="font-medium text-gray-700 dark:text-gray-300 mb-2">配置说明</h3>
+          <ul class="space-y-1 list-disc list-inside">
+            <li>RAGFlow 地址: RAGFlow 服务的 URL</li>
+            <li>API Key: 在 RAGFlow 界面 → 用户头像 → API Keys 获取</li>
+            <li>知识库 ID: 创建知识库后的 ID（用于语义检索）</li>
+            <li>修改后需重启服务生效</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="tab-llm" class="tab-content space-y-4 hidden">
     <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">🤖 AI 模型配置</h2>
@@ -410,6 +451,43 @@
     }
   }
 
+  // ── RAGFlow Config ────────────────────────────────────
+  async function loadRAGFlowConfig() {
+    try {
+      var r = await authFetch('/api/ragflow/config');
+      var d = await r.json();
+      $('ragflow-url').value = d.base_url || '';
+      $('ragflow-api-key').value = '';
+      $('ragflow-dataset-id').value = d.dataset_id || '';
+      $('ragflow-mcp-url').value = d.mcp_url || '';
+    } catch (e) { console.error(e); }
+  }
+
+  async function saveRAGFlowConfig() {
+    var msgEl = $('ragflow-msg');
+    msgEl.classList.add('hidden');
+    try {
+      var r = await authFetch('/api/ragflow/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base_url: $('ragflow-url').value,
+          api_key: $('ragflow-api-key').value,
+          dataset_id: $('ragflow-dataset-id').value,
+          mcp_url: $('ragflow-mcp-url').value
+        })
+      });
+      var d = await r.json();
+      msgEl.textContent = d.success ? '保存成功! 重启服务后生效' : '保存失败';
+      msgEl.classList.remove('hidden');
+      msgEl.className = 'mt-2 text-sm ' + (d.success ? 'text-green-600' : 'text-red-600');
+    } catch (e) {
+      msgEl.textContent = 'ERROR: ' + e.message;
+      msgEl.classList.remove('hidden');
+      msgEl.className = 'mt-2 text-sm text-red-600';
+    }
+  }
+
   async function testNotification() {
     var msgEl = $('notif-msg');
     msgEl.classList.add('hidden');
@@ -417,6 +495,43 @@
       var r = await authFetch('/api/notifications/test', { method: 'POST' });
       var d = await r.json();
       msgEl.textContent = d.success ? '测试消息已发送!' : '发送失败: ' + (d.error || '未知错误');
+      msgEl.classList.remove('hidden');
+      msgEl.className = 'mt-2 text-sm ' + (d.success ? 'text-green-600' : 'text-red-600');
+    } catch (e) {
+      msgEl.textContent = 'ERROR: ' + e.message;
+      msgEl.classList.remove('hidden');
+      msgEl.className = 'mt-2 text-sm text-red-600';
+    }
+  }
+
+  // ── RAGFlow Config ────────────────────────────────────
+  async function loadRAGFlowConfig() {
+    try {
+      var r = await authFetch('/api/ragflow/config');
+      var d = await r.json();
+      $('ragflow-url').value = d.base_url || '';
+      $('ragflow-api-key').value = '';
+      $('ragflow-dataset-id').value = d.dataset_id || '';
+      $('ragflow-mcp-url').value = d.mcp_url || '';
+    } catch (e) { console.error(e); }
+  }
+
+  async function saveRAGFlowConfig() {
+    var msgEl = $('ragflow-msg');
+    msgEl.classList.add('hidden');
+    try {
+      var r = await authFetch('/api/ragflow/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base_url: $('ragflow-url').value,
+          api_key: $('ragflow-api-key').value,
+          dataset_id: $('ragflow-dataset-id').value,
+          mcp_url: $('ragflow-mcp-url').value
+        })
+      });
+      var d = await r.json();
+      msgEl.textContent = d.success ? '保存成功! 重启服务后生效' : '保存失败';
       msgEl.classList.remove('hidden');
       msgEl.className = 'mt-2 text-sm ' + (d.success ? 'text-green-600' : 'text-red-600');
     } catch (e) {
@@ -448,6 +563,43 @@
           provider: $('llm-provider').value,
           model: $('llm-model').value,
           api_key: $('llm-api-key').value
+        })
+      });
+      var d = await r.json();
+      msgEl.textContent = d.success ? '保存成功! 重启服务后生效' : '保存失败';
+      msgEl.classList.remove('hidden');
+      msgEl.className = 'mt-2 text-sm ' + (d.success ? 'text-green-600' : 'text-red-600');
+    } catch (e) {
+      msgEl.textContent = 'ERROR: ' + e.message;
+      msgEl.classList.remove('hidden');
+      msgEl.className = 'mt-2 text-sm text-red-600';
+    }
+  }
+
+  // ── RAGFlow Config ────────────────────────────────────
+  async function loadRAGFlowConfig() {
+    try {
+      var r = await authFetch('/api/ragflow/config');
+      var d = await r.json();
+      $('ragflow-url').value = d.base_url || '';
+      $('ragflow-api-key').value = '';
+      $('ragflow-dataset-id').value = d.dataset_id || '';
+      $('ragflow-mcp-url').value = d.mcp_url || '';
+    } catch (e) { console.error(e); }
+  }
+
+  async function saveRAGFlowConfig() {
+    var msgEl = $('ragflow-msg');
+    msgEl.classList.add('hidden');
+    try {
+      var r = await authFetch('/api/ragflow/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base_url: $('ragflow-url').value,
+          api_key: $('ragflow-api-key').value,
+          dataset_id: $('ragflow-dataset-id').value,
+          mcp_url: $('ragflow-mcp-url').value
         })
       });
       var d = await r.json();
@@ -989,6 +1141,7 @@
     // Notifications
     $('btn-save-notif').addEventListener('click', saveNotifConfig);
     $('btn-save-llm').addEventListener('click', saveLLMConfig);
+    $('btn-save-ragflow').addEventListener('click', saveRAGFlowConfig);
     $('btn-test-notif').addEventListener('click', testNotification);
 
     // Presets
