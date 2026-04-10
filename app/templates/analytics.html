@@ -1,19 +1,19 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="toast-container" id="toastContainer"></div>
-<div x-data="analyticsApp()" x-init="init()">
+
   <div class="flex justify-between items-center mb-6">
     <h1 class="text-2xl font-bold text-gray-900 dark:text-white">数据分析</h1>
     <div class="flex gap-3 items-center">
       <label class="text-sm text-gray-600 dark:text-gray-400">统计周期:</label>
-      <select x-model="days" @change="loadAnalytics()" class="border rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 dark:border-gray-600">
+      <select id="daysSelect" class="border rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 dark:border-gray-600">
         <option value="7">近7天</option>
         <option value="14">近14天</option>
-        <option value="30">近30天</option>
+        <option value="30" selected>近30天</option>
         <option value="60">近60天</option>
         <option value="90">近90天</option>
       </select>
-      <button @click="loadAnalytics()" class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">刷新</button>
+      <button id="refreshBtn" class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">刷新</button>
     </div>
   </div>
 
@@ -21,33 +21,28 @@
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
     <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
       <p class="text-sm text-gray-500 dark:text-gray-400">采集项目</p>
-      <p class="text-2xl font-bold text-blue-600 dark:text-blue-400" x-text="stats.total_count || 0"></p>
+      <p class="text-2xl font-bold text-blue-600 dark:text-blue-400" id="statTotal">0</p>
     </div>
     <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
       <p class="text-sm text-gray-500 dark:text-gray-400">政府项目</p>
-      <p class="text-2xl font-bold text-green-600 dark:text-green-400" x-text="govCount"></p>
+      <p class="text-2xl font-bold text-green-600 dark:text-green-400" id="govCount">0</p>
     </div>
     <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
       <p class="text-sm text-gray-500 dark:text-gray-400">工程项目</p>
-      <p class="text-2xl font-bold text-purple-600 dark:text-purple-400" x-text="engCount"></p>
+      <p class="text-2xl font-bold text-purple-600 dark:text-purple-400" id="engCount">0</p>
     </div>
     <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
       <p class="text-sm text-gray-500 dark:text-gray-400">有预算项目</p>
-      <p class="text-2xl font-bold text-amber-600 dark:text-amber-400" x-text="budgetCount"></p>
+      <p class="text-2xl font-bold text-amber-600 dark:text-amber-400" id="budgetCount">0</p>
     </div>
   </div>
 
-  <div x-show="loading" class="text-center py-12 text-gray-500">加载中...</div>
-  <div x-show="!loading" class="space-y-6">
+  <div id="loadingEl" class="text-center py-12 text-gray-500">加载中...</div>
+  <div id="contentEl" class="space-y-6" style="display:none">
     <!-- Trend Chart -->
     <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">采购趋势</h2>
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">采集趋势</h2>
       <div id="trend_chart" class="h-64"></div>
-      <div class="flex gap-4 mt-4 text-sm">
-        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-blue-500"></span> 总数</span>
-        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-green-500"></span> 政府</span>
-        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-purple-500"></span> 工程</span>
-      </div>
     </div>
 
     <div class="grid md:grid-cols-2 gap-6">
@@ -67,25 +62,18 @@
     <!-- Keyword Heat -->
     <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">关键词热度 TOP20</h2>
-      <div class="flex flex-wrap gap-2" x-show="keywordHeat && Object.keys(keywordHeat).length">
-        <template x-for="(count, kw) in keywordHeat" :key="kw">
-          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium"
-                :class="getKwClass(count)"
-                :style="\'font-size:\' + (0.7 + count / maxKwCount * 0.6) + \'rem\'"
-                x-text="kw + \' \' + count">
-          </span>
-        </template>
-      </div>
-      <p x-show="!keywordHeat || Object.keys(keywordHeat).length === 0" class="text-gray-400 text-sm">暂无数据</p>
+      <div id="keywordHeatContainer" class="flex flex-wrap gap-2"></div>
+      <p id="keywordHeatEmpty" class="text-gray-400 text-sm" style="display:none">暂无数据</p>
     </div>
   </div>
-</div>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-function analyticsApp() {
-  return {
-    days: "30",
-    loading: false,
+// === Analytics Vanilla JS ===
+(function() {
+  // State
+  const state = {
+    days: '30',
     stats: {},
     trend: {},
     budgetDist: {},
@@ -93,91 +81,185 @@ function analyticsApp() {
     sourceDist: {},
     maxKwCount: 1,
     charts: {},
-    async init() { await this.loadAnalytics(); },
-    async loadAnalytics() {
-      this.loading = true;
-      try {
-        const res = await fetch("/api/analytics?days=" + this.days);
-        const data = await res.json();
-        this.stats = data;
-        this.trend = data.trend || {};
-        this.budgetDist = data.budget_dist || {};
-        this.keywordHeat = data.keyword_heat || {};
-        this.sourceDist = data.source_dist || {};
-        this.maxKwCount = Math.max(1, ...Object.values(this.keywordHeat || {}));
-        this.renderCharts();
-      } finally { this.loading = false; }
-    },
-    get govCount() {
-      return Object.values(this.trend).reduce((s, d) => s + (d.gov || 0), 0);
-    },
-    get engCount() {
-      return Object.values(this.trend).reduce((s, d) => s + (d.eng || 0), 0);
-    },
-    get budgetCount() {
-      return Object.values(this.budgetDist).reduce((s, n) => s + n, 0);
-    },
-    getKwClass(count) {
-      const ratio = count / this.maxKwCount;
-      if (ratio > 0.7) return "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200";
-      if (ratio > 0.4) return "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-200";
-      if (ratio > 0.2) return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200";
-      return "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200";
-    },
-    renderCharts() {
-      this.renderTrendChart();
-      this.renderBudgetChart();
-      this.renderSourceChart();
-    },
-    renderTrendChart() {
-      const el = document.getElementById("trend_chart");
-      if (!el) return;
-      if (this.charts.trend) this.charts.trend.destroy();
-      const sorted = Object.keys(this.trend).sort();
-      const ctx = el.getContext("2d");
-      this.charts.trend = new Chart(ctx, {
-        type: "line",
-        data: {
-          labels: sorted,
-          datasets: [
-            { label: "总数", data: sorted.map(d => this.trend[d]?.total || 0), borderColor: "#3b82f6", backgroundColor: "rgba(59,130,246,0.1)", tension: 0.3, fill: true },
-            { label: "政府", data: sorted.map(d => this.trend[d]?.gov || 0), borderColor: "#22c55e", tension: 0.3 },
-            { label: "工程", data: sorted.map(d => this.trend[d]?.eng || 0), borderColor: "#a855f7", tension: 0.3 }
-          ]
-        },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-      });
-    },
-    renderBudgetChart() {
-      const el = document.getElementById("budget_chart");
-      if (!el) return;
-      if (this.charts.budget) this.charts.budget.destroy();
-      const ctx = el.getContext("2d");
-      this.charts.budget = new Chart(ctx, {
-        type: "doughnut",
-        data: {
-          labels: Object.keys(this.budgetDist),
-          datasets: [{ data: Object.values(this.budgetDist), backgroundColor: ["#3b82f6","#22c55e","#f59e0b","#ef4444","#8b5cf6"] }]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
-      });
-    },
-    renderSourceChart() {
-      const el = document.getElementById("source_chart");
-      if (!el) return;
-      if (this.charts.source) this.charts.source.destroy();
-      const entries = Object.entries(this.sourceDist).slice(0, 8);
-      const ctx = el.getContext("2d");
-      this.charts.source = new Chart(ctx, {
-        type: "bar",
-        data: {
-          labels: entries.map(e => e[0].replace("www.","")),
-          datasets: [{ label: "项目数", data: entries.map(e => e[1]), backgroundColor: "#6366f1" }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, indexAxis: "y", plugins: { legend: { display: false } } }
-      });
+  };
+
+  // DOM refs
+  const els = {
+    daysSelect: document.getElementById('daysSelect'),
+    refreshBtn: document.getElementById('refreshBtn'),
+    loadingEl: document.getElementById('loadingEl'),
+    contentEl: document.getElementById('contentEl'),
+    statTotal: document.getElementById('statTotal'),
+    govCount: document.getElementById('govCount'),
+    engCount: document.getElementById('engCount'),
+    budgetCount: document.getElementById('budgetCount'),
+    kwContainer: document.getElementById('keywordHeatContainer'),
+    kwEmpty: document.getElementById('keywordHeatEmpty'),
+  };
+
+  // Init
+  async function loadAnalytics() {
+    els.loadingEl.style.display = 'block';
+    els.contentEl.style.display = 'none';
+
+    try {
+      const res = await fetch('/api/analytics?days=' + state.days);
+      const data = await res.json();
+
+      state.stats = data;
+      state.trend = data.trends || [];
+      state.budgetDist = data.budget_dist || [];
+      state.keywordHeat = data.keyword_heat || {};
+      state.sourceDist = data.source_dist || {};
+
+      updateSummary();
+      renderCharts();
+      renderKeywordHeat();
+    } finally {
+      els.loadingEl.style.display = 'none';
+      els.contentEl.style.display = 'block';
     }
   }
-}
+
+  function updateSummary() {
+    const s = state.stats.summary || {};
+    els.statTotal.textContent = s.total || 0;
+    els.budgetCount.textContent = state.budgetDist.reduce(function(r, n) { return r + (n.count || 0); }, 0);
+    els.govCount.textContent = '-';
+    els.engCount.textContent = '-';
+  }
+
+  function getKwClass(count) {
+    var ratio = count / state.maxKwCount;
+    if (ratio > 0.7) return "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200";
+    if (ratio > 0.4) return "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-200";
+    if (ratio > 0.2) return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200";
+    return "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200";
+  }
+
+  function renderKeywordHeat() {
+    var kws = state.keywordHeat;
+    var keys = Object.keys(kws);
+    state.maxKwCount = Math.max(1, Math.max.apply(null, Object.values(kws)));
+
+    if (keys.length === 0) {
+      els.kwContainer.style.display = 'none';
+      els.kwEmpty.style.display = 'block';
+      return;
+    }
+    els.kwContainer.style.display = 'flex';
+    els.kwEmpty.style.display = 'none';
+
+    els.kwContainer.innerHTML = '';
+    keys.forEach(function(kw) {
+      var count = kws[kw];
+      var ratio = count / state.maxKwCount;
+      var fontSize = (0.7 + ratio * 0.6).toFixed(2);
+      var span = document.createElement('span');
+      span.className = 'inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ' + getKwClass(count);
+      span.style.fontSize = fontSize + 'rem';
+      span.textContent = kw + ' ' + count;
+      els.kwContainer.appendChild(span);
+    });
+  }
+
+  function destroyCharts() {
+    Object.values(state.charts).forEach(function(c) { if (c) c.destroy(); });
+    state.charts = {};
+  }
+
+  function renderCharts() {
+    destroyCharts();
+    renderTrendChart();
+    renderBudgetChart();
+    renderSourceChart();
+  }
+
+  function renderTrendChart() {
+    var el = document.getElementById('trend_chart');
+    if (!el) return;
+    var trend = Array.isArray(state.trend) ? state.trend : [];
+    var labels = trend.map(function(t) { return t.date || ''; });
+    var totals = trend.map(function(t) { return t.count || 0; });
+    var ctx = el.getContext('2d');
+    state.charts.trend = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: '采集数量',
+          data: totals,
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.1)',
+          tension: 0.3,
+          fill: true,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { precision: 0 } }
+        }
+      }
+    });
+  }
+
+  function renderBudgetChart() {
+    var el = document.getElementById('budget_chart');
+    if (!el) return;
+    var dist = Array.isArray(state.budgetDist) ? state.budgetDist : [];
+    var labels = dist.map(function(d) { return d.range || ''; });
+    var data = dist.map(function(d) { return d.count || 0; });
+    var ctx = el.getContext('2d');
+    state.charts.budget = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: data,
+          backgroundColor: ['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6']
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  }
+
+  function renderSourceChart() {
+    var el = document.getElementById('source_chart');
+    if (!el) return;
+    var dist = Array.isArray(state.sourceDist) ? state.sourceDist.slice(0, 8) : [];
+    var labels = dist.map(function(d) { return (d.source || '').replace('www.',''); });
+    var data = dist.map(function(d) { return d.count || 0; });
+    var ctx = el.getContext('2d');
+    state.charts.source = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{ label: '项目数', data: data, backgroundColor: '#6366f1' }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, ticks: { precision: 0 } }
+        }
+      }
+    });
+  }
+
+  // Event listeners
+  els.daysSelect.addEventListener('change', function() {
+    state.days = this.value;
+    loadAnalytics();
+  });
+  els.refreshBtn.addEventListener('click', loadAnalytics);
+
+  // Bootstrap
+  document.addEventListener('DOMContentLoaded', loadAnalytics);
+})();
 </script>
 {% endblock %}

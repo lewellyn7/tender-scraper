@@ -46,14 +46,16 @@ async def get_content(request: Request):
 
 @router.get("/data", response_class=HTMLResponse)
 async def get_data(request: Request):
+    """数据管理页面"""
     return _templates.TemplateResponse(
-        request, "settings.html",
+        request, "data.html",
         {"request": request, "user_info": _get_user_info(request)}
     )
 
 
 @router.get("/settings", response_class=HTMLResponse)
 async def get_settings_page(request: Request):
+    """系统设置页面"""
     return _templates.TemplateResponse(
         request, "settings.html",
         {"request": request, "user_info": _get_user_info(request)}
