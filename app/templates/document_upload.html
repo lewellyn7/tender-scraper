@@ -255,11 +255,11 @@
     const ext = file.name.split('.').pop().toLowerCase();
     const allowed = ['pdf', 'jpg', 'jpeg', 'png'];
     if (!allowed.includes(ext)) {
-      alert(`不支持的格式: .${ext}，仅支持 PDF、JPG、PNG`);
+      showToast('❌ 不支持的格式: .' + ext + '，仅支持 PDF、JPG、PNG', 'error');
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      alert('文件超过 10MB 限制');
+      showToast('❌ 文件超过 10MB 限制，请压缩后再试', 'error');
       return;
     }
     selectedFile = file;

@@ -194,6 +194,62 @@ class Database(
             c.execute(idx)
         c.commit()
 
+    # ── Config Backups ───────────────────────────────────────────────────────
+
+    def backup_config(self, version_label: str, config_data: dict, description: str = "") -> bool:
+        """保存配置备份"""
+        import json, time
+        c = self._get_conn()
+        try:
+            c.execute(
+                "INSERT INTO config_backups(version_label, config_data, description, created_at) VALUES (?, ?, ?, ?)",
+                (version_label, json.dumps(config_data, ensure_ascii=False), description, time.strftime("%Y-%m-%d %H:%M:%S"))
+            )
+            c.commit()
+            return True
+        except Exception as e:
+            logger.error(f"backup_config: {e}")
+            return False
+
+    def get_config_backups(self, limit: int = 10) -> list:
+        """获取配置备份列表"""
+        import json
+        c = self._get_conn()
+        try:
+            rows = c.execute(
+                "SELECT id, version_label, description, created_at FROM config_backups ORDER BY created_at DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"get_config_backups: {e}")
+            return []
+
+    def restore_config(self, backup_id: str) -> dict:
+        """恢复配置备份"""
+        import json
+        c = self._get_conn()
+        try:
+            row = c.execute(
+                "SELECT * FROM config_backups WHERE id = ?", (backup_id,)
+            ).fetchone()
+            if not row:
+                return None
+            # 将config_data存回config表
+            data = json.loads(row["config_data"])
+            for key, value in data.items():
+                c.execute(
+                    "INSERT OR REPLACE INTO config(config_key, config_value) VALUES (?, ?)",
+                    (key, json.dumps(value, ensure_ascii=False))
+                )
+            c.commit()
+            return dict(row)
+        except Exception as e:
+            logger.error(f"restore_config: {e}")
+            return None
+
+    # ── Batch Writer ──────────────────────────────────────────────────────────
+
     def _batch_writer(self):
         batch = []
         while not self._shutdown:

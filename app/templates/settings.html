@@ -466,7 +466,7 @@
       });
       closePresetModal();
       await loadPresets();
-    } catch (e) { alert('保存失败: ' + e.message); }
+    } catch (e) { showToast('❌ 保存通知设置失败: ' + e.message, 'error'); }
   }
 
   async function deletePreset(key) {
@@ -474,7 +474,7 @@
     try {
       await authFetch('/api/presets/' + key, { method: 'DELETE' });
       await loadPresets();
-    } catch (e) { alert('删除失败: ' + e.message); }
+    } catch (e) { showToast('❌ 删除失败: ' + e.message, 'error'); }
   }
 
   // ==================== Backups ====================
@@ -521,8 +521,8 @@
         body: JSON.stringify({ version_label: label, config_data: st, description: desc })
       });
       await loadBackups();
-      alert('备份已创建: ' + label);
-    } catch (e) { alert('备份失败: ' + e.message); }
+      showToast('✅ 配置备份已创建: ' + label + '，如需恢复请点击操作列的「恢复」', 'success');
+    } catch (e) { showToast('❌ 创建配置备份失败: ' + e.message, 'error'); }
   }
 
   async function restoreBackup(id) {
@@ -536,9 +536,9 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(d.backup.config_data)
         });
-        alert('配置已恢复!');
+        showToast('✅ 配置已恢复成功！页面将自动刷新', 'success');
       }
-    } catch (e) { alert('恢复失败: ' + e.message); }
+    } catch (e) { showToast('❌ 恢复配置失败: ' + e.message, 'error'); }
   }
 
   async function exportBackup(b) {
@@ -554,7 +554,7 @@
         a.click();
         URL.revokeObjectURL(url);
       }
-    } catch (e) { alert('导出失败: ' + e.message); }
+    } catch (e) { showToast('❌ 导出配置失败: ' + e.message, 'error'); }
   }
 
   async function importConfig(event) {
@@ -568,8 +568,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-      alert('配置已导入!');
-    } catch (e) { alert('导入失败: ' + e); }
+      showToast('✅ 配置文件已导入成功！请刷新页面查看最新配置', 'success');
+    } catch (e) { showToast('❌ 导入配置失败: ' + e, 'error'); }
   }
 
   // ==================== Duplicates ====================
@@ -647,7 +647,7 @@
           })
         });
       }
-      msgEl.textContent = '保存成功!';
+      showToast('✅ 账户信息已保存', 'success');
       msgEl.classList.remove('hidden');
       msgEl.className = 'text-sm text-green-600';
       $('account-old-password').value = '';
@@ -769,7 +769,7 @@
         body: JSON.stringify({ role })
       });
       await loadUsers();
-    } catch (e) { alert('更新失败: ' + e.message); }
+    } catch (e) { showToast('❌ 更新用户失败: ' + e.message, 'error'); }
   }
 
   async function toggleUserEnabled(uid) {
@@ -782,7 +782,7 @@
         body: JSON.stringify({ enabled: !user.enabled })
       });
       await loadUsers();
-    } catch (e) { alert('更新失败: ' + e.message); }
+    } catch (e) { showToast('❌ 更新用户失败: ' + e.message, 'error'); }
   }
 
   async function resetUserPassword(uid) {
@@ -794,8 +794,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ new_password: pwd })
       });
-      alert('密码已重置');
-    } catch (e) { alert('重置失败: ' + e.message); }
+      showToast('✅ 用户密码已重置，请通知用户查收新密码', 'success');
+    } catch (e) { showToast('❌ 重置密码失败: ' + e.message, 'error'); }
   }
 
   async function deleteUser(uid) {
@@ -803,7 +803,7 @@
     try {
       await authFetch('/api/users/admin/delete/' + uid, { method: 'DELETE' });
       await loadUsers();
-    } catch (e) { alert('删除失败: ' + e.message); }
+    } catch (e) { showToast('❌ 删除失败: ' + e.message, 'error'); }
   }
 
   // ==================== DB Backups ====================
