@@ -1,0 +1,27 @@
+{
+  "name": "tender-scraper",
+  "version": "1.0.0",
+  "description": "自动采集重庆市公共资源交易网 (cqggzy.com) 的招投标信息，智能筛选相关项目。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lewellyn7/tender-scraper.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/lewellyn7/tender-scraper/issues"
+  },
+  "homepage": "https://github.com/lewellyn7/tender-scraper#readme",
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}

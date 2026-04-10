@@ -48,3 +48,4 @@ htmlcov/
 # 环境
 .env.local
 .env.*.local
+node_modules/
