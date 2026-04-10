@@ -1,21 +1,11 @@
 apiVersion: 1
 
 providers:
-  - name: "default"
+  - name: "Tender Scraper"
     orgId: 1
     folder: ""
     type: file
     disableDeletion: false
-    updateIntervalSeconds: 30
+    editable: true
     options:
-      path: /etc/grafana/provisioning/dashboards/json
-
-  - name: "JSON仪表盘"
-    orgId: 1
-    folder: "招标采集系统"
-    type: file
-    disableDeletion: true
-    updateIntervalSeconds: 60
-    allowUiUpdates: true
-    options:
-      path: /etc/grafana/provisioning/dashboards/json
+      path: /etc/grafana/provisioning/dashboards

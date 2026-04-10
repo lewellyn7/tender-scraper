@@ -1,0 +1,37 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  - "rules/*.yml"
+
+scrape_configs:
+  # ---- Web API (主服务) ----
+  - job_name: "tender-scraper-web"
+    static_configs:
+      - targets: ["web:8000"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # ---- Prometheus 本身 ----
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ---- Redis Exporter (可选) ----
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+    scrape_interval: 30s
+
+  # ---- PostgreSQL Exporter (可选) ----
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+    scrape_interval: 30s

@@ -23,6 +23,7 @@ from app.api.routes.document_upload import router as document_upload_router
 from app.api.routes.pages import router as pages_router
 # CSRF disabled: API uses X-Session-Token header auth (no cookie-based sessions)
 # from app.middleware.csrf import CSRFProtectionMiddleware
+from app.api.metrics import PrometheusMiddleware
 from app.middleware.security import (
     RateLimitMiddleware,
     RequestLoggingMiddleware,
@@ -57,6 +58,7 @@ async def global_exception_handler(request, exc):
 app.add_middleware(RateLimitMiddleware, max_per_minute=100)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(PrometheusMiddleware)
 # app.add_middleware(CSRFProtectionMiddleware)  # disabled - breaks POST endpoints
 
 # 注册路由

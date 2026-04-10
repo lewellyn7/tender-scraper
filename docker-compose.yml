@@ -103,6 +103,56 @@ services:
           cpus: "0.5"
           memory: 512M
 
+  # --- Prometheus 监控 ---
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: tender-scraper-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - tender-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  # --- Grafana 可视化 ---
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: tender-scraper-grafana
+    restart: unless-stopped
+    ports:
+      - "3030:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3030
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - tender-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
   # --- 定时采集任务（用同一个镜像，通过 command 区分）---
   scheduler:
     build:
@@ -148,6 +198,8 @@ volumes:
   postgres-data:
   redis-data:
   scraper-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   tender-net:

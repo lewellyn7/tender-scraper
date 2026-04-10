@@ -1,215 +1,88 @@
-# ============================================================
-# tender-scraper Prometheus 告警规则 & 资质指标
-# ============================================================
-
 groups:
-  # ── 1. 基础服务监控 ────────────────────────────────────
-  - name: tender-scraper.service
-    interval: 60s
+  - name: tender-scraper
+    interval: 30s
     rules:
-      - alert: ServiceDown
+      # Web 服务宕机
+      - alert: WebServiceDown
         expr: up{job="tender-scraper-web"} == 0
-        for: 2m
-        labels:
-          severity: warning
-          component: service
-        annotations:
-          summary: "Web 服务不可用"
-          description: "tender-scraper-web 在 2 分钟内未响应，请检查容器状态"
-
-      - alert: HighCPU
-        expr: rate(process_cpu_seconds_total{job="tender-scraper-web"}[5m]) > 0.8
-        for: 10m
-        labels:
-          severity: warning
-          component: resource
-        annotations:
-          summary: "CPU 使用率过高"
-          description: "服务 CPU 使用率持续超过 80%，当前值: {{ $value | printf \"%.2f\" }}"
-
-      - alert: HighMemory
-        expr: process_resident_memory_bytes{job="tender-scraper-web"} / process_max_memory_bytes{job="tender-scraper-web"} > 0.9
-        for: 5m
-        labels:
-          severity: warning
-          component: resource
-        annotations:
-          summary: "内存使用率过高"
-          description: "内存使用率超过 90%，当前值: {{ $value | printf \"%.2f\" }}"
-
-      - alert: DiskSpaceLow
-        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
-        for: 5m
-        labels:
-          severity: warning
-          component: resource
-        annotations:
-          summary: "磁盘空间不足"
-          description: "根分区可用空间低于 10%"
-
-  # ── 2. 采集任务监控 ────────────────────────────────────
-  - name: tender-scraper.scraper
-    interval: 60s
-    rules:
-      - alert: ScraperJobFailed
-        expr: scraper_job_failed_total{job="tender-scraper-web"} > 0
-        for: 5m
-        labels:
-          severity: critical
-          component: scraper
-        annotations:
-          summary: "采集任务执行失败"
-          description: "采集任务连续失败超过 5 分钟，请检查日志"
-
-      - alert: NoDataCollected
-        expr: scraper_items_collected_total{job="tender-scraper-web"} == 0
-        for: 1h
-        labels:
-          severity: warning
-          component: scraper
-        annotations:
-          summary: "采集数据为空"
-          description: "最近 1 小时无数据采集，请检查爬虫状态"
-
-      - alert: HighScrapeErrorRate
-        expr: rate(scraper_scrape_errors_total{job="tender-scraper-web"}[5m]) / rate(scraper_scrape_total{job="tender-scraper-web"}[5m]) > 0.1
-        for: 10m
-        labels:
-          severity: warning
-          component: scraper
-        annotations:
-          summary: "采集错误率过高"
-          description: "采集错误率超过 10%，当前值: {{ $value | printf \"%.2f\" }}"
-
-      - alert: SlowScrape
-        expr: histogram_quantile(0.95, rate(scraper_scrape_duration_seconds_bucket{job="tender-scraper-web"}[5m])) > 30
-        for: 15m
-        labels:
-          severity: warning
-          component: scraper
-        annotations:
-          summary: "采集响应过慢"
-          description: "95 分位采集耗时超过 30 秒，当前值: {{ $value | printf \"%.2f\" }}s"
-
-  # ── 3. HTTP 监控 ──────────────────────────────────────
-  - name: tender-scraper.http
-    interval: 60s
-    rules:
-      - alert: HighHTTPErrorRate
-        expr: rate(http_requests_total{job="tender-scraper-web", status=~"5.."}[5m]) / rate(http_requests_total{job="tender-scraper-web"}[5m]) > 0.05
-        for: 5m
-        labels:
-          severity: warning
-          component: http
-        annotations:
-          summary: "HTTP 5xx 错误率过高"
-          description: "5xx 错误率超过 5%，当前值: {{ $value | printf \"%.2f\" }}"
-
-      - alert: HighLatency
-        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="tender-scraper-web"}[5m])) > 5
-        for: 10m
-        labels:
-          severity: warning
-          component: http
-        annotations:
-          summary: "HTTP 请求延迟过高"
-          description: "95 分位延迟超过 5 秒，当前值: {{ $value | printf \"%.2f\" }}s"
-
-  # ── 4. 资质管理监控 ────────────────────────────────────
-  - name: tender-scraper.qualification
-    interval: 60s
-    rules:
-      # 资质即将过期（30 天内）
-      - alert: QualificationExpiring30d
-        expr: qualification_days_until_expiry{job="tender-scraper-web"} >= 0 and qualification_days_until_expiry{job="tender-scraper-web"} <= 30
-        for: 0m
-        labels:
-          severity: warning
-          component: qualification
-        annotations:
-          summary: "资质即将到期（30 天内）"
-          description: "资质 [{{ $labels.qualification_name }}] 证书编号 [{{ $labels.certificate_no }}] 将于 {{ $value | printf \"%.0f\" }} 天后到期（分类: {{ $labels.category }}）"
-
-      # 资质即将过期（7 天内）
-      - alert: QualificationExpiring7d
-        expr: qualification_days_until_expiry{job="tender-scraper-web"} >= 0 and qualification_days_until_expiry{job="tender-scraper-web"} <= 7
-        for: 0m
-        labels:
-          severity: critical
-          component: qualification
-        annotations:
-          summary: "资质即将到期（7 天内）⚠️"
-          description: "资质 [{{ $labels.qualification_name }}] 证书编号 [{{ $labels.certificate_no }}] 将于 {{ $value | printf \"%.0f\" }} 天后到期，请尽快续期！"
-
-      # 资质已过期
-      - alert: QualificationExpired
-        expr: qualification_days_until_expiry{job="tender-scraper-web"} < 0
-        for: 0m
-        labels:
-          severity: critical
-          component: qualification
-        annotations:
-          summary: "资质已过期 ❌"
-          description: "资质 [{{ $labels.qualification_name }}] 证书编号 [{{ $labels.certificate_no }}] 已过期 {{ $value | printf \"%.0f\" }} 天，请立即处理！"
-
-      # 过期资质数量过多
-      - alert: TooManyExpiredQualifications
-        expr: count(qualification_days_until_expiry{job="tender-scraper-web"} < 0)
-        for: 0m
-        labels:
-          severity: critical
-          component: qualification
-        annotations:
-          summary: "存在大量过期资质"
-          description: "当前有 {{ $value | printf \"%.0f\" }} 个已过期的资质，请立即处理"
-
-      # 待审核资质过多
-      - alert: ManyPendingQualifications
-        expr: count(qualification_status{job="tender-scraper-web", status="pending"}) > 10
-        for: 1h
-        labels:
-          severity: warning
-          component: qualification
-        annotations:
-          summary: "待审核资质积压"
-          description: "当前有 {{ $value | printf \"%.0f\" }} 个待审核资质，请及时处理"
-
-      # 资质总览（无过期告警，仅供仪表盘）
-      - record: qualification:total
-        expr: count(qualification_days_until_expiry{job="tender-scraper-web"})
-
-      - record: qualification:by_status
-        expr: count by (status) (qualification_days_until_expiry{job="tender-scraper-web"})
-
-      - record: qualification:by_category
-        expr: count by (category) (qualification_days_until_expiry{job="tender-scraper-web"})
-
-      - record: qualification:expiring_count_30d
-        expr: count(qualification_days_until_expiry{job="tender-scraper-web"} >= 0 and qualification_days_until_expiry{job="tender-scraper-web"} <= 30)
-
-      - record: qualification:expiring_count_7d
-        expr: count(qualification_days_until_expiry{job="tender-scraper-web"} >= 0 and qualification_days_until_expiry{job="tender-scraper-web"} <= 7)
-
-  # ── 5. 日志聚合指标（基于 Prometheus 日志行数） ────────
-  - name: tender-scraper.logging
-    interval: 60s
-    rules:
-      - alert: ErrorLogSpike
-        expr: rate(log_messages_total{job="tender-scraper-web", level="error"}[5m]) > 10
-        for: 5m
-        labels:
-          severity: warning
-          component: logging
-        annotations:
-          summary: "错误日志突增"
-          description: "错误日志生成速率超过 10 条/5分钟，当前: {{ $value | printf \"%.2f\" }} 条/5分钟"
-
-      - alert: CriticalLogSpike
-        expr: rate(log_messages_total{job="tender-scraper-web", level="critical"}[5m]) > 0
         for: 1m
         labels:
           severity: critical
-          component: logging
         annotations:
-          summary: "严重日志告警"
-          description: "检测到严重级别日志，请立即检查"
+          summary: "Tender Scraper Web 服务不可用"
+          description: "Web API 服务已宕机超过 1 分钟"
+
+      # HTTP 错误率过高
+      - alert: HighHTTPErrorRate
+        expr: |
+          rate(http_requests_total{status_code=~"5.."}[5m]) 
+          / rate(http_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP 5xx 错误率超过 5%"
+          description: "服务 {{ $labels.endpoint }} 5xx 错误率 {{ $value | humanizePercentage }}"
+
+      # API 延迟过高
+      - alert: HighAPILatency
+        expr: |
+          histogram_quantile(0.95, 
+            rate(http_request_duration_seconds_bucket[5m])
+          ) > 2
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API P95 延迟超过 2 秒"
+          description: "{{ $labels.endpoint }} P95 = {{ $value }}s"
+
+      # Redis 连接失败
+      - alert: RedisDown
+        expr: absent(container_network_receive_bytes_total{container_name="tender-scraper-redis"})
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis 缓存服务不可用"
+
+      # PostgreSQL 连接失败
+      - alert: PostgresDown
+        expr: absent(container_network_receive_bytes_total{container_name="tender-scraper-postgres"})
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL 数据库服务不可用"
+
+      # 采集任务失败率
+      - alert: HighHarvestFailureRate
+        expr: |
+          rate(harvest_tasks_total{status="failure"}[10m])
+          / rate(harvest_tasks_total[10m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "采集任务失败率超过 10%"
+          description: "来源 {{ $labels.source }} 失败率 {{ $value | humanizePercentage }}"
+
+      # 资质过期告警
+      - alert: QualificationExpired
+        expr: qualification_days_until_expiry <= 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "资质已过期"
+          description: "{{ $labels.qualification_name }} (证书号: {{ $labels.certificate_no }}) 已过期"
+
+      # 资质7天内到期
+      - alert: QualificationExpiringSoon
+        expr: qualification_days_until_expiry > 0 and qualification_days_until_expiry <= 7
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "资质即将到期"
+          description: "{{ $labels.qualification_name }} 将在 {{ $value }} 天后到期"
