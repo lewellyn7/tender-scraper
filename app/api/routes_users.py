@@ -231,3 +231,82 @@ async def delete_user(
     db.delete_user(target_uid)
 
     return {"status": "ok"}
+
+
+@router.get("/stats", summary="用户统计", description="获取用户统计数据")
+async def get_user_stats(
+    x_session_token: str = Header(None, alias="X-Session-Token"),
+):
+    """获取用户统计数据（total/active/admins/operators）"""
+    if not x_session_token:
+        raise HTTPException(status_code=401, detail="未登录")
+
+    user = get_user_from_session(x_session_token)
+    if not user:
+        raise HTTPException(status_code=401, detail="无效的session")
+
+    db = get_db()
+    return db.get_user_stats()
+
+
+@router.patch("/admin/update/{target_uid}", summary="更新用户", description="更新用户信息（需管理员权限）")
+async def admin_update_user(
+    target_uid: str,
+    display_name: str = Body(None),
+    role: str = Body(None),
+    enabled: bool = Body(None),
+    x_session_token: str = Header(None, alias="X-Session-Token"),
+):
+    """管理员更新用户信息"""
+    if not x_session_token:
+        raise HTTPException(status_code=401, detail="未登录")
+
+    user = get_user_from_session(x_session_token)
+    if not user or user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    updates = {}
+    if display_name is not None:
+        updates["display_name"] = sanitize_input(display_name, 50)
+    if role is not None:
+        if role not in ("admin", "editor", "operator", "viewer"):
+            raise HTTPException(status_code=400, detail="无效的角色")
+        updates["role"] = role
+    if enabled is not None:
+        updates["enabled"] = 1 if enabled else 0
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="没有需要更新的字段")
+
+    db = get_db()
+    db.update_user(target_uid, updates)
+
+    return {"status": "ok", "updated": updates}
+
+
+@router.post("/admin/reset-password/{target_uid}", summary="重置密码", description="重置用户密码（需管理员权限）")
+async def admin_reset_password(
+    target_uid: str,
+    new_password: str = Body(...),
+    x_session_token: str = Header(None, alias="X-Session-Token"),
+):
+    """管理员重置用户密码"""
+    if not x_session_token:
+        raise HTTPException(status_code=401, detail="未登录")
+
+    user = get_user_from_session(x_session_token)
+    if not user or user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="密码至少6个字符")
+
+    db = get_db()
+    target = db.get_user_by_id(target_uid)
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    new_hash, new_salt = hash_password(new_password)
+    db.update_user_password(target_uid, new_hash, new_salt)
+
+    return {"status": "ok"}
