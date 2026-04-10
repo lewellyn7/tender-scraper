@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, Depends
 from app.api.dependencies import get_current_user
 from fastapi.responses import JSONResponse
 from loguru import logger
+from app.utils.log_sanitizer import sanitize_error_message
 
 from services.ragflow_service import get_ragflow_service
 
@@ -53,7 +54,7 @@ async def semantic_search(
                 top_k=top_k,
             )
     except Exception as e:
-        logger.error(f"Semantic search error: {e}")
+        logger.error(f"Semantic search error: {sanitize_error_message(str(e))}")
         return JSONResponse(
             status_code=500,
             content={"code": 1, "message": f"Search failed: {e}", "data": {"results": []}},
@@ -93,7 +94,7 @@ async def list_datasets(user_id: str = Depends(get_current_user)):
     try:
         datasets = await service.list_datasets()
     except Exception as e:
-        logger.error(f"List datasets error: {e}")
+        logger.error(f"List datasets error: {sanitize_error_message(str(e))}")
         return JSONResponse(
             status_code=500,
             content={"code": 1, "message": str(e), "data": []},

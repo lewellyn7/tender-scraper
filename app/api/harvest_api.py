@@ -239,7 +239,7 @@ async def _run_crawl_task(
         try:
             await init_tables()
         except Exception as e:
-            logger.warning(f"[{task_id}] 初始化表失败（可能已存在）: {e}")
+            logger.warning(f"[{task_id}] 初始化表失败（可能已存在）: {sanitize_error_message(str(e))}")
 
         # 执行采集
         start = datetime.now(timezone.utc)
@@ -347,7 +347,7 @@ async def lifespan(app: FastAPI):
         await init_tables()
         logger.info("数据库表初始化完成")
     except Exception as e:
-        logger.warning(f"数据库初始化警告: {e}")
+        logger.warning(f"数据库初始化警告: {sanitize_error_message(str(e))}")
 
     logger.info("API 服务已就绪 ✓")
 

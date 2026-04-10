@@ -7,6 +7,7 @@ from loguru import logger
 
 from services.ragflow_service import get_ragflow_service
 from app.api.dependencies import get_current_user
+from app.utils.log_sanitizer import sanitize_error_message
 from app.nlp.classifier import TenderClassifier
 from app.nlp.summarizer import TextSummarizer
 
@@ -72,7 +73,7 @@ async def ask(
             similarity_threshold=0.1,
         )
     except Exception as e:
-        logger.error(f"RAG search error: {e}")
+        logger.error(f"RAG search error: {sanitize_error_message(str(e))}")
         chunks = []
 
     # 提取关键信息

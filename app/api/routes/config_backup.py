@@ -11,6 +11,7 @@ from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api", tags=["配置和备份"])
 SYS_PATH = Path(__file__).parent.parent.parent.parent
+BACKUP_ROOT = Path(__file__).parent.parent.parent.parent / "data" / "backups"
 
 # ========== config backups ==========
 
@@ -79,10 +80,15 @@ def delete_db_backup(backup_path: str = Body(...), user_id: str = Depends(get_cu
 
 @router.get("/db/backup/download")
 def download_db_backup(path: str = Query(...), user_id: str = Depends(get_current_user)):
-    p = Path(path)
+    """下载数据库备份文件 — 仅允许备份目录内的文件"""
+    p = Path(path).resolve()
+    try:
+        p.relative_to(BACKUP_ROOT.resolve())
+    except ValueError:
+        return JSONResponse({"error": "禁止访问此路径"}, status_code=403)
     if not p.exists():
         return JSONResponse({"error": "文件不存在"}, status_code=404)
-    return FileResponse(path, filename=p.name, media_type="application/octet-stream")
+    return FileResponse(str(p), filename=p.name, media_type="application/octet-stream")
 
 
 @router.post("/db/cleanup")

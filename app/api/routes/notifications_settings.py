@@ -8,6 +8,7 @@ from typing import Dict, List
 from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
 from loguru import logger
+from app.utils.log_sanitizer import sanitize_error_message
 
 from app.utils.notifications import get_notif_manager
 from app.api.dependencies import get_current_user
@@ -202,5 +203,5 @@ async def trigger_collection(user_id: str = Depends(get_current_user)):
         result = await run_collection()
         return JSONResponse({"success": True, "result": result})
     except (OSError, IOError, RuntimeError) as e:
-        logger.error(f"Collection failed: {e}")
+        logger.error(f"Collection failed: {sanitize_error_message(str(e))}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
