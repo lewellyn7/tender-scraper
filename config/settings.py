@@ -1,6 +1,7 @@
 """项目配置"""
 from typing import List
 
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 
@@ -45,8 +46,12 @@ class Settings(BaseSettings):
     N8N_TRIGGER_NOTIFY: str = ""
     N8N_WEBHOOK_KEY: str = ""
 
-    class Config:
-        env_file = ".env"
+    # Pydantic v2 config
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",  # 忽略 .env 中未定义的字段
+    )
 
 
 settings = Settings()
