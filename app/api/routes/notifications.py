@@ -2,6 +2,7 @@
 
 import os
 
+import httpx
 from fastapi import APIRouter, Body
 from fastapi.responses import JSONResponse
 
@@ -52,7 +53,7 @@ def save_notification_config(config: dict = Body(...)):
 
 
 @router.post("/test")
-def test_notification():
+async def test_notification():
     """发送测试消息"""
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -61,14 +62,12 @@ def test_notification():
         return JSONResponse({"success": False, "error": "未配置 Telegram"}, status_code=400)
 
     try:
-        import requests
-
-        response = requests.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={"chat_id": chat_id, "text": "🧪 测试消息：招投标采集系统通知测试成功！"},
-            timeout=10,
-        )
-        if response.ok:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json={"chat_id": chat_id, "text": "🧪 测试消息：招投标采集系统通知测试成功！"},
+            )
+        if response.status_code == 200:
             return JSONResponse({"success": True})
         return JSONResponse({"success": False, "error": response.text})
     except Exception as e:

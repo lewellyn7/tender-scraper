@@ -1,5 +1,5 @@
-"""招投标采集系统 - 主入口 V2 修复版
-更新：支持详情页采集 + 数据持久化 + Web 管理界面
+"""招投标采集系统 - 主入口 V3
+更新：集成 SmartScheduler 动态优先级调度，替代手动 asyncio.gather
 """
 import asyncio
 import json
@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from loguru import logger
 
 from app.core.browser import StealthBrowser
-from app.core.concurrency_scheduler import ConcurrencyScheduler, SafetyLevel
+from app.core.harvest.smart_scheduler import CrawlTask, SmartScheduler, TaskStatus
 from app.core.session_memory import SessionMemory, SessionMemoryConfig
 from app.crawlers.cqggzy import CQGGZYCrawlerV2
 from app.utils.filter import TenderFilter
@@ -22,42 +22,47 @@ from config.settings import settings
 # 配置日志
 logger.add("logs/scraper.log", rotation="1 day", retention="7 days", level="INFO")
 
+
+def _build_crawl_task(item, index: int) -> CrawlTask:
+    """将 TenderInfo 映射为 CrawlTask（用于 SmartScheduler）"""
+    source = "cqggzy"
+    if hasattr(item, "source_url") and item.source_url:
+        if "ccgp" in item.source_url:
+            source = "ccgp"
+        elif "ggzy" in item.source_url:
+            source = "cqggzy"
+
+    # 静态优先级：预算越高优先级越高（归一化到 1-10）
+    priority_static = 5
+    if hasattr(item, "budget") and item.budget:
+        try:
+            budget_str = item.budget.replace("万元", "").replace("元", "").replace(",", "").strip()
+            budget_val = float(budget_str)
+            priority_static = min(10, max(1, int(budget_val / 500)))  # 每500万1分，上限10
+        except (ValueError, AttributeError):
+            pass
+
+    return CrawlTask(
+        task_id=f"detail_{index}_{item.url[:40]}",
+        source=source,
+        url=item.url,
+        info_type=getattr(item, "info_type", "招标公告"),
+        region="重庆",
+        deadline=getattr(item, "deadline", None),
+        keywords=getattr(item, "keywords_matched", []),
+        priority_static=priority_static,
+    )
+
+
 async def run_collection():
     """执行一次完整的数据采集任务"""
     logger.info("=" * 60)
-    logger.info("🚀 开始执行招投标信息采集任务 V2")
+    logger.info("🚀 开始执行招投标信息采集任务 V3 (SmartScheduler)")
     logger.info(f"📡 目标网站: {settings.TARGET_URL}")
     logger.info("=" * 60)
 
-    # 初始化 P0 模块
+    # 初始化 Session Memory
     session_memory = SessionMemory(SessionMemoryConfig(max_tokens=128000, compact_threshold=0.80))
-    concurrency_scheduler = ConcurrencyScheduler()
-
-    # 注册采集工具
-    concurrency_scheduler.register_tool_from_metadata(
-        name="fetch_page",
-        description="采集网页数据",
-        is_concurrency_safe=True,
-        max_concurrent=5
-    )
-    concurrency_scheduler.register_tool_from_metadata(
-        name="fetch_detail",
-        description="采集详情页数据",
-        is_concurrency_safe=True,
-        max_concurrent=3
-    )
-    concurrency_scheduler.register_tool_from_metadata(
-        name="parse_data",
-        description="解析采集数据",
-        is_concurrency_safe=True,
-        max_concurrent=3
-    )
-    concurrency_scheduler.register_tool_from_metadata(
-        name="write_excel",
-        description="写入 Excel 文件",
-        is_concurrency_safe=False,
-        safety_level=SafetyLevel.WORKSPACE_WRITE
-    )
 
     browser = None
     try:
@@ -87,7 +92,7 @@ async def run_collection():
             logger.warning("⚠️ 未采集到任何数据")
             return None
 
-        # 4. 关键词过滤 (找出匹配项)
+        # 4. 关键词过滤
         filter_engine = TenderFilter(
             keywords=settings.KEYWORDS,
             exclude_keywords=settings.EXCLUDE_KEYWORDS
@@ -95,43 +100,79 @@ async def run_collection():
 
         matched_items = []
         for item in all_items:
-            # 检查是否包含排除词
             if filter_engine._contains_exclude(item.title):
                 item.keywords_matched = []
                 continue
-
-            # 检查关键词匹配
             matched_keywords = filter_engine.check_keywords(item.title)
             item.keywords_matched = matched_keywords
-
             if matched_keywords:
                 matched_items.append(item)
 
         logger.info(f"✅ 匹配关键词的项目：{len(matched_items)}/{len(all_items)} 条")
 
-        # 5. 采集详情页 (仅对前 10 条匹配项) - 并行处理
-        logger.info("📄 开始采集详情页...")
+        # 5. 使用 SmartScheduler 并行采集详情页
         detail_limit = min(10, len(matched_items))
         detail_items = matched_items[:detail_limit]
 
-        async def fetch_and_update(index, item):
-            detail_item = await crawler.fetch_detail(item)
-            logger.info(f"  ✅ [{index+1}/{detail_limit}] {item.title[:30]}...")
-            return index, detail_item
+        if detail_items:
+            logger.info(f"📄 使用 SmartScheduler 并行采集 {len(detail_items)} 个详情页...")
 
-        # 并行采集详情页（最多 3 个并发，避免触发反爬）
-        results = await asyncio.gather(*[fetch_and_update(i, item) for i, item in enumerate(detail_items)])
+            # 构建 CrawlTask 列表
+            crawl_tasks = [_build_crawl_task(item, i) for i, item in enumerate(detail_items)]
 
-        # 更新 matched_items
-        for idx, detail_item in results:
-            matched_items[idx] = detail_item
-            # 同时更新 all_items 中对应的项
-            for j, all_item in enumerate(all_items):
-                if all_item.url == detail_item.url:
-                    all_items[j] = detail_item
-                    break
+            # URL → TenderInfo 映射（用于 crawler_fn 回查）
+            task_item_map = {task.url: item for task, item in zip(crawl_tasks, detail_items)}
+            # task_id → TenderInfo 映射
+            task_id_item_map = {task.task_id: item for task, item in zip(crawl_tasks, detail_items)}
 
-        # 6. 生成标准化数据 (全部项目) - 使用已更新详情的 all_items
+            # 创建 SmartScheduler（最大并发 3，避免触发反爬）
+            scheduler = SmartScheduler(max_concurrent=3)
+
+            # 注册全部任务（按动态优先级排序）
+            priorities = await scheduler.register_batch(crawl_tasks)
+            logger.info(f"  优先级范围：{max(priorities):.4f} ~ {min(priorities):.4f}")
+
+            # 定义 crawler 函数：SmartScheduler 调用此函数处理每个任务
+            async def crawler_fn(task: CrawlTask) -> bool:
+                item = task_id_item_map.get(task.task_id)
+                if item is None:
+                    return False
+                try:
+                    detail_item = await crawler.fetch_detail(item)
+                    # 更新原始 matched_items 中的对应项
+                    for mi in matched_items:
+                        if mi.url == detail_item.url:
+                            # 复制详情字段
+                            mi.full_content = detail_item.full_content
+                            mi.content_preview = detail_item.content_preview
+                            mi.budget = detail_item.budget
+                            mi.deadline = detail_item.deadline
+                            mi.contact_info = detail_item.contact_info
+                            mi.attachments = detail_item.attachments
+                            break
+                    # 同时更新 all_items
+                    for ai in all_items:
+                        if ai.url == detail_item.url:
+                            ai.full_content = detail_item.full_content
+                            ai.content_preview = detail_item.content_preview
+                            ai.budget = detail_item.budget
+                            ai.deadline = detail_item.deadline
+                            ai.contact_info = detail_item.contact_info
+                            ai.attachments = detail_item.attachments
+                            break
+                    return True
+                except Exception as e:
+                    logger.warning(f"  ⚠️ 详情采集失败 [{task.task_id}]: {e}")
+                    return False
+
+            # 执行调度（自动控制并发 + 自适应间隔）
+            results = await scheduler.schedule(crawler_fn)
+            succeeded = results.get("succeeded", 0)
+            failed = results.get("failed", 0)
+            skipped = results.get("skipped", 0)
+            logger.info(f"  ✅ 详情采集完成：成功 {succeeded} / 失败 {failed} / 跳过 {skipped}")
+
+        # 6. 生成标准化数据
         standardized_all = []
         standardized_matched = []
 
@@ -141,8 +182,6 @@ async def run_collection():
             if item.keywords_matched:
                 standardized_matched.append(std)
 
-        # 如果 all_items 已更新，则 standardized_all 也包含更新后的数据
-
         # 7. 生成报表 (仅匹配项)
         report_gen = ReportGenerator(settings.OUTPUT_DIR)
         excel_path = ""
@@ -150,23 +189,14 @@ async def run_collection():
         if standardized_matched:
             excel_path = report_gen.generate_excel(
                 standardized_matched,
-                filename_prefix="chongqing_tender_v2"
+                filename_prefix="chongqing_tender_v3"
             )
 
         # 8. 生成摘要
         summary = report_gen.generate_summary(standardized_matched)
         logger.info("\n" + summary)
 
-        # 9. 持久化数据到 JSON (供 API 读取)
-        # 用 matched_items 中已采集详情的项目更新 standardized_all
-        for i, item in enumerate(standardized_all):
-            for mi in matched_items:
-                if mi.url == item.get('url'):
-                    # 用详情更新标准化数据
-                    std = filter_engine.extract_project_info(mi)
-                    standardized_all[i] = std
-                    break
-
+        # 9. 持久化数据到 JSON
         data_path = os.path.join(settings.OUTPUT_DIR, "latest.json")
         output_data = {
             "total": len(all_items),
