@@ -8,7 +8,7 @@ services:
     container_name: tender-scraper-redis
     restart: unless-stopped
     ports:
-      - "6380:6379"
+      - "6381:6379"
     volumes:
       - redis-data:/data
     command: >
@@ -31,7 +31,7 @@ services:
     container_name: tender-scraper-postgres
     restart: unless-stopped
     ports:
-      - "5434:5432"
+      - "5435:5432"
     environment:
       - POSTGRES_USER=${DB_USER:-root}
       - POSTGRES_PASSWORD=${DB_PASSWORD:-root123}
@@ -63,7 +63,7 @@ services:
     container_name: tender-scraper-web
     restart: unless-stopped
     ports:
-      - "8888:8000"
+      - "8889:8000"
     environment:
       - TZ=Asia/Shanghai
       - HOST=0.0.0.0
