@@ -11,6 +11,7 @@ from .database import router as database_router
 from .document_upload import router as document_upload_router
 from .duplicates import router as duplicates_router
 from .exports import router as exports_router
+from .health import router as health_router
 from .favorites import router as favorites_router
 from .logs import router as logs_router
 from .notifications import router as notifications_router
@@ -39,6 +40,7 @@ api_router.include_router(bidder_qualifications_router)
 api_router.include_router(document_upload_router)
 api_router.include_router(duplicates_router)
 api_router.include_router(exports_router)
+api_router.include_router(health_router)
 api_router.include_router(presets_router)
 api_router.include_router(search_router)
 api_router.include_router(chat_router)
