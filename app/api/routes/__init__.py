@@ -13,6 +13,7 @@ from .notifications_settings import router as notifications_settings_router
 from .projects import router as projects_router
 from .search import router as search_router
 from .chat import router as chat_router
+from .quality import router as quality_router
 
 api_router = APIRouter()
 
@@ -27,3 +28,4 @@ api_router.include_router(bidder_qualifications_router)
 api_router.include_router(document_upload_router)
 api_router.include_router(search_router)
 api_router.include_router(chat_router)
+api_router.include_router(quality_router)

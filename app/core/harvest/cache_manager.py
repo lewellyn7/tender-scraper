@@ -28,24 +28,63 @@ LOCK_BLOCKING_TIMEOUT = int(os.getenv("CACHE_LOCK_BLOCKING_TIMEOUT", "10"))  # 1
 
 logger = logging.getLogger(__name__)
 
-# ── Redis 连接池 ────────────────────────────────────────
+# ── Redis 连接池（支持内存回退）────────────────────────
 class RedisManager:
     _client: Optional[Redis] = None
     _url: str = REDIS_URL
+    # 内存回退：Redis 不可用时使用
+    _fallback: dict = {}
+    _fallback_time: dict = {}
+    _using_fallback: bool = False
 
     @classmethod
     async def get_client(cls) -> Redis:
         if cls._client is None:
-            cls._client = redis.from_url(
-                cls._url,
-                encoding="utf-8",
-                decode_responses=True,
-                max_connections=20,
-                socket_timeout=5,
-                socket_connect_timeout=5,
-                retry_on_timeout=True,
-            )
+            try:
+                cls._client = redis.from_url(
+                    cls._url,
+                    encoding="utf-8",
+                    decode_responses=True,
+                    max_connections=20,
+                    socket_timeout=3,
+                    socket_connect_timeout=3,
+                    retry_on_timeout=True,
+                )
+                await cls._client.ping()
+                cls._using_fallback = False
+                logger.info(f"Redis connected: {cls._url}")
+            except Exception as e:
+                logger.warning(f"Redis unavailable ({e}), using in-memory fallback")
+                cls._client = None
+                cls._using_fallback = True
         return cls._client
+
+    @classmethod
+    async def get(cls, key: str) -> Optional[str]:
+        """读取 key（Redis 或内存回退）"""
+        client = await cls.get_client()
+        if client is not None:
+            return await client.get(key)
+        # 内存回退
+        import time
+        expiry = cls._fallback_time.get(key, 0)
+        if expiry > time.time():
+            return cls._fallback.get(key)
+        cls._fallback.pop(key, None)
+        cls._fallback_time.pop(key, None)
+        return None
+
+    @classmethod
+    async def set(cls, key: str, value: str, ttl: int = 3600) -> bool:
+        """写入 key（Redis 或内存回退）"""
+        client = await cls.get_client()
+        if client is not None:
+            await client.set(key, value, ex=ttl)
+            return True
+        import time
+        cls._fallback[key] = value
+        cls._fallback_time[key] = time.time() + ttl
+        return True
 
     @classmethod
     async def close(cls):
@@ -57,9 +96,15 @@ class RedisManager:
     async def ping(cls) -> bool:
         try:
             client = await cls.get_client()
-            return await client.ping()
+            if client is not None:
+                return await client.ping()
+            return cls._using_fallback
         except Exception:
             return False
+
+    @classmethod
+    def is_using_fallback(cls) -> bool:
+        return cls._using_fallback
 
 
 # ── 缓存管理器 ──────────────────────────────────────────
