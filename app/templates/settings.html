@@ -5,13 +5,14 @@
   <!-- Navigation Tabs -->
   <div class="border-b border-gray-200 dark:border-gray-700">
     <nav class="flex gap-1 -mb-px" id="settingsTabs">
-      <button type="button" data-tab="notifications" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-blue-600 text-blue-600 dark:text-blue-400">通知设置</button>
-      <button type="button" data-tab="presets" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500">筛选预设</button>
-      <button type="button" data-tab="backup" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500">配置备份</button>
-      <button type="button" data-tab="duplicates" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500">重复检测</button>
+      <button type="button" data-tab="llm" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">🤖 AI 模型</button>
+      <button type="button" data-tab="notifications" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">通知设置</button>
+      <button type="button" data-tab="presets" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">筛选预设</button>
+      <button type="button" data-tab="backup" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">配置备份</button>
+      <button type="button" data-tab="duplicates" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">重复检测</button>
       <button type="button" data-tab="users" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 admin-only hidden">👥 用户管理</button>
       <button type="button" data-tab="dbbackup" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 admin-only hidden">💾 数据库备份</button>
-      <button type="button" data-tab="account" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500">我的账户</button>
+      <button type="button" data-tab="account" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">我的账户</button>
     </nav>
   </div>
 
@@ -66,6 +67,46 @@
   </div>
 
   <!-- Presets Tab -->
+
+  <!-- LLM Tab -->
+  <div id="tab-llm" class="tab-content space-y-4 hidden">
+    <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">🤖 AI 模型配置</h2>
+      <div class="grid md:grid-cols-2 gap-6">
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">模型提供商</label>
+            <select id="llm-provider" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600 text-sm">
+              <option value="none">不启用 LLM（规则提取）</option>
+              <option value="openai">OpenAI (GPT 系列)</option>
+              <option value="ragflow">RAGFlow (本地)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">模型名称</label>
+            <input type="text" id="llm-model" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600 text-sm" placeholder="gpt-4o-mini" value="gpt-4o-mini">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">API Key <span class="text-xs text-gray-400">(仅 OpenAI 需要)</span></label>
+            <input type="password" id="llm-api-key" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600 text-sm" placeholder="sk-...">
+          </div>
+          <div class="flex gap-3 mt-4">
+            <button type="button" id="btn-save-llm" class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">保存配置</button>
+          </div>
+          <p id="llm-msg" class="mt-2 text-sm hidden"></p>
+        </div>
+        <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 text-sm text-gray-600 dark:text-gray-400">
+          <h3 class="font-medium text-gray-700 dark:text-gray-300 mb-2">配置说明</h3>
+          <ul class="space-y-1 list-disc list-inside">
+            <li>不启用：仅使用规则/正则提取，速度快但精度较低</li>
+            <li>OpenAI：精度高，需配置 API Key（自动路由到文档分析）</li>
+            <li>RAGFlow：使用本地 RAGFlow 服务，无需 API Key</li>
+            <li>修改配置后需重启服务生效</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="tab-presets" class="tab-content space-y-4 hidden">
     <div class="flex justify-between items-center">
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white">筛选预设</h2>
@@ -376,6 +417,41 @@
       var r = await authFetch('/api/notifications/test', { method: 'POST' });
       var d = await r.json();
       msgEl.textContent = d.success ? '测试消息已发送!' : '发送失败: ' + (d.error || '未知错误');
+      msgEl.classList.remove('hidden');
+      msgEl.className = 'mt-2 text-sm ' + (d.success ? 'text-green-600' : 'text-red-600');
+    } catch (e) {
+      msgEl.textContent = 'ERROR: ' + e.message;
+      msgEl.classList.remove('hidden');
+      msgEl.className = 'mt-2 text-sm text-red-600';
+    }
+  }
+
+  // ── LLM Config ───────────────────────────────────────────
+  async function loadLLMConfig() {
+    try {
+      var r = await authFetch('/api/llm/config');
+      var d = await r.json();
+      $('llm-provider').value = d.provider || 'none';
+      $('llm-model').value = d.model || 'gpt-4o-mini';
+      $('llm-api-key').value = '';
+    } catch (e) { console.error(e); }
+  }
+
+  async function saveLLMConfig() {
+    var msgEl = $('llm-msg');
+    msgEl.classList.add('hidden');
+    try {
+      var r = await authFetch('/api/llm/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: $('llm-provider').value,
+          model: $('llm-model').value,
+          api_key: $('llm-api-key').value
+        })
+      });
+      var d = await r.json();
+      msgEl.textContent = d.success ? '保存成功! 重启服务后生效' : '保存失败';
       msgEl.classList.remove('hidden');
       msgEl.className = 'mt-2 text-sm ' + (d.success ? 'text-green-600' : 'text-red-600');
     } catch (e) {
@@ -912,6 +988,7 @@
 
     // Notifications
     $('btn-save-notif').addEventListener('click', saveNotifConfig);
+    $('btn-save-llm').addEventListener('click', saveLLMConfig);
     $('btn-test-notif').addEventListener('click', testNotification);
 
     // Presets

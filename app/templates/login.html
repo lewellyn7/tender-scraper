@@ -108,7 +108,8 @@ async function doLogin() {
       showError('login-error', '');
       // Redirect to dashboard or intended page
       var target = new URLSearchParams(location.search).get('redirect') || '/';
-      location.href = target;
+      // Small delay to show success state before redirect
+      setTimeout(function() { location.href = target; }, 100);
     } else {
       showError('login-error', d.detail || d.error || '用户名或密码错误');
     }
@@ -151,8 +152,13 @@ async function doRegister() {
     });
     var d = await r.json();
     if (r.status === 200 && d.user_id) {
-      // Auto-login after register
-      await doLogin();
+      // Show success then redirect to login with credentials pre-filled
+      $('login-username').value = username;
+      $('login-password').value = password;
+      showError('register-success', '注册成功！即将跳转登录...');
+      $('register-success').classList.remove('hidden');
+      $('register-error').classList.add('hidden');
+      setTimeout(function() { switchTab('login'); }, 1200);
     } else {
       showError('register-error', d.detail || d.error || '注册失败');
     }
@@ -174,6 +180,12 @@ function showError(id, msg) {
 
 
 // ── Enter key ────────────────────────────────────────────────
+// Auto-redirect if already logged in
+if (getToken()) {
+  var redirect = new URLSearchParams(location.search).get('redirect') || '/';
+  location.href = redirect;
+}
+
 $('login-password').addEventListener('keyup', function(e) {
   if (e.key === 'Enter') doLogin();
 });

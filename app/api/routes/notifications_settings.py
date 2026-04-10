@@ -1,6 +1,7 @@
 """通知和设置路由"""
 
 import json
+import os
 from pathlib import Path
 from typing import Dict, List
 
@@ -46,8 +47,11 @@ def update_notif_config(
 @router.post("/notifications/test")
 async def test_notification():
     nm = get_notif_manager()
-    if not nm.config.enabled:
-        return JSONResponse({"error": "not enabled"}, status_code=400)
+    cfg = nm.get_config()
+    if not cfg.get("enabled"):
+        return JSONResponse({"error": "Telegram通知未启用"}, status_code=400)
+    if not cfg.get("bot_token") or not cfg.get("chat_id"):
+        return JSONResponse({"error": "Bot Token 或 Chat ID 未配置"}, status_code=400)
     ok = await nm.send_immediate(
         {
             "title": "Test",
@@ -62,6 +66,49 @@ async def test_notification():
 
 
 # ========== settings ==========
+
+
+@router.get("/llm/config")
+def get_llm_config():
+    return JSONResponse({
+        "provider": os.getenv("LLM_PROVIDER", "none"),
+        "model": os.getenv("LLM_MODEL", "gpt-4o-mini"),
+        "api_key": os.getenv("OPENAI_API_KEY", "")[:4] + "****" if os.getenv("OPENAI_API_KEY") else "",
+    })
+
+
+@router.post("/llm/config")
+def update_llm_config(api_key: str = Body(""), model: str = Body("gpt-4o-mini"), provider: str = Body("openai")):
+    import pathlib
+    env_path = pathlib.Path(SYS_PATH) / ".env"
+    lines = []
+    if env_path.exists():
+        lines = env_path.read_text().splitlines()
+    # Update or add lines
+    updated = False
+    new_lines = []
+    for line in lines:
+        if line.startswith("LLM_PROVIDER="):
+            new_lines.append(f"LLM_PROVIDER={provider}")
+            updated = True
+        elif line.startswith("LLM_MODEL="):
+            new_lines.append(f"LLM_MODEL={model}")
+            updated = True
+        elif line.startswith("OPENAI_API_KEY="):
+            if api_key:
+                new_lines.append(f"OPENAI_API_KEY={api_key}")
+                updated = True
+            else:
+                new_lines.append(line)
+                updated = True
+        else:
+            new_lines.append(line)
+    if not updated:
+        new_lines.extend([f"LLM_PROVIDER={provider}", f"LLM_MODEL={model}"])
+        if api_key:
+            new_lines.append(f"OPENAI_API_KEY={api_key}")
+    env_path.write_text("\n".join(new_lines) + "\n")
+    return {"success": True}
 
 
 @router.get("/settings")
