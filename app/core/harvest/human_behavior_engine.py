@@ -4,10 +4,11 @@ HumanBehaviorEngine - 模拟人类访问行为引擎
 """
 
 import asyncio
-import random
 import math
-from typing import Optional, Tuple, List
-from playwright.async_api import Page, BrowserContext
+import random
+from typing import List, Optional, Tuple
+
+from playwright.async_api import BrowserContext, Page
 
 
 class HumanBehaviorEngine:

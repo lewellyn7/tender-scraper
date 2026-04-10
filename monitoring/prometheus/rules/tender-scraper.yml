@@ -150,7 +150,7 @@ groups:
           component: qualification
         annotations:
           summary: "资质已过期 ❌"
-          description: "资质 [{{ $labels.qualification_name }}] 证书编号 [{{ $labels.certificate_no }}] 已过期 {{ $value | printf \"%.0f\" | remove_prefix \"-\" }} 天，请立即处理！"
+          description: "资质 [{{ $labels.qualification_name }}] 证书编号 [{{ $labels.certificate_no }}] 已过期 {{ $value | printf \"%.0f\" }} 天，请立即处理！"
 
       # 过期资质数量过多
       - alert: TooManyExpiredQualifications

@@ -6,8 +6,8 @@
 运行方式 (docker-compose):
   docker compose run --rm scheduler
 """
-import sys
 import os
+import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

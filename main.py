@@ -2,20 +2,21 @@
 更新：支持详情页采集 + 数据持久化 + Web 管理界面
 """
 import asyncio
-import sys
-import os
 import json
+import os
+import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from loguru import logger
+
 from app.core.browser import StealthBrowser
+from app.core.concurrency_scheduler import ConcurrencyScheduler, SafetyLevel
+from app.core.session_memory import SessionMemory, SessionMemoryConfig
 from app.crawlers.cqggzy import CQGGZYCrawlerV2
 from app.utils.filter import TenderFilter
 from app.utils.report import ReportGenerator
-from app.core.session_memory import SessionMemory, SessionMemoryConfig
-from app.core.concurrency_scheduler import ConcurrencyScheduler, SafetyLevel
 from config.settings import settings
 
 # 配置日志
@@ -112,15 +113,15 @@ async def run_collection():
         logger.info("📄 开始采集详情页...")
         detail_limit = min(10, len(matched_items))
         detail_items = matched_items[:detail_limit]
-        
+
         async def fetch_and_update(index, item):
             detail_item = await crawler.fetch_detail(item)
             logger.info(f"  ✅ [{index+1}/{detail_limit}] {item.title[:30]}...")
             return index, detail_item
-        
+
         # 并行采集详情页（最多 3 个并发，避免触发反爬）
         results = await asyncio.gather(*[fetch_and_update(i, item) for i, item in enumerate(detail_items)])
-        
+
         # 更新 matched_items
         for idx, detail_item in results:
             matched_items[idx] = detail_item
@@ -139,7 +140,7 @@ async def run_collection():
             standardized_all.append(std)
             if item.keywords_matched:
                 standardized_matched.append(std)
-        
+
         # 如果 all_items 已更新，则 standardized_all 也包含更新后的数据
 
         # 7. 生成报表 (仅匹配项)
@@ -165,7 +166,7 @@ async def run_collection():
                     std = filter_engine.extract_project_info(mi)
                     standardized_all[i] = std
                     break
-        
+
         data_path = os.path.join(settings.OUTPUT_DIR, "latest.json")
         output_data = {
             "total": len(all_items),

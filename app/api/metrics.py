@@ -20,12 +20,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Response
 from prometheus_client import (
-    Gauge,
-    Counter as PCounter,
-    Histogram,
-    generate_latest,
     CONTENT_TYPE_LATEST,
     REGISTRY,
+    Gauge,
+    generate_latest,
+)
+from prometheus_client import (
+    Counter as PCounter,
 )
 
 from app.database import get_db

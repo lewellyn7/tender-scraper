@@ -4,7 +4,7 @@ def test_validate_username():
     from app.utils.security import validate_username
     valid, msg = validate_username("user123")
     assert valid == True
-    
+
     valid, msg = validate_username("ab")
     assert valid == False
 

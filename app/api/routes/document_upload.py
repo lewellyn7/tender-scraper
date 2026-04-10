@@ -1,12 +1,10 @@
 """资质文件上传 API"""
 
-import os
-import shutil
 import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.database import get_db

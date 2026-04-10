@@ -1,7 +1,5 @@
 """投标主体资质管理 API 路由"""
 
-import json
-import re
 from datetime import date
 from typing import Optional
 

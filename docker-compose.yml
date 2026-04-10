@@ -2,6 +2,35 @@
 # 招投标采集系统 - 生产部署配置
 # ============================================================
 services:
+  # --- PostgreSQL + pgvector ---
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: tender-scraper-postgres
+    restart: unless-stopped
+    ports:
+      - "5434:5432"
+    environment:
+      - POSTGRES_USER=${DB_USER:-root}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-root123}
+      - POSTGRES_DB=${DB_NAME:-tender_scraper}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init_vectors.sql:/docker-entrypoint-initdb.d/03-vectors.sql:ro
+      - ./scripts/init_harvest.sql:/docker-entrypoint-initdb.d/04-harvest.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-root} -d ${DB_NAME:-tender_scraper}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tender-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
   # --- Web API 服务 ---
   web:
     build:
@@ -11,21 +40,33 @@ services:
     container_name: tender-scraper-web
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8888:8000"
     environment:
       - TZ=Asia/Shanghai
+      - PORT=8000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD:-root123}@postgres:5432/${DB_NAME:-tender_scraper}
+      - RAGFLOW_MCP_URL=http://host.docker.internal:9382
+      - RAGFLOW_API_KEY=ragflow-Z95CAjDHSyKZflHv6xMD6SXvmjdkSzCZCZK5BSyQcSw
+      - RAGFLOW_BASE_URL=http://host.docker.internal:8088
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./output:/app/output
       - ./logs:/app/logs
       - scraper-data:/app/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5)"]
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8888/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 90s
     networks:
       - tender-net
+    depends_on:
+      postgres:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -46,6 +87,15 @@ services:
     command: ["python", "-m", "app.scheduler"]
     environment:
       - TZ=Asia/Shanghai
+      - PORT=8000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD:-root123}@postgres:5432/${DB_NAME:-tender_scraper}
+      - RAGFLOW_MCP_URL=http://host.docker.internal:9382
+      - RAGFLOW_API_KEY=ragflow-Z95CAjDHSyKZflHv6xMD6SXvmjdkSzCZCZK5BSyQcSw
+      - RAGFLOW_BASE_URL=http://host.docker.internal:8088
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./output:/app/output
       - ./logs:/app/logs
@@ -64,106 +114,10 @@ services:
       web:
         condition: service_healthy
 
-  # --- Prometheus 监控 ---
-  prometheus:
-    image: prom/prometheus:v2.51.0
-    container_name: tender-scraper-prometheus
-    restart: unless-stopped
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=15d'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
-      - prometheus-data:/prometheus
-    networks:
-      - tender-net
+volumes:
+  postgres-data:
+  scraper-data:
 
-  # --- Grafana 可视化 ---
-  grafana:
-    image: grafana/grafana:10.4.2
-    container_name: tender-scraper-grafana
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_SERVER_ROOT_URL=http://localhost:3000
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-    networks:
-      - tender-net
-    depends_on:
-      - prometheus
-
-  # --- 告警 Webhook 服务 (可选) ---
-  alertmgr:
-    image: prom/alertmanager:v0.27.0
-    container_name: tender-scraper-alertmgr
-    restart: unless-stopped
-    ports:
-      - "9093:9093"
-    command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
-    volumes:
-      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - alertmgr-data:/alertmanager
-    networks:
-      - tender-net
-    depends_on:
-      - prometheus
-
-  # --- Redis 缓存服务 ---
-  redis:
-    image: redis:7.2-alpine
-    container_name: tender-scraper-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: >
-      --appendonly yes
-      --maxmemory 512mb
-      --maxmemory-policy allkeys-lru
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    networks:
-      - tender-net
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-
-# ============================================================
-# 网络
-# ============================================================
 networks:
   tender-net:
     driver: bridge
-
-# ============================================================
-# 持久化卷
-# ============================================================
-volumes:
-  scraper-data:
-    driver: local
-  prometheus-data:
-    driver: local
-  grafana-data:
-    driver: local
-  alertmgr-data:
-    driver: local

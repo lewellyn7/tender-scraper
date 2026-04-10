@@ -1,14 +1,13 @@
 """security_utils shim - re-exports from app.utils.security + stubs for missing classes"""
 
-import hmac
 import hashlib
-import re
+import hmac
 import ipaddress
+import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Callable
+from typing import Callable, Dict, Optional, Tuple
 
 # Re-export from app.utils.security
-from app.utils.security import RateLimiter as _RealRateLimiter, rate_limit as _real_rate_limit
 
 __all__ = [
     "URLWhitelistConfig",
@@ -115,7 +114,7 @@ class URLValidator:
         # Check sensitive path
         for prefix in self._SENSITIVE_PATH_PREFIXES:
             if path.startswith(prefix):
-                return False, f"Sensitive path not allowed"
+                return False, "Sensitive path not allowed"
 
         # Check scheme
         if scheme not in self.config.allowed_schemes:
@@ -128,7 +127,7 @@ class URLValidator:
         # Check IP-based URLs for private IPs
         if self._is_ip_address(domain):
             if not self.config.allow_private and self._is_private_ip(domain):
-                return False, f"Private IP not allowed"
+                return False, "Private IP not allowed"
             return True, ""
 
         # For non-IP domains, check private if allow_private=False
@@ -140,7 +139,7 @@ class URLValidator:
                     ips = socket.getaddrinfo(domain, None)
                     for family, _, _, _, sockaddr in ips:
                         if sockaddr[0] and self._is_private_ip(sockaddr[0]):
-                            return False, f"Domain resolves to private IP"
+                            return False, "Domain resolves to private IP"
                 except Exception:
                     pass
             except Exception:
@@ -256,8 +255,8 @@ class InputSanitizer:
 
 # ── RateLimiter (test-compatible) ─────────────────────────────────────────────
 
-import asyncio
 import time
+
 
 @dataclass
 class RateLimitInfo:

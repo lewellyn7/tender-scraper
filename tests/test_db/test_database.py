@@ -19,11 +19,11 @@ def test_favorites_crud(test_db, sample_project):
     # 测试添加收藏
     result = test_db.add_favorite_sync(sample_project)
     assert result == True
-    
+
     # 测试获取收藏
     favorites = test_db.get_favorites()
     assert len(favorites) == 1
-    
+
     # 测试删除收藏
     result = test_db.remove_favorite(sample_project["url"])
     assert result == True

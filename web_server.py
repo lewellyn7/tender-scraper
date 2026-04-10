@@ -1,8 +1,9 @@
 """Web 管理界面服务器"""
-from pathlib import Path
-from loguru import logger
-import sys
 import os
+import sys
+from pathlib import Path
+
+from loguru import logger
 
 # 日志级别配置
 ENV = os.getenv("ENV", "development")
@@ -10,18 +11,22 @@ LOG_LEVEL = "DEBUG" if ENV == "development" else "INFO"
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import uvicorn
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
-from app.api.routes import api_router
+from fastapi.staticfiles import StaticFiles
+
 from app.api import routes_n8n, routes_users
+from app.api.metrics import router as metrics_router
+from app.api.routes import api_router
 from app.api.routes.document_upload import router as document_upload_router
 from app.api.routes.pages import router as pages_router
-from app.api.metrics import router as metrics_router
-from app.middleware.security import SecurityHeadersMiddleware, RequestLoggingMiddleware, RateLimitMiddleware
 from app.middleware.csrf import CSRFProtectionMiddleware
-import uvicorn
+from app.middleware.security import (
+    RateLimitMiddleware,
+    RequestLoggingMiddleware,
+    SecurityHeadersMiddleware,
+)
 
 # 日志配置
 logger.remove()

@@ -24,9 +24,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from loguru import logger
+
 from app.core.browser import StealthBrowser
-from app.crawlers.cqggzy import CQGGZYCrawlerV2
 from app.crawlers.ccgp import CCGPCrawlerV3
+from app.crawlers.cqggzy import CQGGZYCrawlerV2
 from app.utils.filter import TenderFilter
 from app.utils.report import ReportGenerator
 

@@ -1,9 +1,10 @@
 """async_crawler_base shim - re-exports from app.core.harvest + stubs for missing classes"""
 
-from app.core.harvest.exception_handler import AnomalyType as _RealAnomalyType
-from dataclasses import dataclass, field
-from typing import Optional, Any
 import asyncio
+from dataclasses import dataclass
+from typing import Optional
+
+from app.core.harvest.exception_handler import AnomalyType as _RealAnomalyType
 
 # Re-export
 AnomalyType = _RealAnomalyType

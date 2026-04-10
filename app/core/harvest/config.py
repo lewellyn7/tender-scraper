@@ -11,11 +11,9 @@ config.py - 采集系统配置管理
 from __future__ import annotations
 
 import os
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
-
 
 # ── 路径 ─────────────────────────────────────────────────────────────────────
 ROOT_DIR = Path(__file__).parent.parent.resolve()

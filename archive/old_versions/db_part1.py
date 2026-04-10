@@ -1,8 +1,7 @@
 """DB"""
-import sqlite3, json, threading
+import sqlite3
+import threading
 from pathlib import Path
-from typing import Optional, List, Dict
-from loguru import logger
 
 DB_PATH = Path(__file__).parent.parent.parent / "config" / "tender_scraper.db"
 

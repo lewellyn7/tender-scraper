@@ -6,15 +6,14 @@ tests/test_human_behavior_engine.py
 - 覆盖: 延迟、鼠标移动、点击、滚动、键盘操作、反检测配置
 """
 
-import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
-from typing import Optional
-
 import sys
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 sys.path.insert(0, "scripts")
 from human_behavior_engine import HumanBehaviorEngine
-
 
 # ─────────────────────────────────────────────────────────────
 # Fixtures

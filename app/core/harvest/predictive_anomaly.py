@@ -14,10 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -543,7 +542,7 @@ class PreventiveScheduler:
         if risk.risk_level == RiskLevel.HIGH:
             # 高优先级任务不推迟，低优先级才推迟
             if task_priority < 0.5:
-                return True, f"HIGH 风险站点，低优先级任务推迟"
+                return True, "HIGH 风险站点，低优先级任务推迟"
 
         if risk.ban_probability > 0.7:
             return True, f"Ban 概率 {risk.ban_probability:.2f}，预防性推迟"
@@ -681,7 +680,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     async def demo():
-        from smart_scheduler import SmartScheduler, CrawlTask
+        from smart_scheduler import SmartScheduler
 
         # 初始化
         base = SmartScheduler(max_concurrent=3)

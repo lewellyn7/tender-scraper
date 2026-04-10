@@ -3,14 +3,13 @@
 BaseCrawler 单元测试 — 测试通用工具方法
 """
 
-import pytest
-import asyncio
 from datetime import datetime
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.crawlers.base import BaseCrawler
-from app.models.tender import TenderInfo, ContactInfo, TenderAttachment
-
+from app.models.tender import TenderInfo
 
 # ─── Concrete subclass for abstract testing ─────────────────────────────────
 
@@ -183,14 +182,34 @@ class MockPage:
 
     async def query_selector_all(self, selector):
         results = []
+        # Handle comma-separated selectors like 'a[href$=".pdf"], a[href$=".doc"], ...'
+        extensions = []
+        for part in selector.split(','):
+            part = part.strip()
+            if '.pdf' in part:
+                extensions.append('.pdf')
+            elif '.doc' in part:
+                extensions.append('.doc')
+                extensions.append('.docx')
+            elif '.xls' in part:
+                extensions.append('.xls')
+                extensions.append('.xlsx')
+            elif '.zip' in part:
+                extensions.append('.zip')
+        
         for link in self._links:
-            if selector in str(link.get("_selector", "")):
-                results.append(MockSelectorResult(
-                    text=link.get("text", ""),
-                    href=link.get("href", ""),
-                    tag=link.get("tag", "A"),
-                ))
+            href = link.get("href", "")
+            for ext in extensions:
+                if href.endswith(ext):
+                    results.append(MockSelectorResult(
+                        text=link.get("text", ""),
+                        href=href,
+                        tag=link.get("tag", "A"),
+                    ))
+                    break
+        
         return results
+
 
 
 # ─── _extract_field 测试 ─────────────────────────────────────────────────────
@@ -335,7 +354,7 @@ async def test_extract_attachments_http_url(crawler):
 async def test_extract_budget_yuan(crawler):
     """提取预算金额（元）"""
     page = MockPage(body_text="预算金额：500000元")
-    result = crawler._extract_budget(page)
+    result = await crawler._extract_budget(page)
     assert "500000" in result
 
 
@@ -343,7 +362,7 @@ async def test_extract_budget_yuan(crawler):
 async def test_extract_budget_wan(crawler):
     """提取预算金额（万元）"""
     page = MockPage(body_text="采购预算：123.45万元")
-    result = crawler._extract_budget(page)
+    result = await crawler._extract_budget(page)
     assert "123.45" in result
 
 
@@ -351,7 +370,7 @@ async def test_extract_budget_wan(crawler):
 async def test_extract_budget_no_match(crawler):
     """无预算信息"""
     page = MockPage(body_text="无预算")
-    result = crawler._extract_budget(page)
+    result = await crawler._extract_budget(page)
     assert result == ""
 
 
@@ -361,7 +380,7 @@ async def test_extract_budget_no_match(crawler):
 async def test_extract_deadline_with_datetime(crawler):
     """提取截止时间（带 datetime）"""
     page = MockPage(body_text="投标截止时间：2024-12-31 17:00")
-    raw, dt = crawler._extract_deadline(page)
+    raw, dt = await crawler._extract_deadline(page)
     assert "2024" in raw
     assert dt is not None
     assert dt.year == 2024
@@ -371,7 +390,7 @@ async def test_extract_deadline_with_datetime(crawler):
 async def test_extract_deadline_date_only(crawler):
     """只有日期无时间"""
     page = MockPage(body_text="截止日期：2024-06-15")
-    raw, dt = crawler._extract_deadline(page)
+    raw, dt = await crawler._extract_deadline(page)
     assert "2024-06-15" in raw
 
 
@@ -381,7 +400,7 @@ async def test_extract_deadline_date_only(crawler):
 async def test_extract_bid_amount(crawler):
     """提取中标金额"""
     page = MockPage(body_text="中标金额：666万元")
-    result = crawler._extract_bid_amount(page)
+    result = await crawler._extract_bid_amount(page)
     assert "666" in result
 
 
@@ -389,7 +408,7 @@ async def test_extract_bid_amount(crawler):
 async def test_extract_bid_amount_chengjiao(crawler):
     """提取成交金额"""
     page = MockPage(body_text="成交金额：888.5万元")
-    result = crawler._extract_bid_amount(page)
+    result = await crawler._extract_bid_amount(page)
     assert "888.5" in result
 
 
@@ -397,7 +416,7 @@ async def test_extract_bid_amount_chengjiao(crawler):
 async def test_extract_bid_amount_no_match(crawler):
     """无中标金额"""
     page = MockPage(body_text="暂无数据")
-    result = crawler._extract_bid_amount(page)
+    result = await crawler._extract_bid_amount(page)
     assert result == ""
 
 

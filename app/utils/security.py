@@ -1,6 +1,5 @@
 """安全工具模块"""
 
-import bcrypt
 import hmac
 import os
 import re
@@ -9,6 +8,8 @@ import time
 from collections import defaultdict
 from functools import wraps
 from typing import Callable, Dict, List, Tuple
+
+import bcrypt
 
 from app.constants import SecurityConstants
 
@@ -133,7 +134,6 @@ def mask_sensitive_data(data: dict, fields: List[str] = None) -> dict:
 
 def generate_request_id() -> str:
     """生成请求 ID"""
-    import secrets
 
     return secrets.token_hex(16)
 

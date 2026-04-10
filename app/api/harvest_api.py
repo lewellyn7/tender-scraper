@@ -20,24 +20,18 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import uvicorn
+from app.crawlers.async_base import HumanCrawlerBase
 from fastapi import BackgroundTasks, FastAPI, HTTPException, status
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 # 本地模块
 from app.core.harvest.smart_scheduler import (
-    AdaptiveIntervalManager,
     CrawlTask,
     DatabaseManager,
-    DynamicPriorityEngine,
-    HarvestRecord,
-    RecordStatus,
     SmartScheduler,
-    SourceConfig,
     init_tables,
     save_harvest_records,
 )
-from app.crawlers.async_base import HumanCrawlerBase
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 日志

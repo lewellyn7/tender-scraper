@@ -12,11 +12,10 @@ import time
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from loguru import logger
 
-from app.database.async_models import DatabaseManager
 from app.utils.tfidf_matcher import TFIDFMatcher
 
 SYS_PATH = Path(__file__).parent.parent.parent

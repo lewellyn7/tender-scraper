@@ -3,14 +3,12 @@
 CCGPCrawlerV3 单元测试
 """
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-import asyncio
-from datetime import datetime
-from unittest.mock import MagicMock, AsyncMock, patch
 
 from app.crawlers.ccgp import CCGPCrawlerV3
 from app.models.tender import TenderInfo
-
 
 # ─── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -176,17 +174,19 @@ async def test_fetch_list_url_dedup(crawler, mock_browser):
 @pytest.mark.asyncio
 async def test_fetch_list_page_num(crawler, mock_browser):
     """分页 URL 生成"""
-    captured_url = None
+    captured_url = [None]  # Use list for nonlocal mutation
 
-    async def capture_url(url, **kwargs):
-        nonlocal captured_url
-        captured_url = url
-        return MockPage(body_text="", links=[])
+    async def capture_goto(url, *args, **kwargs):
+        captured_url[0] = url
+        return None  # goto returns None in our mock
 
-    mock_browser.new_page = AsyncMock(side_effect=capture_url)
+    # Create mock page that captures the URL from goto
+    mock_page = MockPage(body_text="", links=[])
+    mock_page.goto = AsyncMock(side_effect=capture_goto)
+    mock_browser.new_page = AsyncMock(return_value=mock_page)
 
     await crawler.fetch_list(info_type="采购公告", page_num=3)
-    assert "page=3" in captured_url
+    assert "page=3" in captured_url[0]
 
 
 @pytest.mark.asyncio

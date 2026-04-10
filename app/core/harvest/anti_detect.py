@@ -31,7 +31,6 @@ from app.core.harvest.anti_detect.manager import (
 )
 from app.core.harvest.anti_detect.tls import TLSFingerprintForCurl, TLSFingerprintSimulator
 
-
 __all__ = [
     "FingerprintProfile",
     "CanvasNoiseInjector",

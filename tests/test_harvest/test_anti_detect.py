@@ -8,28 +8,26 @@ tests/test_anti_detect.py
 - PlaywrightAntiDetectAdapter
 """
 
-import pytest
 import asyncio
-import json
-import tempfile
 import os
-from unittest.mock import MagicMock, AsyncMock, patch
-from collections import deque
-
 import sys
+import tempfile
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 sys.path.insert(0, "scripts")
 from anti_detect import (
-    FingerprintProfile,
-    CanvasNoiseInjector,
-    TLSFingerprintSimulator,
-    DNSLeakProtector,
-    HumanBehaviorSimulator,
     AdaptiveLearningEngine,
     AntiDetectManager,
+    CanvasNoiseInjector,
+    DNSLeakProtector,
+    FingerprintProfile,
+    HumanBehaviorSimulator,
     PlaywrightAntiDetectAdapter,
     TLSFingerprintForCurl,
+    TLSFingerprintSimulator,
 )
-
 
 # ─────────────────────────────────────────────────────────────
 # Fixtures

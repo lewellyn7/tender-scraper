@@ -4,20 +4,19 @@ Redis 缓存管理 — 采集结果缓存 / TokenBucket 限速 / 分布式锁
 用于政府采购采集系统的缓存层和并发控制
 """
 
-import os
 import asyncio
-import json
 import hashlib
+import json
+import logging
+import os
 import time
 import uuid
-from typing import Optional, List, Dict, Any, Union
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-import logging
+from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
 from redis.asyncio.client import Redis
-from redis.asyncio.lock import Lock
 
 # ── 配置 ────────────────────────────────────────────────
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")

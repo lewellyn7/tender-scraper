@@ -6,10 +6,10 @@ async_crawler_base.py - 基于 Playwright 的异步爬虫基类
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List, Callable
-from playwright.async_api import async_playwright, Page, BrowserContext, Browser
-from human_behavior_engine import HumanBehaviorEngine
+from typing import Any, Callable, Dict, List, Optional
 
+from human_behavior_engine import HumanBehaviorEngine
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 logger = logging.getLogger(__name__)
 

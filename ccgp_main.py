@@ -2,19 +2,19 @@
 """重庆政府采购网采集脚本 - 专门针对 ccgp-chongqing.gov.cn"""
 
 import asyncio
-import sys
-import os
 import json
+import os
+import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from loguru import logger
+
 from app.core.browser import StealthBrowser
 from app.crawlers.ccgp import CCGPCrawlerV3
 from app.utils.filter import TenderFilter
 from app.utils.report import ReportGenerator
-from config.settings import settings
 
 OUTPUT_DIR = "/home/lewellyn/.openclaw/workspace/logs/procurement"
 
@@ -29,7 +29,7 @@ async def run_collection():
     """执行采购网采集任务"""
     logger.info("=" * 60)
     logger.info("🚀 开始执行重庆政府采购网采集任务")
-    logger.info(f"📡 目标网站: https://www.ccgp-chongqing.gov.cn")
+    logger.info("📡 目标网站: https://www.ccgp-chongqing.gov.cn")
     logger.info(f"📅 执行时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     logger.info("=" * 60)
 

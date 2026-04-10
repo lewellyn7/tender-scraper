@@ -36,25 +36,28 @@
     <link rel="stylesheet" href="/static/css/app.css">
 
     {% block extra_head %}{% endblock %}
-
-    <!-- Alpine.js (deferred) -->
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-    <style>[x-cloak] { display: none !important; }</style>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors duration-200">
 
-    <!-- User & theme store (must be inline before Alpine init) -->
+    <!-- ========== STATE (vanilla JS, no Alpine) ========== -->
     <script>
-        document.addEventListener('alpine:init', () => {
-            Alpine.store('theme', localStorage.getItem('theme') || 'light');
-            Alpine.store('user', {
+        // User state
+        window.AppState = {
+            user: {
                 role: '{{ user_info.role if user_info else "guest" }}',
                 username: '{{ user_info.username if user_info else "" }}',
                 display_name: '{{ user_info.display_name if user_info else "" }}'
-            });
-            Alpine.store('nav', { mobileOpen: false });
-            if (Alpine.store('theme') === 'dark') document.documentElement.classList.add('dark');
-        });
+            },
+            nav: { mobileOpen: false },
+            theme: localStorage.getItem('theme') || 'light'
+        };
+
+        // Apply saved theme on load
+        if (window.AppState.theme === 'dark') {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
     </script>
 
     <!-- ========== NAVBAR ========== -->
@@ -69,25 +72,25 @@
                     </a>
                     <!-- Desktop nav links -->
                     <div class="hidden md:flex md:ml-6 md:space-x-0.5">
-                        <a href="/" class="nav-link nav-link--desk" x-show="$store.user.role !== 'guest'">
+                        <a href="/" class="nav-link nav-link--desk" data-show-role="not-guest">
                             <span class="mr-1">🏠</span>仪表盘
                         </a>
                         <a href="/content" class="nav-link nav-link--desk">📋<span class="nav-label">采集内容</span></a>
                         <a href="/data" class="nav-link nav-link--desk">💾<span class="nav-label">数据管理</span></a>
                         <a href="/favorites" class="nav-link nav-link--desk"
-                           x-show="$store.user.role === 'viewer' || $store.user.role === 'operator' || $store.user.role === 'admin'">
+                           data-show-role="viewer,operator,admin">
                             ⭐<span class="nav-label">收藏</span>
                         </a>
                         <a href="/analytics" class="nav-link nav-link--desk"
-                           x-show="$store.user.role === 'viewer' || $store.user.role === 'operator' || $store.user.role === 'admin'">
+                           data-show-role="viewer,operator,admin">
                             📈<span class="nav-label">分析</span>
                         </a>
                         <a href="/logs" class="nav-link nav-link--desk"
-                           x-show="$store.user.role === 'operator' || $store.user.role === 'admin'">
+                           data-show-role="operator,admin">
                             📋<span class="nav-label">日志</span>
                         </a>
                         <a href="/qualifications" class="nav-link nav-link--desk"
-                           x-show="$store.user.role !== 'guest'">
+                           data-show-role="not-guest">
                             📜<span class="nav-label">资质</span>
                         </a>
                         <a href="/settings" class="nav-link nav-link--desk">⚙️<span class="nav-label">设置</span></a>
@@ -97,41 +100,38 @@
                 <!-- Right cluster -->
                 <div class="flex items-center gap-2 sm:gap-3">
                     <!-- User badge (logged in) -->
-                    <div x-show="$store.user.role !== 'guest'"
-                         class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/30 rounded-full">
-                        <span class="text-xs font-medium text-blue-600 dark:text-blue-400 truncate max-w-[80px]"
-                              x-text="$store.user.display_name || $store.user.username"></span>
-                        <span class="text-xs px-1.5 py-0.5 bg-blue-200 dark:bg-blue-800 rounded text-blue-700 dark:text-blue-300"
-                              x-text="$store.user.role"></span>
+                    <div id="userBadge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/30 rounded-full">
+                        <span id="userDisplayName" class="text-xs font-medium text-blue-600 dark:text-blue-400 truncate max-w-[80px]"></span>
+                        <span id="userRoleBadge" class="text-xs px-1.5 py-0.5 bg-blue-200 dark:bg-blue-800 rounded text-blue-700 dark:text-blue-300"></span>
                     </div>
                     <!-- Login link (guest) -->
-                    <a x-show="$store.user.role === 'guest'" href="/settings"
+                    <a id="loginLink" href="/settings"
                        class="hidden sm:inline-flex text-sm text-blue-600 hover:text-blue-500 font-medium">
                         登录 / 注册
                     </a>
                     <!-- Theme toggle -->
-                    <button @click="toggleTheme()"
+                    <button id="themeToggle"
                             class="p-2 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
                             title="切换主题" aria-label="切换明暗主题">
                         <!-- Sun (shown in dark mode) -->
-                        <svg x-show="$store.theme === 'dark'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg id="iconSun" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                   d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
                         </svg>
                         <!-- Moon (shown in light mode) -->
-                        <svg x-show="$store.theme === 'light'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg id="iconMoon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                   d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
                         </svg>
                     </button>
                     <!-- Mobile hamburger -->
-                    <button @click="$store.nav.mobileOpen = !$store.nav.mobileOpen"
+                    <button id="mobileMenuToggle"
                             class="md:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition"
                             aria-label="打开菜单">
-                        <svg x-show="!$store.nav.mobileOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg id="iconHamburger" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
                         </svg>
-                        <svg x-show="$store.nav.mobileOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg id="iconClose" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                         </svg>
                     </button>
@@ -140,21 +140,19 @@
         </div>
 
         <!-- Mobile bottom sheet nav -->
-        <div class="md:hidden" x-show="$store.nav.mobileOpen" x-transition>
-            <div class="border-t border-gray-100 dark:border-gray-700 py-3 px-4 space-y-1">
-                <a href="/" class="mobile-nav-item" x-show="$store.user.role !== 'guest'">🏠 仪表盘</a>
-                <a href="/content" class="mobile-nav-item">📋 采集内容</a>
-                <a href="/data" class="mobile-nav-item">💾 数据管理</a>
-                <a href="/favorites" class="mobile-nav-item"
-                   x-show="$store.user.role === 'viewer' || $store.user.role === 'operator' || $store.user.role === 'admin'">⭐ 收藏</a>
-                <a href="/analytics" class="mobile-nav-item"
-                   x-show="$store.user.role === 'viewer' || $store.user.role === 'operator' || $store.user.role === 'admin'">📈 分析</a>
-                <a href="/logs" class="mobile-nav-item"
-                   x-show="$store.user.role === 'operator' || $store.user.role === 'admin'">📋 日志</a>
-                <a href="/qualifications" class="mobile-nav-item"
-                   x-show="$store.user.role !== 'guest'">📜 资质管理</a>
-                <a href="/settings" class="mobile-nav-item">⚙️ 设置</a>
-            </div>
+        <div id="mobileNav" class="md:hidden hidden border-t border-gray-100 dark:border-gray-700 py-3 px-4 space-y-1">
+            <a href="/" class="mobile-nav-item" data-show-role="not-guest">🏠 仪表盘</a>
+            <a href="/content" class="mobile-nav-item">📋 采集内容</a>
+            <a href="/data" class="mobile-nav-item">💾 数据管理</a>
+            <a href="/favorites" class="mobile-nav-item"
+               data-show-role="viewer,operator,admin">⭐ 收藏</a>
+            <a href="/analytics" class="mobile-nav-item"
+               data-show-role="viewer,operator,admin">📈 分析</a>
+            <a href="/logs" class="mobile-nav-item"
+               data-show-role="operator,admin">📋 日志</a>
+            <a href="/qualifications" class="mobile-nav-item"
+               data-show-role="not-guest">📜 资质管理</a>
+            <a href="/settings" class="mobile-nav-item">⚙️ 设置</a>
         </div>
     </nav>
 
@@ -165,11 +163,8 @@
     </main>
 
     <!-- ========== BACK TO TOP ========== -->
-    <button x-data="{ visible: false }"
-            x-init="window.addEventListener('scroll', () => { visible = window.scrollY > 300 })"
-            x-show="visible" x-transition
-            @click="window.scrollTo({ top: 0, behavior: 'smooth' })"
-            class="fixed bottom-6 right-6 p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg hover:shadow-xl transition-all z-50"
+    <button id="backToTop"
+            class="fixed bottom-6 right-6 p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg hover:shadow-xl transition-all z-50 opacity-0 pointer-events-none"
             aria-label="回到顶部">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/>
@@ -177,9 +172,8 @@
     </button>
 
     <!-- ========== LIGHTWEIGHT SVG MASCOT (replaces 500KB Three.js) ========== -->
-    <div id="mascot-container" x-data="{ bouncing: false }" @click="bouncing=true; showMascotToast(); setTimeout(() => bouncing=false, 750)">
-        <svg id="mascot-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 150" width="100" height="125"
-             :class="{ 'rabbit-bounce': bouncing }">
+    <div id="mascot-container">
+        <svg id="mascot-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 150" width="100" height="125">
             <!-- Ears -->
             <ellipse cx="42" cy="28" rx="11" ry="30" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"
                      transform="rotate(-8 42 28)"/>
@@ -218,51 +212,126 @@
 
     <!-- ========== SCRIPTS ========== -->
     <script>
-        // Theme toggle
-        function toggleTheme() {
-            const s = Alpine.store('theme');
-            const next = s === 'light' ? 'dark' : 'light';
-            Alpine.store('theme', next);
-            next === 'dark'
-                ? document.documentElement.classList.add('dark')
-                : document.documentElement.classList.remove('dark');
-            localStorage.setItem('theme', next);
+        // ── Theme toggle ───────────────────────────────────────────────
+        function applyTheme(theme) {
+            const isDark = theme === 'dark';
+            document.documentElement.classList.toggle('dark', isDark);
+            document.getElementById('iconSun').classList.toggle('hidden', !isDark);
+            document.getElementById('iconMoon').classList.toggle('hidden', isDark);
+            localStorage.setItem('theme', theme);
+            window.AppState.theme = theme;
         }
 
-        // Active nav link highlighting
-        document.addEventListener('alpine:init', () => {
+        document.getElementById('themeToggle').addEventListener('click', function() {
+            const next = window.AppState.theme === 'light' ? 'dark' : 'light';
+            applyTheme(next);
+        });
+
+        // Apply initial theme icon state
+        applyTheme(window.AppState.theme);
+
+        // ── Role-based visibility ───────────────────────────────────────
+        function updateRoleVisibility() {
+            const role = window.AppState.user.role;
+            const isGuest = role === 'guest';
+
+            // User badge / login link
+            document.getElementById('userBadge').classList.toggle('hidden', isGuest);
+            document.getElementById('loginLink').classList.toggle('hidden', !isGuest);
+            if (!isGuest) {
+                document.getElementById('userDisplayName').textContent =
+                    window.AppState.user.display_name || window.AppState.user.username;
+                document.getElementById('userRoleBadge').textContent = role;
+            }
+
+            // Desktop & mobile nav links with data-show-role
+            document.querySelectorAll('[data-show-role]').forEach(function(el) {
+                const allowed = el.getAttribute('data-show-role').split(',');
+                let show = false;
+                if (allowed.includes('not-guest')) {
+                    show = !isGuest;
+                } else {
+                    show = allowed.includes(role);
+                }
+                el.style.display = show ? '' : 'none';
+            });
+        }
+
+        // ── Active nav highlighting ────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', function() {
+            updateRoleVisibility();
+
             const path = window.location.pathname;
-            document.querySelectorAll('.nav-link').forEach(link => {
+            document.querySelectorAll('.nav-link').forEach(function(link) {
                 const href = link.getAttribute('href');
                 if (href === path) {
                     link.classList.add('text-blue-600', 'dark:text-blue-400', 'bg-blue-50', 'dark:bg-blue-900/30');
                 } else {
-                    link.classList.add('text-gray-500', 'dark:text-gray-400', 'hover:text-gray-700', 'dark:hover:text-gray-200',
-                                     'hover:bg-gray-50', 'dark:hover:bg-gray-700/30');
+                    link.classList.add(
+                        'text-gray-500', 'dark:text-gray-400', 'hover:text-gray-700', 'dark:hover:text-gray-200',
+                        'hover:bg-gray-50', 'dark:hover:bg-gray-700/30'
+                    );
                 }
             });
         });
 
-        // Toast helper (available globally)
-        function showToast(msg, type = 'success') {
-            const container = document.getElementById('toastContainer') || (() => {
-                const c = document.createElement('div');
-                c.id = 'toastContainer';
-                c.className = 'toast-container';
-                document.body.appendChild(c);
-                return c;
-            })();
-            const el = document.createElement('div');
-            el.className = `toast-message toast-${type}`;
+        // ── Mobile nav toggle ───────────────────────────────────────────
+        document.getElementById('mobileMenuToggle').addEventListener('click', function() {
+            const mobileNav = document.getElementById('mobileNav');
+            const isOpen = !mobileNav.classList.contains('hidden');
+            mobileNav.classList.toggle('hidden', isOpen);
+            document.getElementById('iconHamburger').classList.toggle('hidden', !isOpen);
+            document.getElementById('iconClose').classList.toggle('hidden', isOpen);
+            window.AppState.nav.mobileOpen = !isOpen;
+        });
+
+        // ── Back to top button ─────────────────────────────────────────
+        (function() {
+            const btn = document.getElementById('backToTop');
+            window.addEventListener('scroll', function() {
+                if (window.scrollY > 300) {
+                    btn.classList.remove('opacity-0', 'pointer-events-none');
+                } else {
+                    btn.classList.add('opacity-0', 'pointer-events-none');
+                }
+            });
+            btn.addEventListener('click', function() {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+        })();
+
+        // ── Mascot bounce on click ─────────────────────────────────────
+        (function() {
+            const container = document.getElementById('mascot-container');
+            const svg = document.getElementById('mascot-svg');
+            container.addEventListener('click', function() {
+                svg.classList.add('rabbit-bounce');
+                showMascotToast();
+                setTimeout(function() { svg.classList.remove('rabbit-bounce'); }, 750);
+            });
+        })();
+
+        // ── Toast helper (available globally) ───────────────────────────
+        function showToast(msg, type) {
+            type = type || 'success';
+            var container = document.getElementById('toastContainer');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toastContainer';
+                container.className = 'toast-container';
+                document.body.appendChild(container);
+            }
+            var el = document.createElement('div');
+            el.className = 'toast-message toast-' + type;
             el.textContent = msg;
             container.appendChild(el);
-            setTimeout(() => {
+            setTimeout(function() {
                 el.classList.add('toast-exit');
-                setTimeout(() => el.remove(), 300);
+                setTimeout(function() { el.remove(); }, 300);
             }, 3000);
         }
 
-        // Mascot toast
+        // ── Mascot toast ───────────────────────────────────────────────
         function showMascotToast() {
             showToast('你好！我是 Jarvis！有事随时叫我 🦞', 'info');
         }

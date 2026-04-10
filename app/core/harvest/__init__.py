@@ -23,6 +23,13 @@ from app.core.harvest.anti_detect import (
     TLSFingerprintForCurl,
     TLSFingerprintSimulator,
 )
+from app.core.harvest.cache_manager import CacheManager, RedisManager
+from app.core.harvest.config import SystemConfig, get_config
+from app.core.harvest.exception_handler import (
+    AnomalyClassifier,
+    AnomalyType,
+    ExceptionStateMachine,
+)
 from app.core.harvest.human_behavior_engine import HumanBehaviorEngine
 from app.core.harvest.smart_scheduler import (
     AdaptiveIntervalManager,
@@ -31,13 +38,6 @@ from app.core.harvest.smart_scheduler import (
     SmartScheduler,
     TaskStatus,
 )
-from app.core.harvest.exception_handler import (
-    AnomalyClassifier,
-    AnomalyType,
-    ExceptionStateMachine,
-)
-from app.core.harvest.cache_manager import CacheManager, RedisManager
-from app.core.harvest.config import SystemConfig, get_config
 
 __all__ = [
     # anti_detect

@@ -10,23 +10,20 @@
 import hashlib
 import json
 import logging
-import os
-import re
-import sys
-from datetime import datetime, timedelta
+import uuid
+from datetime import datetime
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, Optional
-import uuid
 
 
 class AuditLogger:
     """审计日志记录器"""
-    
+
     # 日志格式：时间戳 | 会话ID | 工具名 | 参数哈希 | 执行结果 | 耗时(ms) | 详细信息
     LOG_FORMAT = "%(asctime)s | %(session_id)s | %(tool_name)s | %(params_hash)s | %(result_status)s | %(duration_ms)d | %(details)s"
     DATE_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
-    
+
     def __init__(
         self,
         log_dir: str = "logs",
@@ -45,28 +42,28 @@ class AuditLogger:
         """
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.log_file = self.log_dir / "audit.log"
         self.max_bytes = max_bytes
         self.backup_count = backup_count
         self.rotation = rotation
-        
+
         self.logger = self._setup_logger()
         self.session_id = self._generate_session_id()
         self._call_stack: Dict[str, datetime] = {}  # 跟踪调用开始时间
-    
+
     def _generate_session_id(self) -> str:
         """生成唯一会话ID"""
         return f"session-{uuid.uuid4().hex[:8]}"
-    
+
     def _setup_logger(self) -> logging.Logger:
         """配置日志记录器"""
         logger = logging.getLogger("audit")
         logger.setLevel(logging.INFO)
-        
+
         # 清除现有处理器
         logger.handlers.clear()
-        
+
         if self.rotation == "size":
             handler = RotatingFileHandler(
                 self.log_file,
@@ -82,13 +79,13 @@ class AuditLogger:
                 backupCount=self.backup_count,
                 encoding="utf-8"
             )
-        
+
         formatter = logging.Formatter(self.LOG_FORMAT, datefmt=self.DATE_FORMAT)
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-        
+
         return logger
-    
+
     def _compute_params_hash(self, params: Dict[str, Any]) -> str:
         """
         计算参数哈希值（SHA256前16位）
@@ -104,7 +101,7 @@ class AuditLogger:
             return hashlib.sha256(params_str.encode()).hexdigest()[:16]
         except Exception:
             return "hash_error"
-    
+
     def before_call(self, tool_name: str, params: Dict[str, Any]) -> str:
         """
         记录工具调用开始
@@ -118,7 +115,7 @@ class AuditLogger:
         """
         call_id = f"{tool_name}-{uuid.uuid4().hex[:8]}"
         self._call_stack[call_id] = datetime.now()
-        
+
         # 记录开始（状态为 STARTED）
         self.logger.info(
             "",
@@ -131,9 +128,9 @@ class AuditLogger:
                 "details": json.dumps({"call_id": call_id, "params_preview": self._preview_params(params)})
             }
         )
-        
+
         return call_id
-    
+
     def after_call(
         self,
         call_id: str,
@@ -159,7 +156,7 @@ class AuditLogger:
             duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
         else:
             duration_ms = 0
-        
+
         result_status = "SUCCESS" if success else "FAILED"
         details = {
             "call_id": call_id,
@@ -167,7 +164,7 @@ class AuditLogger:
         }
         if error:
             details["error"] = error
-        
+
         self.logger.info(
             "",
             extra={
@@ -179,7 +176,7 @@ class AuditLogger:
                 "details": json.dumps(details)
             }
         )
-    
+
     def _preview_params(self, params: Dict[str, Any], max_len: int = 200) -> str:
         """生成参数预览（截断敏感信息）"""
         preview = {}
@@ -191,7 +188,7 @@ class AuditLogger:
             else:
                 preview[k] = v
         return json.dumps(preview, default=str)[:max_len]
-    
+
     def _preview_result(self, result: Any, max_len: int = 200) -> str:
         """生成结果预览"""
         try:
@@ -209,10 +206,10 @@ class OpenClawAuditHook:
     1. 在 OpenClaw 配置中注册此 Hook
     2. 所有工具调用将自动记录到审计日志
     """
-    
+
     def __init__(self, log_dir: str = "logs", rotation: str = "size"):
         self.audit_logger = AuditLogger(log_dir=log_dir, rotation=rotation)
-    
+
     async def before_tool_call(self, tool_name: str, params: Dict[str, Any]) -> str:
         """
         工具调用前 Hook
@@ -226,7 +223,7 @@ class OpenClawAuditHook:
         """
         call_id = self.audit_logger.before_call(tool_name, params)
         return call_id
-    
+
     async def after_tool_call(
         self,
         call_id: str,
@@ -278,11 +275,11 @@ def audit_call(tool_name: str):
     """
     def decorator(func):
         audit_logger = AuditLogger()
-        
+
         def wrapper(*args, **kwargs):
             params = {"args": args, "kwargs": kwargs}
             call_id = audit_logger.before_call(tool_name, params)
-            
+
             try:
                 result = func(*args, **kwargs)
                 audit_logger.after_call(call_id, tool_name, params, result, success=True)
@@ -290,7 +287,7 @@ def audit_call(tool_name: str):
             except Exception as e:
                 audit_logger.after_call(call_id, tool_name, params, None, success=False, error=str(e))
                 raise
-        
+
         return wrapper
     return decorator
 
@@ -298,14 +295,14 @@ def audit_call(tool_name: str):
 if __name__ == "__main__":
     # 测试示例
     audit = AuditLogger(log_dir="logs", rotation="size")
-    
+
     # 模拟工具调用
     params = {"path": "/tmp/test.txt", "content": "Hello, World!"}
     call_id = audit.before_call("write_file", params)
-    
+
     import time
     time.sleep(0.1)  # 模拟执行耗时
-    
+
     audit.after_call(call_id, "write_file", params, {"status": "written"}, success=True)
-    
+
     print(f"审计日志已写入: {audit.log_file}")

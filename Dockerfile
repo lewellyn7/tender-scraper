@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 # ============================================================
 # Stage 2: Runtime - Minimal production image
 # ============================================================
-FROM python:3.11-slim
+FROM python:3.11-slim AS runtime
 
 # Security: run as non-root user
 RUN groupadd --gid 1000 appgroup && \

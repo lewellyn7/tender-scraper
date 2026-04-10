@@ -2,309 +2,491 @@
 {% block title %}仪表盘 - 招投标采集系统{% endblock %}
 {% block content %}
 <div class="toast-container" id="toastContainer"></div>
-<div x-data="dashboardData()" x-init="initData()">
-    <!-- Skeleton loader -->
-    <div x-show="!projects.length && !stats.total" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <template x-for="i in 4" :key="i">
-            <div class="skeleton h-20 rounded-xl"></div>
-        </template>
-    </div>
 
-    <!-- 统计卡片 -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-        <div class="anim-card bg-white overflow-hidden rounded-xl shadow-md p-5 border border-gray-100 dark:border-gray-700">
-            <div class="flex items-center">
-                <div class="flex-shrink-0 bg-green-500 rounded-md p-3">
-                    <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                </div>
-                <div class="ml-4">
-                    <p class="text-sm font-medium text-gray-500">关键词匹配</p>
-                    <p class="text-2xl font-semibold text-gray-900" x-text="stats.filtered">0</p>
-                </div>
-            </div>
-        </div>
-        <div class="anim-card bg-white overflow-hidden rounded-xl shadow-md p-5 border border-gray-100 dark:border-gray-700">
-            <div class="flex items-center">
-                <div class="flex-shrink-0 bg-purple-500 rounded-md p-3">
-                    <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-7 0H4m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-                    </svg>
-                </div>
-                <div class="ml-4">
-                    <p class="text-sm font-medium text-gray-500">来源站点</p>
-                    <p class="text-2xl font-semibold text-gray-900" x-text="Object.keys(bySource).length">0</p>
-                </div>
-            </div>
-        </div>
-        <div class="anim-card bg-white overflow-hidden rounded-xl shadow-md p-5 border border-gray-100 dark:border-gray-700">
-            <div class="flex items-center">
-                <div class="flex-shrink-0 bg-orange-500 rounded-md p-3">
-                    <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                </div>
-                <div class="ml-4">
-                    <p class="text-sm font-medium text-gray-500">最后运行</p>
-                    <p class="text-sm font-semibold text-gray-700 dark:text-gray-200" x-text="stats.last_run">-</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 筛选栏 -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm mb-6 p-4 border border-gray-100 dark:border-gray-700">
-        <div class="flex flex-wrap items-center gap-3">
-            <span class="text-sm font-medium text-gray-600 dark:text-gray-300">类型：</span>
-            <button @click="filterType='all'" :class="filterType==='all'?'bg-blue-600 text-white':'bg-gray-200 text-gray-700'" class="px-4 py-2 rounded-lg text-sm font-medium transition">全部 (<span x-text="projects.length"></span>)</button>
-            <button @click="filterType='政府采购'" :class="filterType==='政府采购'?'bg-blue-600 text-white':'bg-gray-200 text-gray-700'" class="px-4 py-2 rounded-lg text-sm font-medium transition">政府采购 (<span x-text="projects.filter(p=>p.tender_type==='政府采购').length"></span>)</button>
-            <button @click="filterType='工程建设'" :class="filterType==='工程建设'?'bg-blue-600 text-white':'bg-gray-200 text-gray-700'" class="px-4 py-2 rounded-lg text-sm font-medium transition">工程建设 (<span x-text="projects.filter(p=>p.tender_type==='工程建设').length"></span>)</button>
-            
-            <div class="h-6 w-px bg-gray-300 mx-2"></div>
-            
-            <span class="text-sm font-medium text-gray-700">日期：</span>
-            <input type="date" x-model="dateStart" class="px-3 py-2 border rounded-lg text-sm" :class="dateStart ? 'border-blue-400' : 'border-gray-300'">
-            <span class="text-gray-500">至</span>
-            <input type="date" x-model="dateEnd" class="px-3 py-2 border rounded-lg text-sm" :class="dateEnd ? 'border-blue-400' : 'border-gray-300'">
-            <button @click="clearDateFilter" class="anim-btn" class="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg">清除</button>
-            
-            <div class="h-6 w-px bg-gray-300 mx-2"></div>
-            
-            <span class="text-sm font-medium text-gray-700">快速选择：</span>
-            <button @click="setDateRange(1)" class="px-3 py-1 text-xs rounded-lg" :class="dateRangePreset === 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'">今天</button>
-            <button @click="setDateRange(3)" class="px-3 py-1 text-xs rounded-lg" :class="dateRangePreset === 3 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'">近3天</button>
-            <button @click="setDateRange(7)" class="px-3 py-1 text-xs rounded-lg" :class="dateRangePreset === 7 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'">近7天</button>
-            <button @click="setDateRange(30)" class="px-3 py-1 text-xs rounded-lg" :class="dateRangePreset === 30 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'">近30天</button>
-        </div>
-    </div>
-
-    <!-- 按来源分类展示 -->
-    <template x-for="(source, sourceName) in bySource" :key="sourceName">
-        <div class="bg-white rounded-lg shadow mb-6 overflow-hidden">
-            <!-- 来源标题 -->
-            <div class="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h3 class="text-lg font-semibold text-white" x-text="sourceName"></h3>
-                        <p class="text-sm text-blue-100 mt-1">
-                            总计 <span x-text="source.total"></span> 条，
-                            匹配 <span x-text="source.matched"></span> 条
-                        </p>
-                    </div>
-                    <div class="flex items-center space-x-2">
-                        <span class="px-3 py-1 bg-blue-500 bg-opacity-50 rounded-full text-xs text-white" x-show="source.govCount">政府采购: <span x-text="source.govCount"></span></span>
-                        <span class="px-3 py-1 bg-green-500 bg-opacity-50 rounded-full text-xs text-white" x-show="source.engCount">工程建设: <span x-text="source.engCount"></span></span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- 重要项目列表 -->
-            <div class="p-6">
-                <h4 class="text-sm font-medium text-gray-500 mb-4">📌 重要项目摘要</h4>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <template x-for="project in source.important.slice(0, 6)" :key="project.url">
-                        <div class="anim-card border border-gray-200 rounded-xl p-4">
-                            <!-- 标题和类型标签 -->
-                            <div class="flex items-start justify-between mb-2">
-                                <a :href="project.url" target="_blank" class="text-sm font-medium text-blue-600 hover:underline line-clamp-2" x-text="project.title"></a>
-                                <span :class="project.tender_type==='政府采购'?'bg-blue-100 text-blue-800':'bg-green-100 text-green-800'" class="ml-2 px-2 py-1 text-xs rounded flex-shrink-0" x-text="project.tender_type"></span>
-                            </div>
-                            
-                            <!-- 关键信息展示 -->
-                            <div class="mt-3 space-y-2 text-sm">
-                                <!-- 业务类型和信息类型 -->
-                                <div class="flex items-center space-x-2" x-show="project.business_type || project.info_type">
-                                    <span class="text-gray-400">类型:</span>
-                                    <span class="px-2 py-0.5 bg-gray-100 rounded text-xs" x-text="project.business_type" x-show="project.business_type"></span>
-                                    <span class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs" x-text="project.info_type" x-show="project.info_type"></span>
-                                </div>
-                                
-                                <!-- 预算金额 -->
-                                <div class="flex items-center" x-show="project.budget">
-                                    <span class="text-gray-400 w-16">预算:</span>
-                                    <span class="text-orange-600 font-semibold" x-text="formatBudgetValue(project.budget)"></span>
-                                </div>
-
-                                <!-- 中标金额 -->
-                                <div class="flex items-center" x-show="project.bid_amount">
-                                    <span class="text-gray-400 w-16">中标:</span>
-                                    <span class="text-green-600 font-semibold" x-text="formatBudgetValue(project.bid_amount)"></span>
-                                </div>
-                                
-                                <!-- 项目概况 -->
-                                <div x-show="project.project_overview">
-                                    <span class="text-gray-400">项目概况:</span>
-                                    <p class="mt-1 text-gray-600 text-xs line-clamp-2" x-text="project.project_overview"></p>
-                                </div>
-                                
-                                <!-- 投标人资格要求 -->
-                                <div x-show="project.bidder_requirements">
-                                    <span class="text-gray-400">资格要求:</span>
-                                    <p class="mt-1 text-gray-600 text-xs line-clamp-2" x-text="project.bidder_requirements"></p>
-                                </div>
-                                
-                                <!-- 截止时间 -->
-                                <div class="flex items-center" x-show="project.submission_deadline">
-                                    <span class="text-gray-400 w-16">截止:</span>
-                                    <span class="text-red-600 font-medium" x-text="project.submission_deadline"></span>
-                                </div>
-                                
-                                <!-- 内容摘要 -->
-                                <div x-show="project.content_preview && !project.project_overview">
-                                    <span class="text-gray-400">摘要:</span>
-                                    <p class="mt-1 text-gray-600 text-xs line-clamp-3" x-text="project.content_preview"></p>
-                                </div>
-                                
-                                <!-- 联系方式 -->
-                                <div class="flex items-center text-xs text-gray-500" x-show="project.contact_name || project.contact_phone">
-                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-                                    </svg>
-                                    <span x-text="project.contact_name" x-show="project.contact_name"></span>
-                                    <span x-show="project.contact_phone"> (<span x-text="project.contact_phone"></span>)</span>
-                                </div>
-                                
-                                <!-- 发布日期 -->
-                                <div class="text-xs text-gray-400">
-                                    发布: <span x-text="project.publish_date"></span>
-                                </div>
-                            </div>
-                        </div>
-                    </template>
-                </div>
-                
-                <!-- 预算统计 -->
-                <div class="mt-6 pt-4 border-t border-gray-200" x-show="source.budgetTotal">
-                    <div class="flex items-center justify-between">
-                        <span class="text-sm text-gray-500">💰 预算总金额</span>
-                        <span class="text-lg font-semibold text-orange-600" x-text="formatBudget(source.budgetTotal)"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </template>
+<!-- Skeleton loader -->
+<div id="skeletonLoader" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div class="skeleton h-20 rounded-xl"></div>
+    <div class="skeleton h-20 rounded-xl"></div>
+    <div class="skeleton h-20 rounded-xl"></div>
+    <div class="skeleton h-20 rounded-xl"></div>
 </div>
 
+<!-- 统计卡片 -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+    <div class="anim-card bg-white overflow-hidden rounded-xl shadow-md p-5 border border-gray-100 dark:border-gray-700">
+        <div class="flex items-center">
+            <div class="flex-shrink-0 bg-green-500 rounded-md p-3">
+                <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+            </div>
+            <div class="ml-4">
+                <p class="text-sm font-medium text-gray-500">关键词匹配</p>
+                <p id="statFiltered" class="text-2xl font-semibold text-gray-900">0</p>
+            </div>
+        </div>
+    </div>
+    <div class="anim-card bg-white overflow-hidden rounded-xl shadow-md p-5 border border-gray-100 dark:border-gray-700">
+        <div class="flex items-center">
+            <div class="flex-shrink-0 bg-purple-500 rounded-md p-3">
+                <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-7 0H4m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+                </svg>
+            </div>
+            <div class="ml-4">
+                <p class="text-sm font-medium text-gray-500">来源站点</p>
+                <p id="statSourceCount" class="text-2xl font-semibold text-gray-900">0</p>
+            </div>
+        </div>
+    </div>
+    <div class="anim-card bg-white overflow-hidden rounded-xl shadow-md p-5 border border-gray-100 dark:border-gray-700">
+        <div class="flex items-center">
+            <div class="flex-shrink-0 bg-orange-500 rounded-md p-3">
+                <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+            </div>
+            <div class="ml-4">
+                <p class="text-sm font-medium text-gray-500">最后运行</p>
+                <p id="statLastRun" class="text-sm font-semibold text-gray-700 dark:text-gray-200">-</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 筛选栏 -->
+<div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm mb-6 p-4 border border-gray-100 dark:border-gray-700">
+    <div class="flex flex-wrap items-center gap-3">
+        <span class="text-sm font-medium text-gray-600 dark:text-gray-300">类型：</span>
+        <button id="filterAll" class="px-4 py-2 rounded-lg text-sm font-medium transition bg-blue-600 text-white">全部 (<span id="countAll">0</span>)</button>
+        <button id="filterGov" class="px-4 py-2 rounded-lg text-sm font-medium transition bg-gray-200 text-gray-700">政府采购 (<span id="countGov">0</span>)</button>
+        <button id="filterEng" class="px-4 py-2 rounded-lg text-sm font-medium transition bg-gray-200 text-gray-700">工程建设 (<span id="countEng">0</span>)</button>
+
+        <div class="h-6 w-px bg-gray-300 mx-2"></div>
+
+        <span class="text-sm font-medium text-gray-700">日期：</span>
+        <input type="date" id="dateStart" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+        <span class="text-gray-500">至</span>
+        <input type="date" id="dateEnd" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+        <button id="clearDateFilter" class="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg">清除</button>
+
+        <div class="h-6 w-px bg-gray-300 mx-2"></div>
+
+        <span class="text-sm font-medium text-gray-700">快速选择：</span>
+        <button id="presetToday" class="px-3 py-1 text-xs rounded-lg bg-gray-200 text-gray-700">今天</button>
+        <button id="preset3days" class="px-3 py-1 text-xs rounded-lg bg-gray-200 text-gray-700">近3天</button>
+        <button id="preset7days" class="px-3 py-1 text-xs rounded-lg bg-gray-200 text-gray-700">近7天</button>
+        <button id="preset30days" class="px-3 py-1 text-xs rounded-lg bg-gray-200 text-gray-700">近30天</button>
+    </div>
+</div>
+
+<!-- 来源分组渲染容器 -->
+<div id="sourceGroups"></div>
+
 <script>
-function dashboardData() {
-    return {
-        projects: [],
-        stats: { total: 0, filtered: 0, last_run: '-' },
-        bySource: {},
-        filterType: 'all',
-        dateStart: '',
-        dateEnd: '',
-        dateRangePreset: null,
-        
-        async initData() {
-            try {
-                const res = await fetch('/api/projects?limit=200');
-                const data = await res.json();
-                this.projects = data.projects || [];
-                this.stats = {
+(function() {
+    var projects = [];
+    var bySource = {};
+    var filterType = 'all';
+    var dateStart = '';
+    var dateEnd = '';
+    var dateRangePreset = null;
+
+    // ── Init ──────────────────────────────────────────────────────────
+    function initData() {
+        document.getElementById('skeletonLoader').style.display = 'grid';
+        fetch('/api/projects?page_size=100', { credentials: 'include' })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                projects = data.data || data.projects || [];
+                document.getElementById('skeletonLoader').style.display = 'none';
+                updateStats({
                     total: data.total || 0,
-                    filtered: data.filtered || 0,
+                    filtered: data.filtered || data.total || 0,
                     last_run: data.last_run || '-'
-                };
-                this.processBySource();
-            } catch (e) {
+                });
+                processBySource();
+                bindFilterCounts();
+            })
+            .catch(function(e) {
                 console.error('加载数据失败:', e);
-            }
-        },
-        
-        processBySource() {
-            let filtered = this.filterType === 'all' 
-                ? this.projects 
-                : this.projects.filter(p => p.tender_type === this.filterType);
-            
-            // Filter by date range
-            if (this.dateStart || this.dateEnd) {
-                filtered = filtered.filter(p => {
-                    const publishDate = p.publish_date_raw || p.publish_date;
-                    if (!publishDate) return true;
-                    
-                    // Handle array format like [2026-04-03]
-                    let dateStr = Array.isArray(publishDate) ? publishDate[0] : publishDate;
-                    if (typeof dateStr !== 'string') return true;
-                    
-                    const projectDate = new Date(dateStr.replace(/[\[\]]/g, ''));
-                    if (isNaN(projectDate.getTime())) return true;
-                    
-                    if (this.dateStart && new Date(this.dateStart) > projectDate) return false;
-                    if (this.dateEnd && new Date(this.dateEnd) < projectDate) return false;
-                    return true;
-                });
-            }
-            
-            const grouped = {};
-            filtered.forEach(p => {
-                let source = '未知来源';
-                try {
-                    source = new URL(p.source_url || p.url).hostname;
-                } catch(e) {}
-                
-                if (!grouped[source]) {
-                    grouped[source] = {
-                        total: 0,
-                        matched: 0,
-                        govCount: 0,
-                        engCount: 0,
-                        important: [],
-                        budgetTotal: 0,
-                        budgets: []
-                    };
-                }
-                
-                grouped[source].total++;
-                if (p.keywords_matched) grouped[source].matched++;
-                if (p.tender_type === '政府采购') grouped[source].govCount++;
-                if (p.tender_type === '工程建设') grouped[source].engCount++;
-                
-                // 重要项目：有预算、关键词匹配、或有关键字段
-                if (p.budget || p.keywords_matched || p.project_overview || p.bidder_requirements || p.bid_amount) {
-                    grouped[source].important.push(p);
-                }
-                
-                // 预算统计
-                if (p.budget) {
-                    const budgetNum = parseFloat(p.budget.replace(/[^\d.]/g, ''));
-                    if (budgetNum > 0) {
-                        const unit = p.budget.includes('万') ? 10000 : 1;
-                        grouped[source].budgets.push(budgetNum * unit);
-                    }
-                }
+                document.getElementById('skeletonLoader').style.display = 'none';
             });
-            
-            // 计算预算总和
-            Object.keys(grouped).forEach(k => {
-                const budgets = grouped[k].budgets;
-                if (budgets.length > 0) {
-                    grouped[k].budgetTotal = budgets.reduce((a,b) => a+b, 0);
-                }
-                // 按重要性排序
-                grouped[k].important.sort((a,b) => {
-                    const aScore = (a.budget?1:0) + (a.keywords_matched?1:0) + (a.project_overview?1:0);
-                    const bScore = (b.budget?1:0) + (b.keywords_matched?1:0) + (b.project_overview?1:0);
-                    return bScore - aScore;
-                });
+    }
+
+    // ── Update stat cards ────────────────────────────────────────────
+    function updateStats(stats) {
+        document.getElementById('statFiltered').textContent = stats.filtered;
+        document.getElementById('statLastRun').textContent = stats.last_run;
+    }
+
+    // ── Bind filter button counts ─────────────────────────────────────
+    function bindFilterCounts() {
+        document.getElementById('countAll').textContent = projects.length;
+        document.getElementById('countGov').textContent = projects.filter(function(p) { return p.tender_type === '政府采购'; }).length;
+        document.getElementById('countEng').textContent = projects.filter(function(p) { return p.tender_type === '工程建设'; }).length;
+    }
+
+    // ── Set active filter button ─────────────────────────────────────
+    function setActiveFilterBtn(type) {
+        var allBtns = [
+            { id: 'filterAll', type: 'all' },
+            { id: 'filterGov', type: '政府采购' },
+            { id: 'filterEng', type: '工程建设' }
+        ];
+        allBtns.forEach(function(b) {
+            var el = document.getElementById(b.id);
+            if (b.type === type) {
+                el.className = 'px-4 py-2 rounded-lg text-sm font-medium transition bg-blue-600 text-white';
+            } else {
+                el.className = 'px-4 py-2 rounded-lg text-sm font-medium transition bg-gray-200 text-gray-700';
+            }
+        });
+        document.querySelectorAll('#presetToday, #preset3days, #preset7days, #preset30days').forEach(function(b) {
+            b.className = 'px-3 py-1 text-xs rounded-lg bg-gray-200 text-gray-700';
+        });
+    }
+
+    function setActivePreset(btn) {
+        document.querySelectorAll('#presetToday, #preset3days, #preset7days, #preset30days').forEach(function(b) {
+            b.className = 'px-3 py-1 text-xs rounded-lg bg-gray-200 text-gray-700';
+        });
+        btn.className = 'px-3 py-1 text-xs rounded-lg bg-blue-600 text-white';
+        ['filterAll', 'filterGov', 'filterEng'].forEach(function(id) {
+            var el = document.getElementById(id);
+            el.className = el.className.replace('bg-blue-600 text-white', 'bg-gray-200 text-gray-700');
+        });
+    }
+
+    // ── Process & render by source ───────────────────────────────────
+    function processBySource() {
+        var filtered = filterType === 'all'
+            ? projects
+            : projects.filter(function(p) { return p.tender_type === filterType; });
+
+        // Date filter
+        if (dateStart || dateEnd) {
+            filtered = filtered.filter(function(p) {
+                var publishDate = p.publish_date_raw || p.publish_date;
+                if (!publishDate) return true;
+                var dateStr = Array.isArray(publishDate) ? publishDate[0] : publishDate;
+                if (typeof dateStr !== 'string') return true;
+                var projectDate = new Date(dateStr.replace(/[\[\]]/g, ''));
+                if (isNaN(projectDate.getTime())) return true;
+                if (dateStart && new Date(dateStart) > projectDate) return false;
+                if (dateEnd && new Date(dateEnd) < projectDate) return false;
+                return true;
             });
-            
-            this.bySource = grouped;
-        },
-        
-        formatBudget(total) {
-            if (!total) return '-';
-            const n = parseFloat(String(total).replace(/[^\d.]/g, ''));
-            if (isNaN(n)) return total;
-            if (n >= 100000000) return (n/100000000).toFixed(2) + ' 亿元';
-            if (n >= 10000)     return (n/10000).toFixed(2)     + ' 万元';
-            return n.toFixed(0) + ' 元';
-        },
-        formatBudgetValue(val) {
-            return this.formatBudget(val);
         }
-    };
-}
+
+        var grouped = {};
+        filtered.forEach(function(p) {
+            var source = '未知来源';
+            try { source = new URL(p.source_url || p.url).hostname; } catch(e) {}
+
+            if (!grouped[source]) {
+                grouped[source] = {
+                    total: 0, matched: 0, govCount: 0, engCount: 0,
+                    important: [], budgetTotal: 0, budgets: []
+                };
+            }
+            grouped[source].total++;
+            if (p.keywords_matched) grouped[source].matched++;
+            if (p.tender_type === '政府采购') grouped[source].govCount++;
+            if (p.tender_type === '工程建设') grouped[source].engCount++;
+
+            if (p.budget || p.keywords_matched || p.project_overview || p.bidder_requirements || p.bid_amount) {
+                grouped[source].important.push(p);
+            }
+
+            if (p.budget) {
+                var budgetNum = parseFloat(p.budget.replace(/[^\d.]/g, ''));
+                if (budgetNum > 0) {
+                    var unit = p.budget.includes('万') ? 10000 : 1;
+                    grouped[source].budgets.push(budgetNum * unit);
+                }
+            }
+        });
+
+        Object.keys(grouped).forEach(function(k) {
+            var budgets = grouped[k].budgets;
+            if (budgets.length > 0) {
+                grouped[k].budgetTotal = budgets.reduce(function(a, b) { return a + b; }, 0);
+            }
+            grouped[k].important.sort(function(a, b) {
+                var aScore = (a.budget ? 1 : 0) + (a.keywords_matched ? 1 : 0) + (a.project_overview ? 1 : 0);
+                var bScore = (b.budget ? 1 : 0) + (b.keywords_matched ? 1 : 0) + (b.project_overview ? 1 : 0);
+                return bScore - aScore;
+            });
+        });
+
+        bySource = grouped;
+        document.getElementById('statSourceCount').textContent = Object.keys(grouped).length;
+        renderSourceGroups();
+    }
+
+    // ── Render source group sections ─────────────────────────────────
+    function renderSourceGroups() {
+        var container = document.getElementById('sourceGroups');
+        var html = '';
+        var sourceNames = Object.keys(bySource);
+
+        if (sourceNames.length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+
+        sourceNames.forEach(function(sourceName) {
+            var source = bySource[sourceName];
+            var important = source.important.slice(0, 6);
+
+            var cardsHtml = important.map(function(project) {
+                return buildProjectCard(project);
+            }).join('');
+
+            var budgetSection = '';
+            if (source.budgetTotal) {
+                budgetSection =
+                    '<div class="mt-6 pt-4 border-t border-gray-200">' +
+                        '<div class="flex items-center justify-between">' +
+                            '<span class="text-sm text-gray-500">💰 预算总金额</span>' +
+                            '<span class="text-lg font-semibold text-orange-600">' + formatBudget(source.budgetTotal) + '</span>' +
+                        '</div>' +
+                    '</div>';
+            }
+
+            var badges = '';
+            if (source.govCount) {
+                badges += '<span class="px-3 py-1 bg-blue-500 bg-opacity-50 rounded-full text-xs text-white">政府采购: ' + source.govCount + '</span>';
+            }
+            if (source.engCount) {
+                badges += '<span class="px-3 py-1 bg-green-500 bg-opacity-50 rounded-full text-xs text-white">工程建设: ' + source.engCount + '</span>';
+            }
+
+            html +=
+                '<div class="bg-white rounded-lg shadow mb-6 overflow-hidden">' +
+                    '<div class="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">' +
+                        '<div class="flex items-center justify-between">' +
+                            '<div>' +
+                                '<h3 class="text-lg font-semibold text-white">' + escHtml(sourceName) + '</h3>' +
+                                '<p class="text-sm text-blue-100 mt-1">总计 ' + source.total + ' 条，匹配 ' + source.matched + ' 条</p>' +
+                            '</div>' +
+                            '<div class="flex items-center space-x-2">' + badges + '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="p-6">' +
+                        '<h4 class="text-sm font-medium text-gray-500 mb-4">📌 重要项目摘要</h4>' +
+                        '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">' + cardsHtml + '</div>' +
+                        budgetSection +
+                    '</div>' +
+                '</div>';
+        });
+
+        container.innerHTML = html;
+    }
+
+    // ── Build a single project card HTML ─────────────────────────────
+    function buildProjectCard(project) {
+        var typeClass = project.tender_type === '政府采购'
+            ? 'bg-blue-100 text-blue-800'
+            : 'bg-green-100 text-green-800';
+
+        var budgetHtml = '';
+        if (project.budget) {
+            budgetHtml +=
+                '<div class="flex items-center">' +
+                    '<span class="text-gray-400 w-16">预算:</span>' +
+                    '<span class="text-orange-600 font-semibold">' + escHtml(formatBudgetValue(project.budget)) + '</span>' +
+                '</div>';
+        }
+
+        var bidHtml = '';
+        if (project.bid_amount) {
+            bidHtml +=
+                '<div class="flex items-center">' +
+                    '<span class="text-gray-400 w-16">中标:</span>' +
+                    '<span class="text-green-600 font-semibold">' + escHtml(formatBudgetValue(project.bid_amount)) + '</span>' +
+                '</div>';
+        }
+
+        var overviewHtml = '';
+        if (project.project_overview) {
+            overviewHtml +=
+                '<div>' +
+                    '<span class="text-gray-400">项目概况:</span>' +
+                    '<p class="mt-1 text-gray-600 text-xs line-clamp-2">' + escHtml(project.project_overview) + '</p>' +
+                '</div>';
+        }
+
+        var reqHtml = '';
+        if (project.bidder_requirements) {
+            reqHtml +=
+                '<div>' +
+                    '<span class="text-gray-400">资格要求:</span>' +
+                    '<p class="mt-1 text-gray-600 text-xs line-clamp-2">' + escHtml(project.bidder_requirements) + '</p>' +
+                '</div>';
+        }
+
+        var deadlineHtml = '';
+        if (project.submission_deadline) {
+            deadlineHtml +=
+                '<div class="flex items-center">' +
+                    '<span class="text-gray-400 w-16">截止:</span>' +
+                    '<span class="text-red-600 font-medium">' + escHtml(project.submission_deadline) + '</span>' +
+                '</div>';
+        }
+
+        var previewHtml = '';
+        if (project.content_preview && !project.project_overview) {
+            previewHtml +=
+                '<div>' +
+                    '<span class="text-gray-400">摘要:</span>' +
+                    '<p class="mt-1 text-gray-600 text-xs line-clamp-3">' + escHtml(project.content_preview) + '</p>' +
+                '</div>';
+        }
+
+        var typeRowHtml = '';
+        if (project.business_type || project.info_type) {
+            var btHtml = project.business_type
+                ? '<span class="px-2 py-0.5 bg-gray-100 rounded text-xs">' + escHtml(project.business_type) + '</span>'
+                : '';
+            var itHtml = project.info_type
+                ? '<span class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">' + escHtml(project.info_type) + '</span>'
+                : '';
+            if (btHtml || itHtml) {
+                typeRowHtml = '<div class="flex items-center space-x-2">' + btHtml + itHtml + '</div>';
+            }
+        }
+
+        var contactHtml = '';
+        if (project.contact_name || project.contact_phone) {
+            var phoneText = project.contact_phone ? ' (' + escHtml(project.contact_phone) + ')' : '';
+            contactHtml +=
+                '<div class="flex items-center text-xs text-gray-500">' +
+                    '<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+                        '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>' +
+                    '</svg>' +
+                    escHtml(project.contact_name) + phoneText +
+                '</div>';
+        }
+
+        var publishHtml = '';
+        if (project.publish_date) {
+            publishHtml = '<div class="text-xs text-gray-400">发布: ' + escHtml(project.publish_date) + '</div>';
+        }
+
+        var infoRows = [typeRowHtml, budgetHtml, bidHtml, overviewHtml, reqHtml, deadlineHtml, previewHtml, contactHtml, publishHtml]
+            .filter(function(r) { return r !== ''; })
+            .join('');
+
+        return (
+            '<div class="anim-card border border-gray-200 rounded-xl p-4">' +
+                '<div class="flex items-start justify-between mb-2">' +
+                    '<a href="' + escHtml(project.url) + '" target="_blank" class="text-sm font-medium text-blue-600 hover:underline line-clamp-2 flex-1">' + escHtml(project.title) + '</a>' +
+                    '<span class="' + typeClass + ' ml-2 px-2 py-1 text-xs rounded flex-shrink-0">' + escHtml(project.tender_type) + '</span>' +
+                '</div>' +
+                (infoRows ? '<div class="mt-3 space-y-2 text-sm"><div class="space-y-2">' + infoRows + '</div></div>' : '') +
+            '</div>'
+        );
+    }
+
+    // ── Utilities ─────────────────────────────────────────────────────
+    function formatBudget(total) {
+        if (!total) return '-';
+        var n = parseFloat(String(total).replace(/[^\d.]/g, ''));
+        if (isNaN(n)) return total;
+        if (n >= 100000000) return (n / 100000000).toFixed(2) + ' 亿元';
+        if (n >= 10000)     return (n / 10000).toFixed(2) + ' 万元';
+        return n.toFixed(0) + ' 元';
+    }
+
+    function formatBudgetValue(val) {
+        return formatBudget(val);
+    }
+
+    function escHtml(str) {
+        if (str == null) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function clearDateFilter() {
+        dateStart = '';
+        dateEnd = '';
+        dateRangePreset = null;
+        document.getElementById('dateStart').value = '';
+        document.getElementById('dateEnd').value = '';
+        document.getElementById('dateStart').classList.remove('border-blue-400');
+        document.getElementById('dateEnd').classList.remove('border-blue-400');
+        setActiveFilterBtn(filterType);
+        processBySource();
+    }
+
+    function setDateRange(days) {
+        var today = new Date();
+        var end = new Date(today);
+        var start = new Date(today);
+        start.setDate(start.getDate() - days + 1);
+
+        dateStart = start.toISOString().split('T')[0];
+        dateEnd = end.toISOString().split('T')[0];
+        dateRangePreset = days;
+
+        document.getElementById('dateStart').value = dateStart;
+        document.getElementById('dateEnd').value = dateEnd;
+        document.getElementById('dateStart').classList.add('border-blue-400');
+        document.getElementById('dateEnd').classList.add('border-blue-400');
+
+        var presetMap = { 1: 'presetToday', 3: 'preset3days', 7: 'preset7days', 30: 'preset30days' };
+        setActivePreset(document.getElementById(presetMap[days]));
+        processBySource();
+    }
+
+    // ── Bind event listeners ──────────────────────────────────────────
+    document.getElementById('filterAll').addEventListener('click', function() {
+        filterType = 'all';
+        setActiveFilterBtn('all');
+        processBySource();
+    });
+    document.getElementById('filterGov').addEventListener('click', function() {
+        filterType = '政府采购';
+        setActiveFilterBtn('政府采购');
+        processBySource();
+    });
+    document.getElementById('filterEng').addEventListener('click', function() {
+        filterType = '工程建设';
+        setActiveFilterBtn('工程建设');
+        processBySource();
+    });
+
+    document.getElementById('dateStart').addEventListener('change', function() {
+        dateStart = this.value;
+        if (dateStart) this.classList.add('border-blue-400');
+        else this.classList.remove('border-blue-400');
+        dateRangePreset = null;
+        setActiveFilterBtn(filterType);
+        processBySource();
+    });
+    document.getElementById('dateEnd').addEventListener('change', function() {
+        dateEnd = this.value;
+        if (dateEnd) this.classList.add('border-blue-400');
+        else this.classList.remove('border-blue-400');
+        dateRangePreset = null;
+        setActiveFilterBtn(filterType);
+        processBySource();
+    });
+    document.getElementById('clearDateFilter').addEventListener('click', clearDateFilter);
+
+    document.getElementById('presetToday').addEventListener('click', function() { setDateRange(1); });
+    document.getElementById('preset3days').addEventListener('click', function() { setDateRange(3); });
+    document.getElementById('preset7days').addEventListener('click', function() { setDateRange(7); });
+    document.getElementById('preset30days').addEventListener('click', function() { setDateRange(30); });
+
+    // ── Start ─────────────────────────────────────────────────────────
+    initData();
+})();
 </script>
 {% endblock %}

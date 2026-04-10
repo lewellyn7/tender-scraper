@@ -1,15 +1,11 @@
 """资质文档解析服务 - PDF文字提取 + 图片OCR + LLM智能分析"""
 
-import base64
-import io
 import json
 import os
 import re
-import shutil
-import uuid
 from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict
 
 from loguru import logger
 

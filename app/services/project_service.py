@@ -159,7 +159,7 @@ class ProjectService:
 
         # 记录日志
         if user_id:
-            logger.info(f"User {user_id} added favorite: {project.get("title", "")[:30]}")
+            logger.info(f"User {user_id} added favorite: {project.get('title', '')[:30]}")
 
         return self.favorite_repo.add(project)
 

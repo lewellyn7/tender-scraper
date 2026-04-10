@@ -6,14 +6,12 @@
 
 import asyncio
 import random
-import re
 from typing import List
 
 from loguru import logger
 
-from app.core.browser import StealthBrowser
-from app.models.tender import TenderInfo
 from app.crawlers.base import BaseCrawler
+from app.models.tender import TenderInfo
 
 
 class CQGGZYCrawlerV2(BaseCrawler):
@@ -265,5 +263,4 @@ class CQGGZYCrawlerV2(BaseCrawler):
 
     async def _smart_wait(self) -> None:
         """智能随机等待 (0.3-0.8s)"""
-        import random
         await asyncio.sleep(0.3 + random.random() * 0.5)

@@ -1,6 +1,5 @@
 """数据库路由"""
 
-import os
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Query

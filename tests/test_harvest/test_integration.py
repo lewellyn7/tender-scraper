@@ -8,39 +8,37 @@ tests/test_integration.py
 - AntiDetectManager 完整流程
 """
 
-import pytest
 import asyncio
-from unittest.mock import MagicMock, AsyncMock, patch, PropertyMock
-from dataclasses import dataclass
-import tempfile
 import os
-
 import sys
+import tempfile
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 sys.path.insert(0, "scripts")
 sys.path.insert(0, ".")
 
-from async_crawler_base import (
-    AsyncCrawlerBase,
-    CrawlerConfig,
-    RateLimitConfig,
-    AnomalyType,
-    TokenBucket,
-)
-from human_behavior_engine import HumanBehaviorEngine
 from anti_detect import (
     AntiDetectManager,
     HumanBehaviorSimulator,
-    AdaptiveLearningEngine,
-    FingerprintProfile,
 )
+from async_crawler_base import (
+    AnomalyType,
+    AsyncCrawlerBase,
+    CrawlerConfig,
+    RateLimitConfig,
+    TokenBucket,
+)
+from human_behavior_engine import HumanBehaviorEngine
+
 from security_utils import (
-    URLValidator,
-    URLWhitelistConfig,
     InputSanitizer,
     RateLimiter,
+    URLValidator,
+    URLWhitelistConfig,
     create_url_validator,
 )
-
 
 # ─────────────────────────────────────────────────────────────
 # Fixtures

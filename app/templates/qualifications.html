@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}投标资质管理 - 招投标采集系统{% endblock %}
 {% block content %}
-<div x-data="qualificationsApp()" x-init="init()" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+<div id="qualificationsApp" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
   <!-- ========== Page Header ========== -->
   <div class="flex flex-wrap justify-between items-center gap-4 mb-6">
@@ -14,22 +14,21 @@
       <label class="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg cursor-pointer transition">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
         批量导入
-        <input type="file" @change="batchImport($event)" accept=".json,.csv" class="hidden">
+        <input type="file" id="batch-import-input" accept=".json,.csv" class="hidden">
       </label>
       <!-- Export -->
-      <button @click="exportQualifications()" class="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition">
+      <button id="btn-export" class="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
         导出
       </button>
       <!-- Expiring alert -->
-      <button @click="openExpiringModal()" class="relative inline-flex items-center gap-1 px-3 py-2 text-sm font-medium border border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800 rounded-lg transition">
+      <button id="btn-expiring" class="relative inline-flex items-center gap-1 px-3 py-2 text-sm font-medium border border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800 rounded-lg transition">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
         即将过期
-        <span x-show="expiringCount > 0" x-text="expiringCount"
-              class="absolute -top-1.5 -right-1.5 w-4 h-4 text-xs flex items-center justify-center bg-red-500 text-white rounded-full"></span>
+        <span id="expiring-badge" class="absolute -top-1.5 -right-1.5 w-4 h-4 text-xs flex items-center justify-center bg-red-500 text-white rounded-full hidden">0</span>
       </button>
       <!-- Add new -->
-      <button @click="openFormModal()" class="inline-flex items-center gap-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition shadow-sm">
+      <button id="btn-add" class="inline-flex items-center gap-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition shadow-sm">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         添加资质
       </button>
@@ -40,34 +39,31 @@
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
     <div class="anim-card bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-100 dark:border-gray-700">
       <p class="text-xs text-gray-500 mb-1">资质总数</p>
-      <p class="text-2xl font-bold text-gray-900 dark:text-white" x-text="stats.total">—</p>
+      <p id="stat-total" class="text-2xl font-bold text-gray-900 dark:text-white">—</p>
     </div>
     <div class="anim-card bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-100 dark:border-gray-700">
       <p class="text-xs text-gray-500 mb-1">有效资质</p>
-      <p class="text-2xl font-bold text-green-600" x-text="stats.valid">—</p>
+      <p id="stat-valid" class="text-2xl font-bold text-green-600">—</p>
     </div>
     <div class="anim-card bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-100 dark:border-gray-700">
       <p class="text-xs text-gray-500 mb-1">即将过期</p>
-      <p class="text-2xl font-bold text-orange-500" x-text="stats.expiring">—</p>
+      <p id="stat-expiring" class="text-2xl font-bold text-orange-500">—</p>
     </div>
     <div class="anim-card bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-100 dark:border-gray-700">
       <p class="text-xs text-gray-500 mb-1">已过期</p>
-      <p class="text-2xl font-bold text-red-500" x-text="stats.expired">—</p>
+      <p id="stat-expired" class="text-2xl font-bold text-red-500">—</p>
     </div>
   </div>
 
   <!-- ========== Filters ========== -->
   <div class="flex flex-wrap gap-2 mb-4">
     <div class="flex-1 min-w-[180px]">
-      <input x-model="search" @keyup.enter="loadQualifications()"
-             placeholder="搜索资质名称/证书编号..."
+      <input id="search-input" type="text" placeholder="搜索资质名称/证书编号..."
              class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
                     bg-white dark:bg-gray-700 dark:text-white placeholder-gray-400
                     focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"/>
     </div>
-    <select x-model="filterCategory" @change="loadQualifications()"
-            class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                   bg-white dark:bg-gray-700 dark:text-white">
+    <select id="filter-category" class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white">
       <option value="">全部分类</option>
       <option value="建筑">建筑</option>
       <option value="IT">IT</option>
@@ -75,40 +71,35 @@
       <option value="设备">设备</option>
       <option value="其他">其他</option>
     </select>
-    <select x-model="filterStatus" @change="loadQualifications()"
-            class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                   bg-white dark:bg-gray-700 dark:text-white">
+    <select id="filter-status" class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white">
       <option value="">全部状态</option>
       <option value="有效">有效</option>
       <option value="过期">过期</option>
       <option value="待审核">待审核</option>
       <option value="已撤销">已撤销</option>
     </select>
-    <button @click="loadQualifications()"
-            class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm">
-      查询
-    </button>
+    <button id="btn-search" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm">查询</button>
   </div>
 
   <!-- ========== Skeleton Loader ========== -->
-  <div x-show="loading" class="space-y-3">
-    <template x-for="i in 5" :key="i">
-      <div class="skeleton h-16 w-full rounded-xl"></div>
-    </template>
+  <div id="skeleton-loader" class="space-y-3 hidden">
+    <div class="skeleton h-16 w-full rounded-xl"></div>
+    <div class="skeleton h-16 w-full rounded-xl"></div>
+    <div class="skeleton h-16 w-full rounded-xl"></div>
+    <div class="skeleton h-16 w-full rounded-xl"></div>
+    <div class="skeleton h-16 w-full rounded-xl"></div>
   </div>
 
   <!-- ========== Empty State ========== -->
-  <div x-show="!loading && qualifications.length === 0"
-       class="flex flex-col items-center justify-center py-20 text-gray-400">
+  <div id="empty-state" class="flex flex-col items-center justify-center py-20 text-gray-400 hidden">
     <svg class="w-16 h-16 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
     </svg>
     <p class="text-sm">暂无资质记录，点击「添加资质」开始</p>
   </div>
 
   <!-- ========== Responsive Table ========== -->
-  <div x-show="!loading && qualifications.length > 0" class="table-scroll-wrapper rounded-xl bg-white dark:bg-gray-800">
+  <div id="table-container" class="table-scroll-wrapper rounded-xl bg-white dark:bg-gray-800 hidden">
     <table class="w-full text-sm">
       <thead>
         <tr class="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700">
@@ -122,109 +113,40 @@
           <th class="text-right px-4 py-3 font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">操作</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
-        <template x-for="q in qualifications" :key="q.id">
-          <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
-            <td class="px-4 py-3 font-medium text-gray-900 dark:text-white">
-              <span class="line-clamp-2" x-text="q.name"></span>
-            </td>
-            <td class="px-4 py-3">
-              <span class="px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap" :class="getCategoryClass(q.category)" x-text="q.category || '-'"></span>
-            </td>
-            <td class="px-4 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap" x-text="q.level || '-'"></td>
-            <td class="px-4 py-3 text-gray-500 dark:text-gray-400 font-mono text-xs whitespace-nowrap" x-text="q.certificate_no || '-'"></td>
-            <td class="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">
-              <span x-text="q.valid_from ? q.valid_from.slice(0,10) : '-'"></span>
-              <span class="text-gray-400 mx-0.5">~</span>
-              <span x-text="q.valid_to ? q.valid_to.slice(0,10) : '-'"></span>
-            </td>
-            <td class="px-4 py-3 whitespace-nowrap">
-              <span class="px-2 py-0.5 rounded text-xs font-medium" :class="getStatusClass(q)" x-text="q.status"></span>
-            </td>
-            <td class="px-4 py-3 whitespace-nowrap">
-              <span x-show="q.days_until_expiry !== null && q.days_until_expiry > 30" class="text-xs text-gray-500" x-text="q.days_until_expiry + '天'"></span>
-              <span x-show="q.days_until_expiry !== null && q.days_until_expiry <= 30 && q.days_until_expiry > 0"
-                    class="text-xs text-orange-500 font-medium" x-text="q.days_until_expiry + '天'"></span>
-              <span x-show="q.days_until_expiry === 0" class="text-xs text-red-600 font-bold">今日!</span>
-              <span x-show="q.days_until_expiry !== null && q.days_until_expiry < 0" class="text-xs text-red-500">已过期</span>
-              <span x-show="q.days_until_expiry === null" class="text-gray-400 text-xs">—</span>
-            </td>
-            <td class="px-4 py-3">
-              <div class="flex justify-end gap-1.5">
-                <button @click="openMatchModal(q)" class="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition" title="资质匹配">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-                </button>
-                <button @click="openFormModal(q)" class="p-1.5 text-green-500 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/30 rounded transition" title="编辑">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                </button>
-                <button @click="deleteQualification(q.id)" class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition" title="删除">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                </button>
-              </div>
-            </td>
-          </tr>
-        </template>
+      <tbody id="qualifications-tbody" class="divide-y divide-gray-100 dark:divide-gray-700">
       </tbody>
     </table>
   </div>
 
   <!-- ========== Pagination ========== -->
-  <div class="flex flex-wrap justify-between items-center gap-3 mt-4" x-show="totalPages > 1">
-    <span class="text-xs text-gray-500">共 <span x-text="total"></span> 条</span>
-    <div class="flex flex-wrap gap-1">
-      <button @click="goPage(currentPage - 1)" :disabled="currentPage <= 1"
-              class="px-3 py-1.5 text-sm border rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
-        上一页
-      </button>
-      <template x-for="p in displayedPages" :key="p">
-        <button @click="goPage(p)"
-                class="px-3 py-1.5 text-sm border rounded transition"
-                :class="p === currentPage
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'hover:bg-gray-100 dark:hover:bg-gray-700'" x-text="p">
-        </button>
-      </template>
-      <button @click="goPage(currentPage + 1)" :disabled="currentPage >= totalPages"
-              class="px-3 py-1.5 text-sm border rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
-        下一页
-      </button>
-    </div>
+  <div id="pagination" class="flex flex-wrap justify-between items-center gap-3 mt-4 hidden">
+    <span id="pagination-info" class="text-xs text-gray-500">共 0 条</span>
+    <div id="pagination-buttons" class="flex flex-wrap gap-1"></div>
   </div>
 
   <!-- ================================================
        ADD / EDIT FORM MODAL
   ================================================= -->
-  <div x-show="showFormModal" x-cloak
-       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-       x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
-       x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150"
-       x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
-    <div @click.outside="showFormModal = false"
-         class="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
-
+  <div id="form-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 hidden">
+    <div class="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-bold text-gray-900 dark:text-white" x-text="editingId ? '编辑资质' : '添加资质'"></h3>
-        <button @click="showFormModal = false" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+        <h3 id="form-modal-title" class="text-lg font-bold text-gray-900 dark:text-white">添加资质</h3>
+        <button id="btn-close-form-modal" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition">
           <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
         </button>
       </div>
 
-      <form @submit.prevent="saveQualification()" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <form id="qualification-form" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div class="sm:col-span-2">
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">资质名称 *</label>
-          <input x-model="form.name" required
-                 class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                        bg-white dark:bg-gray-700 dark:text-white
-                        focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
+          <input type="text" id="form-name" required class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
         </div>
 
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">类别</label>
-          <select x-model="form.category"
-                  class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                         bg-white dark:bg-gray-700 dark:text-white">
+          <select id="form-category" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white">
             <option value="">请选择</option>
             <option value="建筑">建筑</option>
             <option value="IT">IT</option>
@@ -236,9 +158,7 @@
 
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">等级</label>
-          <select x-model="form.level"
-                  class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                         bg-white dark:bg-gray-700 dark:text-white">
+          <select id="form-level" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white">
             <option value="">请选择</option>
             <option value="特级">特级</option>
             <option value="一级">一级</option>
@@ -253,44 +173,32 @@
 
         <div class="sm:col-span-2">
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">证书编号</label>
-          <input x-model="form.certificate_no"
-                 class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                        bg-white dark:bg-gray-700 dark:text-white font-mono"/>
+          <input type="text" id="form-certificate-no" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white font-mono"/>
         </div>
 
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">有效期起</label>
-          <input type="date" x-model="form.valid_from"
-                 class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                        bg-white dark:bg-gray-700 dark:text-white"/>
+          <input type="date" id="form-valid-from" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white"/>
         </div>
 
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">有效期止</label>
-          <input type="date" x-model="form.valid_to"
-                 class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                        bg-white dark:bg-gray-700 dark:text-white"/>
+          <input type="date" id="form-valid-to" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white"/>
         </div>
 
         <div class="sm:col-span-2">
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">发证机关</label>
-          <input x-model="form.issuer"
-                 class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                        bg-white dark:bg-gray-700 dark:text-white"/>
+          <input type="text" id="form-issuer" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white"/>
         </div>
 
         <div class="sm:col-span-2">
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">资质文件路径</label>
-          <input x-model="form.file_path" placeholder="例: /uploads/qualifications/cert_001.pdf"
-                 class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                        bg-white dark:bg-gray-700 dark:text-white"/>
+          <input type="text" id="form-file-path" placeholder="例: /uploads/qualifications/cert_001.pdf" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white"/>
         </div>
 
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">状态</label>
-          <select x-model="form.status"
-                  class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                         bg-white dark:bg-gray-700 dark:text-white">
+          <select id="form-status" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white">
             <option value="有效">有效</option>
             <option value="待审核">待审核</option>
             <option value="已撤销">已撤销</option>
@@ -298,84 +206,53 @@
         </div>
 
         <div class="sm:col-span-2 flex justify-end gap-2 mt-2">
-          <button type="button" @click="showFormModal = false"
-                  class="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
-                         hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-            取消
-          </button>
-          <button type="submit"
-                  class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm">
-            保存
-          </button>
+          <button type="button" id="btn-cancel-form" class="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition">取消</button>
+          <button type="submit" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm">保存</button>
         </div>
       </form>
     </div>
   </div>
 
   <!-- ================================================
-       MATCH MODAL — with searchable tender picker
+       MATCH MODAL
   ================================================= -->
-  <div x-show="showMatchModal" x-cloak
-       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-       x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
-       x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150"
-       x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
-    <div @click.outside="showMatchModal = false"
-         class="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
-
+  <div id="match-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 hidden">
+    <div class="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between mb-1">
         <h3 class="text-lg font-bold text-gray-900 dark:text-white">招标项目资质匹配</h3>
-        <button @click="showMatchModal = false" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+        <button id="btn-close-match-modal" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition">
           <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
         </button>
       </div>
-      <p class="text-sm text-gray-500 mb-4" x-text="matchTender ? matchTender.title : '选择一个招标项目进行资质匹配'"></p>
+      <p id="match-tender-title" class="text-sm text-gray-500 mb-4">选择一个招标项目进行资质匹配</p>
 
-      <!-- Searchable tender selector -->
-      <div x-show="!matchResult && !matchLoading" class="mb-4">
+      <!-- Search -->
+      <div id="match-search-section" class="mb-4">
         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">搜索招标项目</label>
         <div class="relative">
-          <input type="text" x-model="tenderSearch" @input="searchTenders()"
-                 placeholder="输入项目标题关键词..."
-                 class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                        bg-white dark:bg-gray-700 dark:text-white pr-10
-                        focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
-          <svg x-show="tenderSearching" class="absolute right-3 top-2.5 w-4 h-4 animate-spin text-gray-400"
-               fill="none" viewBox="0 0 24 24">
+          <input type="text" id="tender-search-input" placeholder="输入项目标题关键词..."
+                 class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
+          <svg id="tender-search-spinner" class="absolute right-3 top-2.5 w-4 h-4 animate-spin text-gray-400 hidden" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
           </svg>
         </div>
-        <!-- Tender results dropdown -->
-        <div x-show="tenderResults.length > 0"
-             class="mt-1 border border-gray-200 dark:border-gray-600 rounded-lg max-h-48 overflow-y-auto bg-white dark:bg-gray-700 shadow-lg">
-          <template x-for="t in tenderResults" :key="t.id">
-            <button @click="selectTender(t)"
-                    class="w-full text-left px-3 py-2.5 hover:bg-blue-50 dark:hover:bg-gray-600 border-b border-gray-100 dark:border-gray-600 last:border-0 transition">
-              <p class="text-sm font-medium text-gray-900 dark:text-white line-clamp-1" x-text="t.title"></p>
-              <p class="text-xs text-gray-500 mt-0.5" x-text="(t.tender_type || '-') + ' | ' + (t.budget || '-')"></p>
-            </button>
-          </template>
-        </div>
-        <!-- Selected tender chip -->
-        <div x-show="selectedTender" class="mt-2 flex items-center gap-2">
+        <div id="tender-results" class="mt-1 border border-gray-200 dark:border-gray-600 rounded-lg max-h-48 overflow-y-auto bg-white dark:bg-gray-700 shadow-lg hidden"></div>
+        <div id="selected-tender-chip" class="mt-2 flex items-center gap-2 hidden">
           <span class="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full text-sm">
-            <span x-text="selectedTender.title" class="max-w-xs truncate"></span>
+            <span id="selected-tender-text"></span>
           </span>
-          <button @click="selectedTender=null; matchResult=null" class="text-gray-400 hover:text-red-500 transition">
+          <button id="btn-clear-selected-tender" class="text-gray-400 hover:text-red-500 transition">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
-        <button @click="runMatch()" :disabled="!selectedTender"
-                class="mt-3 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm">
-          开始匹配
-        </button>
+        <button id="btn-run-match" disabled class="mt-3 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm">开始匹配</button>
       </div>
 
-      <!-- Match loading -->
-      <div x-show="matchLoading" class="text-center py-12">
+      <!-- Loading -->
+      <div id="match-loading" class="text-center py-12 hidden">
         <svg class="w-10 h-10 mx-auto animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
@@ -384,103 +261,30 @@
       </div>
 
       <!-- Match Results -->
-      <div x-show="!matchLoading && matchResult">
-        <!-- Summary cards -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 text-center">
-            <p class="text-2xl font-bold text-blue-600" x-text="matchResult.summary.coverage_percent + '%'"></p>
-            <p class="text-xs text-gray-500">覆盖率</p>
-          </div>
-          <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center">
-            <p class="text-2xl font-bold text-green-600" x-text="matchResult.summary.matched_count"></p>
-            <p class="text-xs text-gray-500">完全匹配</p>
-          </div>
-          <div class="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3 text-center">
-            <p class="text-2xl font-bold text-yellow-600" x-text="matchResult.summary.partial_count"></p>
-            <p class="text-xs text-gray-500">部分匹配</p>
-          </div>
-          <div class="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 text-center">
-            <p class="text-2xl font-bold text-red-600" x-text="matchResult.summary.missing_count"></p>
-            <p class="text-xs text-gray-500">缺失资质</p>
-          </div>
-        </div>
-
-        <!-- Required categories -->
-        <div class="mb-4" x-show="matchResult.summary.required_categories?.length">
+      <div id="match-results-section" class="hidden">
+        <div id="match-summary-cards" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"></div>
+        <div id="required-categories" class="mb-4 hidden">
           <p class="text-xs font-medium text-gray-500 mb-2">要求类别：</p>
-          <div class="flex flex-wrap gap-1.5">
-            <template x-for="cat in matchResult.summary.required_categories" :key="cat">
-              <span class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs" x-text="cat"></span>
-            </template>
-          </div>
+          <div id="required-categories-list" class="flex flex-wrap gap-1.5"></div>
         </div>
-
-        <!-- Fully matched -->
-        <div class="mb-4" x-show="matchResult.matched?.length">
+        <div id="matched-section" class="mb-4 hidden">
           <p class="text-sm font-semibold text-green-600 mb-2">✅ 完全匹配</p>
-          <div class="space-y-2">
-            <template x-for="m in matchResult.matched" :key="m.qualification.id">
-              <div class="flex items-center justify-between bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-2 border border-green-200 dark:border-green-800">
-                <div class="min-w-0 flex-1">
-                  <p class="font-medium text-sm text-gray-900 dark:text-white truncate" x-text="m.qualification.name"></p>
-                  <p class="text-xs text-gray-500" x-text="m.qualification.category + ' / ' + m.qualification.level"></p>
-                </div>
-                <div class="text-right ml-3 shrink-0">
-                  <span class="text-lg font-bold text-green-600" x-text="m.score + '分'"></span>
-                  <p class="text-xs text-gray-400 truncate max-w-[120px]" x-text="m.reasons.join(', ')"></p>
-                </div>
-              </div>
-            </template>
-          </div>
+          <div id="matched-list" class="space-y-2"></div>
         </div>
-
-        <!-- Partial match -->
-        <div class="mb-4" x-show="matchResult.partial?.length">
+        <div id="partial-section" class="mb-4 hidden">
           <p class="text-sm font-semibold text-yellow-600 mb-2">⚠️ 部分匹配</p>
-          <div class="space-y-2">
-            <template x-for="p in matchResult.partial" :key="p.qualification.id">
-              <div class="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 rounded-lg px-3 py-2 border border-yellow-200 dark:border-yellow-800">
-                <div class="min-w-0 flex-1">
-                  <p class="font-medium text-sm text-gray-900 dark:text-white truncate" x-text="p.qualification.name"></p>
-                  <p class="text-xs text-gray-500" x-text="p.qualification.category + ' / ' + p.qualification.level"></p>
-                </div>
-                <div class="text-right ml-3 shrink-0">
-                  <span class="text-lg font-bold text-yellow-600" x-text="p.score + '分'"></span>
-                  <p class="text-xs text-gray-400 truncate max-w-[120px]" x-text="p.reasons.join(', ')"></p>
-                </div>
-              </div>
-            </template>
-          </div>
+          <div id="partial-list" class="space-y-2"></div>
         </div>
-
-        <!-- Missing -->
-        <div class="mb-4" x-show="matchResult.missing?.length">
+        <div id="missing-section" class="mb-4 hidden">
           <p class="text-sm font-semibold text-red-600 mb-2">❌ 缺失资质</p>
-          <div class="space-y-2">
-            <template x-for="mi in matchResult.missing" :key="mi.category">
-              <div class="flex items-center justify-between bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2 border border-red-200 dark:border-red-800">
-                <p class="font-medium text-sm text-gray-900 dark:text-white" x-text="mi.category"></p>
-                <p class="text-xs text-gray-500 ml-2" x-text="mi.suggestion"></p>
-              </div>
-            </template>
-          </div>
+          <div id="missing-list" class="space-y-2"></div>
         </div>
-
-        <!-- Link action -->
         <div class="flex justify-between items-center mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
-          <p class="text-xs text-gray-400" x-show="!matchResult.matched?.length && !matchResult.partial?.length">没有可关联的资质</p>
-          <button x-show="matchResult.matched?.length > 0" @click="linkMatched()"
-                  class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm">
-            关联匹配资质到该项目
-          </button>
+          <p id="no-match-hint" class="text-xs text-gray-400 hidden">没有可关联的资质</p>
+          <button id="btn-link-matched" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm hidden">关联匹配资质到该项目</button>
         </div>
-
-        <!-- Reset / re-select -->
         <div class="mt-3">
-          <button @click="selectedTender=null; matchResult=null; tenderSearch=''; tenderResults=[]"
-                  class="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition">
-            ← 重新选择项目
-          </button>
+          <button id="btn-reset-match" class="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition">← 重新选择项目</button>
         </div>
       </div>
     </div>
@@ -489,58 +293,32 @@
   <!-- ================================================
        EXPIRING MODAL
   ================================================= -->
-  <div x-show="showExpiringModal" x-cloak
-       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-       x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
-       x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150"
-       x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
-    <div @click.outside="showExpiringModal = false"
-         class="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-lg shadow-xl">
-
+  <div id="expiring-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 hidden">
+    <div class="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-lg shadow-xl">
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-lg font-bold text-orange-600 dark:text-orange-400">⚠️ 即将过期资质</h3>
-        <button @click="showExpiringModal = false" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+        <button id="btn-close-expiring-modal" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition">
           <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
         </button>
       </div>
 
-      <!-- Loading -->
-      <div x-show="expiringLoading" class="text-center py-8">
+      <div id="expiring-loading" class="text-center py-8 hidden">
         <svg class="w-8 h-8 mx-auto animate-spin text-orange-400" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
         </svg>
       </div>
 
-      <!-- Empty -->
-      <div x-show="!expiringLoading && expiringList.length === 0" class="text-center py-8 text-gray-400">
+      <div id="expiring-empty" class="text-center py-8 text-gray-400 hidden">
         🎉 暂无即将过期的资质
       </div>
 
-      <!-- List -->
-      <div class="space-y-2 max-h-80 overflow-y-auto" x-show="!expiringLoading && expiringList.length">
-        <template x-for="eq in expiringList" :key="eq.id">
-          <div class="flex items-center justify-between bg-orange-50 dark:bg-orange-900/20 rounded-lg px-3 py-2.5 border border-orange-200 dark:border-orange-800">
-            <div class="min-w-0 flex-1">
-              <p class="font-medium text-sm text-gray-900 dark:text-white truncate" x-text="eq.name"></p>
-              <p class="text-xs text-gray-500" x-text="eq.category + (eq.level ? ' / ' + eq.level : '')"></p>
-            </div>
-            <div class="text-right ml-3 shrink-0">
-              <p class="text-sm font-bold text-orange-600" x-text="eq.valid_to ? eq.valid_to.slice(0,10) : '-'"></p>
-              <p class="text-xs" :class="eq.days_until_expiry <= 7 ? 'text-red-600 font-bold' : 'text-gray-400'"
-                 x-text="eq.days_until_expiry !== null ? eq.days_until_expiry + '天后到期' : ''"></p>
-            </div>
-          </div>
-        </template>
-      </div>
+      <div id="expiring-list" class="space-y-2 max-h-80 overflow-y-auto"></div>
 
       <div class="flex justify-end mt-4">
-        <button @click="showExpiringModal = false"
-                class="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-          关闭
-        </button>
+        <button id="btn-close-expiring" class="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition">关闭</button>
       </div>
     </div>
   </div>
@@ -548,9 +326,9 @@
 </div>
 
 <script>
-function qualificationsApp() {
-  return {
-    // ── Data ──────────────────────────────────────────────
+(function() {
+  // ==================== State ====================
+  var state = {
     qualifications: [],
     loading: false,
     total: 0,
@@ -563,15 +341,10 @@ function qualificationsApp() {
     expiringCount: 0,
     expiringList: [],
     expiringLoading: false,
-    showExpiringModal: false,
-
-    // ── Form ──────────────────────────────────────────────
-    showFormModal: false,
+    // Form
     editingId: null,
-    form: this._blankForm(),
-
-    // ── Match ─────────────────────────────────────────────
-    showMatchModal: false,
+    form: blankForm(),
+    // Match
     matchTenderId: null,
     matchTender: null,
     matchResult: null,
@@ -581,257 +354,643 @@ function qualificationsApp() {
     tenderResults: [],
     tenderSearching: false,
     selectedTender: null,
-    tenderSearchTimer: null,
-
-    _blankForm() {
-      return { name: '', category: '', level: '', certificate_no: '',
-               valid_from: '', valid_to: '', issuer: '', file_path: '',
-               status: '有效', linked_tenders: [] };
-    },
-
-    // ── Lifecycle ──────────────────────────────────────────
-    async init() {
-      await Promise.all([
-        this.loadQualifications(),
-        this.loadStats()
-      ]);
-    },
-
-    // ── Load ───────────────────────────────────────────────
-    async loadQualifications(page = 1) {
-      this.loading = true;
-      this.currentPage = page;
-      const params = new URLSearchParams({ page, page_size: this.pageSize });
-      if (this.filterCategory) params.set('category', this.filterCategory);
-      if (this.filterStatus)  params.set('status', this.filterStatus);
-      if (this.search)        params.set('search', this.search);
-      try {
-        const res  = await fetch(`/api/bidder-qualifications?${params}`);
-        const data = await res.json();
-        this.qualifications = data.items || [];
-        this.total           = data.total || 0;
-      } catch(e) { console.error(e); }
-      this.loading = false;
-    },
-
-    async loadStats() {
-      try {
-        const [allRes, expRes, validRes, expiredRes] = await Promise.all([
-          fetch('/api/bidder-qualifications?page_size=1'),
-          fetch('/api/bidder-qualifications/expiring?days=30'),
-          fetch('/api/bidder-qualifications?status=有效&page_size=1'),
-          fetch('/api/bidder-qualifications?status=过期&page_size=1'),
-        ]);
-        const [all, exp, valid, expired] = await Promise.all([allRes.json(), expRes.json(), validRes.json(), expiredRes.json()]);
-        this.stats.total    = all.total || 0;
-        this.stats.expiring = (exp.items || []).length;
-        this.expiringCount  = this.stats.expiring;
-        this.stats.valid    = valid.total || 0;
-        this.stats.expired  = expired.total || 0;
-      } catch(e) { console.error(e); }
-    },
-
-    async loadExpiringModal() {
-      this.expiringLoading = true;
-      try {
-        const res  = await fetch('/api/bidder-qualifications/expiring?days=30');
-        const data = await res.json();
-        this.expiringList = data.items || [];
-      } catch(e) { console.error(e); }
-      this.expiringLoading = false;
-    },
-
-    openExpiringModal() {
-      this.showExpiringModal = true;
-      if (!this.expiringList.length) this.loadExpiringModal();
-    },
-
-    // ── Pagination ─────────────────────────────────────────
-    goPage(p) {
-      if (p < 1 || p > this.totalPages) return;
-      this.loadQualifications(p);
-    },
-
-    get totalPages()   { return Math.ceil(this.total / this.pageSize) || 1; },
-    get displayedPages() {
-      const pages = [], total = this.totalPages, cur = this.currentPage;
-      for (let p = Math.max(1, cur - 2); p <= Math.min(total, cur + 2); p++) pages.push(p);
-      return pages;
-    },
-
-    // ── Form ───────────────────────────────────────────────
-    openFormModal(q = null) {
-      this.editingId = q ? q.id : null;
-      this.form = q ? {
-        name:            q.name || '',
-        category:        q.category || '',
-        level:           q.level || '',
-        certificate_no:  q.certificate_no || '',
-        valid_from:      q.valid_from ? q.valid_from.slice(0, 10) : '',
-        valid_to:        q.valid_to   ? q.valid_to.slice(0, 10)   : '',
-        issuer:          q.issuer || '',
-        file_path:       q.file_path || '',
-        status:          q.status || '有效',
-        linked_tenders:  q.linked_tenders || [],
-      } : this._blankForm();
-      this.showFormModal = true;
-    },
-
-    async saveQualification() {
-      const method = this.editingId ? 'PUT' : 'POST';
-      const url    = this.editingId ? `/api/bidder-qualifications/${this.editingId}` : '/api/bidder-qualifications';
-      try {
-        const res  = await fetch(url, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.form),
-        });
-        const data = await res.json();
-        if (data.success || res.ok) {
-          this.showFormModal = false;
-          this.loadQualifications(this.currentPage);
-          this.loadStats();
-          showToast(this.editingId ? '已更新' : '已添加', 'success');
-        } else {
-          showToast('操作失败', 'error');
-        }
-      } catch(e) { showToast('操作失败: ' + e.message, 'error'); }
-    },
-
-    async deleteQualification(id) {
-      if (!confirm('确定删除该资质？')) return;
-      try {
-        const res = await fetch(`/api/bidder-qualifications/${id}`, { method: 'DELETE' });
-        if (res.ok) {
-          this.loadQualifications(this.currentPage);
-          this.loadStats();
-          showToast('已删除', 'success');
-        }
-      } catch(e) { showToast('删除失败', 'error'); }
-    },
-
-    // ── Match ─────────────────────────────────────────────
-    openMatchModal(q) {
-      this.matchSelectedQ = q;
-      this.matchTenderId  = null;
-      this.matchResult    = null;
-      this.matchTender    = null;
-      this.selectedTender = null;
-      this.tenderSearch   = '';
-      this.tenderResults  = [];
-      this.showMatchModal = true;
-    },
-
-    searchTenders() {
-      clearTimeout(this.tenderSearchTimer);
-      if (!this.tenderSearch.trim()) { this.tenderResults = []; return; }
-      this.tenderSearching = true;
-      this.tenderSearchTimer = setTimeout(async () => {
-        try {
-          const res  = await fetch(`/api/favorites?search=${encodeURIComponent(this.tenderSearch)}&limit=20`);
-          const data = await res.json();
-          this.tenderResults = data.favorites || [];
-        } catch(e) { console.error(e); }
-        this.tenderSearching = false;
-      }, 350);
-    },
-
-    selectTender(t) {
-      this.selectedTender = t;
-      this.matchTenderId  = t.id;
-      this.matchTender     = t;
-      this.tenderSearch    = t.title;
-      this.tenderResults   = [];
-    },
-
-    async runMatch() {
-      if (!this.selectedTender) return;
-      this.matchLoading = true;
-      this.matchResult  = null;
-      try {
-        const res  = await fetch(`/api/bidder-qualifications/match/${this.selectedTender.id || this.matchTenderId}`);
-        if (!res.ok) throw new Error('匹配请求失败');
-        this.matchResult = await res.json();
-        this.matchTender = this.matchResult.tender;
-      } catch(e) { console.error(e); showToast('匹配失败', 'error'); }
-      this.matchLoading = false;
-    },
-
-    async linkMatched() {
-      if (!this.matchTenderId || !this.matchResult) return;
-      const linked = this.matchResult.matched.map(m => m.qualification.id);
-      try {
-        await Promise.all(linked.map(qid =>
-          fetch(`/api/bidder-qualifications/${qid}/link/${this.matchTenderId}`, { method: 'POST' })
-        ));
-        showToast(`已关联 ${linked.length} 个资质到项目`, 'success');
-      } catch(e) { showToast('关联失败', 'error'); }
-    },
-
-    // ── Batch import / export ─────────────────────────────
-    async batchImport(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-      try {
-        const text  = await file.text();
-        const items = file.name.endsWith('.json') ? JSON.parse(text) : [];
-        let count = 0;
-        for (const item of items) {
-          const res = await fetch('/api/bidder-qualifications', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(item),
-          });
-          if (res.ok) count++;
-        }
-        this.loadQualifications();
-        this.loadStats();
-        showToast(`成功导入 ${count} 条资质`, 'success');
-      } catch(e) { showToast('导入失败: ' + e.message, 'error'); }
-      event.target.value = '';
-    },
-
-    exportQualifications() {
-      const rows = this.qualifications.map(q => ({
-        资质名称: q.name, 类别: q.category, 等级: q.level,
-        证书编号: q.certificate_no || '',
-        有效期起: q.valid_from ? q.valid_from.slice(0,10) : '',
-        有效期止: q.valid_to   ? q.valid_to.slice(0,10)   : '',
-        发证机关: q.issuer || '', 状态: q.status,
-      }));
-      const csv = [Object.keys(rows[0]||{}).join(','),
-                   ...rows.map(r => Object.values(r).map(v => `"${v}"`).join(','))].join('\n');
-      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href = url; a.download = 'qualifications.csv'; a.click();
-      URL.revokeObjectURL(url);
-      showToast('已导出 CSV', 'success');
-    },
-
-    // ── Helpers ───────────────────────────────────────────
-    getCategoryClass(cat) {
-      const m = {
-        '建筑': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-        'IT':   'bg-blue-100 text-blue-700  dark:bg-blue-900/30  dark:text-blue-400',
-        '服务': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-        '设备': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-      };
-      return m[cat] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400';
-    },
-
-    getStatusClass(q) {
-      if (q.status === '有效' && q.days_until_expiry !== null && q.days_until_expiry <= 30)
-        return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
-      const m = {
-        '有效':   'bg-green-100 text-green-700  dark:bg-green-900/30  dark:text-green-400',
-        '过期':   'bg-red-100 text-red-700      dark:bg-red-900/30    dark:text-red-400',
-        '待审核': 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-        '已撤销': 'bg-gray-100 text-gray-600    dark:bg-gray-700      dark:text-gray-400',
-      };
-      return m[q.status] || '';
-    },
+    tenderSearchTimer: null
   };
-}
+
+  // ==================== DOM Helpers ====================
+  function $(id) { return document.getElementById(id); }
+  function show(el) { if (el) el.classList.remove('hidden'); }
+  function hide(el) { if (el) el.classList.add('hidden'); }
+  function setText(el, text) { if (el) el.textContent = text || '-'; }
+  function escapeHtml(str) { if (!str) return ''; var d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
+
+  function blankForm() {
+    return { name: '', category: '', level: '', certificate_no: '', valid_from: '', valid_to: '', issuer: '', file_path: '', status: '有效', linked_tenders: [] };
+  }
+
+  // ==================== Init ====================
+  async function init() {
+    await Promise.all([loadQualifications(), loadStats()]);
+    setupEventListeners();
+  }
+
+  // ==================== Load Data ====================
+  async function loadQualifications(page) {
+    if (page) state.currentPage = page;
+    state.loading = true;
+    show($('skeleton-loader'));
+    hide($('empty-state'));
+    hide($('table-container'));
+
+    var params = new URLSearchParams({ page: state.currentPage, page_size: state.pageSize });
+    if (state.filterCategory) params.set('category', state.filterCategory);
+    if (state.filterStatus) params.set('status', state.filterStatus);
+    if (state.search) params.set('search', state.search);
+
+    try {
+      var res = await fetch('/api/bidder-qualifications?' + params);
+      var data = await res.json();
+      state.qualifications = data.items || [];
+      state.total = data.total || 0;
+      renderQualifications();
+    } catch (e) { console.error(e); }
+    state.loading = false;
+    hide($('skeleton-loader'));
+  }
+
+  async function loadStats() {
+    try {
+      var [allRes, expRes, validRes, expiredRes] = await Promise.all([
+        fetch('/api/bidder-qualifications?page_size=1'),
+        fetch('/api/bidder-qualifications/expiring?days=30'),
+        fetch('/api/bidder-qualifications?status=有效&page_size=1'),
+        fetch('/api/bidder-qualifications?status=过期&page_size=1')
+      ]);
+      var [all, exp, valid, expired] = await Promise.all([allRes.json(), expRes.json(), validRes.json(), expiredRes.json()]);
+      state.stats.total = all.total || 0;
+      state.stats.expiring = (exp.items || []).length;
+      state.expiringCount = state.stats.expiring;
+      state.stats.valid = valid.total || 0;
+      state.stats.expired = expired.total || 0;
+      renderStats();
+    } catch (e) { console.error(e); }
+  }
+
+  function renderStats() {
+    setText($('stat-total'), state.stats.total);
+    setText($('stat-valid'), state.stats.valid);
+    setText($('stat-expiring'), state.stats.expiring);
+    setText($('stat-expired'), state.stats.expired);
+    var badge = $('expiring-badge');
+    if (state.expiringCount > 0) {
+      show(badge);
+      badge.textContent = state.expiringCount;
+    } else {
+      hide(badge);
+    }
+  }
+
+  // ==================== Render ====================
+  function renderQualifications() {
+    hide($('skeleton-loader'));
+    var tbody = $('qualifications-tbody');
+
+    if (!state.qualifications.length) {
+      hide($('table-container'));
+      hide($('pagination'));
+      show($('empty-state'));
+      return;
+    }
+
+    show($('table-container'));
+    show($('pagination'));
+    hide($('empty-state'));
+
+    var html = '';
+    state.qualifications.forEach(function(q) {
+      var catClass = getCategoryClass(q.category);
+      var statusClass = getStatusClass(q);
+      var daysText = getDaysText(q);
+
+      html += '<tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">' +
+        '<td class="px-4 py-3 font-medium text-gray-900 dark:text-white"><span class="line-clamp-2">' + escapeHtml(q.name) + '</span></td>' +
+        '<td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ' + catClass + '">' + escapeHtml(q.category || '-') + '</span></td>' +
+        '<td class="px-4 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">' + escapeHtml(q.level || '-') + '</td>' +
+        '<td class="px-4 py-3 text-gray-500 dark:text-gray-400 font-mono text-xs whitespace-nowrap">' + escapeHtml(q.certificate_no || '-') + '</td>' +
+        '<td class="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">' +
+          '<span>' + (q.valid_from ? q.valid_from.slice(0,10) : '-') + '</span>' +
+          '<span class="text-gray-400 mx-0.5">~</span>' +
+          '<span>' + (q.valid_to ? q.valid_to.slice(0,10) : '-') + '</span></td>' +
+        '<td class="px-4 py-3 whitespace-nowrap"><span class="px-2 py-0.5 rounded text-xs font-medium ' + statusClass + '">' + escapeHtml(q.status) + '</span></td>' +
+        '<td class="px-4 py-3 whitespace-nowrap">' + daysText + '</td>' +
+        '<td class="px-4 py-3"><div class="flex justify-end gap-1.5">' +
+          '<button data-match="' + q.id + '" class="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition" title="资质匹配">' +
+            '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></button>' +
+          '<button data-edit="' + q.id + '" class="p-1.5 text-green-500 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/30 rounded transition" title="编辑">' +
+            '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>' +
+          '<button data-delete="' + q.id + '" class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition" title="删除">' +
+            '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>' +
+        '</div></td></tr>';
+    });
+    tbody.innerHTML = html;
+    renderPagination();
+  }
+
+  function getDaysText(q) {
+    if (q.days_until_expiry === null) return '<span class="text-gray-400 text-xs">—</span>';
+    if (q.days_until_expiry < 0) return '<span class="text-xs text-red-500">已过期</span>';
+    if (q.days_until_expiry === 0) return '<span class="text-xs text-red-600 font-bold">今日!</span>';
+    if (q.days_until_expiry <= 30) return '<span class="text-xs text-orange-500 font-medium">' + q.days_until_expiry + '天</span>';
+    return '<span class="text-xs text-gray-500">' + q.days_until_expiry + '天</span>';
+  }
+
+  function getCategoryClass(cat) {
+    var m = {
+      '建筑': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+      'IT': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+      '服务': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+      '设备': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+    };
+    return m[cat] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400';
+  }
+
+  function getStatusClass(q) {
+    if (q.status === '有效' && q.days_until_expiry !== null && q.days_until_expiry <= 30)
+      return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
+    var m = {
+      '有效': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+      '过期': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+      '待审核': 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+      '已撤销': 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+    };
+    return m[q.status] || '';
+  }
+
+  function renderPagination() {
+    var totalPages = Math.ceil(state.total / state.pageSize) || 1;
+    setText($('pagination-info'), '共 ' + state.total + ' 条');
+
+    if (totalPages <= 1) {
+      hide($('pagination-buttons'));
+      return;
+    }
+
+    var html = '';
+    var cur = state.currentPage;
+    for (var p = Math.max(1, cur - 2); p <= Math.min(totalPages, cur + 2); p++) {
+      var activeClass = p === cur ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-gray-100 dark:hover:bg-gray-700';
+      html += '<button data-page="' + p + '" class="px-3 py-1.5 text-sm border rounded transition ' + activeClass + '">' + p + '</button>';
+    }
+    $('pagination-buttons').innerHTML = html;
+  }
+
+  // ==================== Modals ====================
+  function openFormModal(q) {
+    state.editingId = q ? q.id : null;
+    $('form-modal-title').textContent = q ? '编辑资质' : '添加资质';
+
+    if (q) {
+      $('form-name').value = q.name || '';
+      $('form-category').value = q.category || '';
+      $('form-level').value = q.level || '';
+      $('form-certificate-no').value = q.certificate_no || '';
+      $('form-valid-from').value = q.valid_from ? q.valid_from.slice(0, 10) : '';
+      $('form-valid-to').value = q.valid_to ? q.valid_to.slice(0, 10) : '';
+      $('form-issuer').value = q.issuer || '';
+      $('form-file-path').value = q.file_path || '';
+      $('form-status').value = q.status || '有效';
+    } else {
+      $('form-name').value = '';
+      $('form-category').value = '';
+      $('form-level').value = '';
+      $('form-certificate-no').value = '';
+      $('form-valid-from').value = '';
+      $('form-valid-to').value = '';
+      $('form-issuer').value = '';
+      $('form-file-path').value = '';
+      $('form-status').value = '有效';
+    }
+    show($('form-modal'));
+  }
+
+  function closeFormModal() {
+    hide($('form-modal'));
+    state.editingId = null;
+  }
+
+  async function saveQualification(e) {
+    if (e) e.preventDefault();
+    var method = state.editingId ? 'PUT' : 'POST';
+    var url = state.editingId ? '/api/bidder-qualifications/' + state.editingId : '/api/bidder-qualifications';
+    var payload = {
+      name: $('form-name').value,
+      category: $('form-category').value,
+      level: $('form-level').value,
+      certificate_no: $('form-certificate-no').value,
+      valid_from: $('form-valid-from').value,
+      valid_to: $('form-valid-to').value,
+      issuer: $('form-issuer').value,
+      file_path: $('form-file-path').value,
+      status: $('form-status').value
+    };
+
+    try {
+      var res = await fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      var data = await res.json();
+      if (data.success || res.ok) {
+        closeFormModal();
+        loadQualifications(state.currentPage);
+        loadStats();
+        showToast(state.editingId ? '已更新' : '已添加', 'success');
+      } else {
+        showToast('操作失败', 'error');
+      }
+    } catch (err) { showToast('操作失败: ' + err.message, 'error'); }
+  }
+
+  async function deleteQualification(id) {
+    if (!confirm('确定删除该资质？')) return;
+    try {
+      var res = await fetch('/api/bidder-qualifications/' + id, { method: 'DELETE' });
+      if (res.ok) {
+        loadQualifications(state.currentPage);
+        loadStats();
+        showToast('已删除', 'success');
+      }
+    } catch (e) { showToast('删除失败', 'error'); }
+  }
+
+  // ==================== Match Modal ====================
+  function openMatchModal(q) {
+    state.matchSelectedQ = q;
+    state.matchTenderId = null;
+    state.matchResult = null;
+    state.matchTender = null;
+    state.selectedTender = null;
+    state.tenderSearch = '';
+    state.tenderResults = [];
+
+    $('match-tender-title').textContent = '选择一个招标项目进行资质匹配';
+    hide($('match-loading'));
+    hide($('match-results-section'));
+    show($('match-search-section'));
+    $('tender-search-input').value = '';
+    hide($('tender-results'));
+    hide($('selected-tender-chip'));
+    $('btn-run-match').disabled = true;
+    show($('match-modal'));
+  }
+
+  function closeMatchModal() {
+    hide($('match-modal'));
+  }
+
+  function searchTenders() {
+    clearTimeout(state.tenderSearchTimer);
+    var query = $('tender-search-input').value.trim();
+    if (!query) { hide($('tender-results')); state.tenderResults = []; return; }
+
+    show($('tender-search-spinner'));
+    state.tenderSearchTimer = setTimeout(async function() {
+      try {
+        var res = await fetch('/api/favorites?search=' + encodeURIComponent(query) + '&limit=20');
+        var data = await res.json();
+        state.tenderResults = data.favorites || [];
+        renderTenderResults();
+      } catch (e) { console.error(e); }
+      hide($('tender-search-spinner'));
+    }, 350);
+  }
+
+  function renderTenderResults() {
+    var container = $('tender-results');
+    if (!state.tenderResults.length) { hide(container); return; }
+    show(container);
+    var html = '';
+    state.tenderResults.forEach(function(t) {
+      html += '<button data-select-tender="' + t.id + '" class="w-full text-left px-3 py-2.5 hover:bg-blue-50 dark:hover:bg-gray-600 border-b border-gray-100 dark:border-gray-600 last:border-0 transition">' +
+        '<p class="text-sm font-medium text-gray-900 dark:text-white line-clamp-1">' + escapeHtml(t.title) + '</p>' +
+        '<p class="text-xs text-gray-500 mt-0.5">' + (t.tender_type || '-') + ' | ' + (t.budget || '-') + '</p></button>';
+    });
+    container.innerHTML = html;
+  }
+
+  function selectTender(t) {
+    state.selectedTender = t;
+    state.matchTenderId = t.id;
+    state.matchTender = t;
+    $('tender-search-input').value = t.title;
+    hide($('tender-results'));
+    show($('selected-tender-chip'));
+    $('selected-tender-text').textContent = t.title;
+    $('btn-run-match').disabled = false;
+  }
+
+  async function runMatch() {
+    if (!state.selectedTender) return;
+    hide($('match-search-section'));
+    show($('match-loading'));
+    hide($('match-results-section'));
+
+    try {
+      var res = await fetch('/api/bidder-qualifications/match/' + (state.selectedTender.id || state.matchTenderId));
+      if (!res.ok) throw new Error('匹配请求失败');
+      state.matchResult = await res.json();
+      state.matchTender = state.matchResult.tender;
+      renderMatchResults();
+    } catch (e) { console.error(e); showToast('匹配失败', 'error'); }
+    hide($('match-loading'));
+  }
+
+  function renderMatchResults() {
+    show($('match-results-section'));
+    var r = state.matchResult;
+    if (!r) return;
+
+    // Summary cards
+    var summaryHtml = '' +
+      '<div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 text-center">' +
+        '<p class="text-2xl font-bold text-blue-600">' + (r.summary.coverage_percent || 0) + '%</p>' +
+        '<p class="text-xs text-gray-500">覆盖率</p></div>' +
+      '<div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center">' +
+        '<p class="text-2xl font-bold text-green-600">' + (r.summary.matched_count || 0) + '</p>' +
+        '<p class="text-xs text-gray-500">完全匹配</p></div>' +
+      '<div class="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3 text-center">' +
+        '<p class="text-2xl font-bold text-yellow-600">' + (r.summary.partial_count || 0) + '</p>' +
+        '<p class="text-xs text-gray-500">部分匹配</p></div>' +
+      '<div class="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 text-center">' +
+        '<p class="text-2xl font-bold text-red-600">' + (r.summary.missing_count || 0) + '</p>' +
+        '<p class="text-xs text-gray-500">缺失资质</p></div>';
+    $('match-summary-cards').innerHTML = summaryHtml;
+
+    // Required categories
+    if (r.summary.required_categories && r.summary.required_categories.length) {
+      show($('required-categories'));
+      var catHtml = '';
+      r.summary.required_categories.forEach(function(cat) {
+        catHtml += '<span class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs">' + escapeHtml(cat) + '</span>';
+      });
+      $('required-categories-list').innerHTML = catHtml;
+    } else {
+      hide($('required-categories'));
+    }
+
+    // Matched
+    if (r.matched && r.matched.length) {
+      show($('matched-section'));
+      var mHtml = '';
+      r.matched.forEach(function(m) {
+        mHtml += '<div class="flex items-center justify-between bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-2 border border-green-200 dark:border-green-800">' +
+          '<div class="min-w-0 flex-1"><p class="font-medium text-sm text-gray-900 dark:text-white truncate">' + escapeHtml(m.qualification.name) + '</p>' +
+          '<p class="text-xs text-gray-500">' + escapeHtml(m.qualification.category) + ' / ' + escapeHtml(m.qualification.level) + '</p></div>' +
+          '<div class="text-right ml-3 shrink-0"><span class="text-lg font-bold text-green-600">' + m.score + '分</span>' +
+          '<p class="text-xs text-gray-400 truncate max-w-[120px]">' + escapeHtml((m.reasons || []).join(', ')) + '</p></div></div>';
+      });
+      $('matched-list').innerHTML = mHtml;
+    } else {
+      hide($('matched-section'));
+    }
+
+    // Partial
+    if (r.partial && r.partial.length) {
+      show($('partial-section'));
+      var pHtml = '';
+      r.partial.forEach(function(p) {
+        pHtml += '<div class="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 rounded-lg px-3 py-2 border border-yellow-200 dark:border-yellow-800">' +
+          '<div class="min-w-0 flex-1"><p class="font-medium text-sm text-gray-900 dark:text-white truncate">' + escapeHtml(p.qualification.name) + '</p>' +
+          '<p class="text-xs text-gray-500">' + escapeHtml(p.qualification.category) + ' / ' + escapeHtml(p.qualification.level) + '</p></div>' +
+          '<div class="text-right ml-3 shrink-0"><span class="text-lg font-bold text-yellow-600">' + p.score + '分</span>' +
+          '<p class="text-xs text-gray-400 truncate max-w-[120px]">' + escapeHtml((p.reasons || []).join(', ')) + '</p></div></div>';
+      });
+      $('partial-list').innerHTML = pHtml;
+    } else {
+      hide($('partial-section'));
+    }
+
+    // Missing
+    if (r.missing && r.missing.length) {
+      show($('missing-section'));
+      var miHtml = '';
+      r.missing.forEach(function(mi) {
+        miHtml += '<div class="flex items-center justify-between bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2 border border-red-200 dark:border-red-800">' +
+          '<p class="font-medium text-sm text-gray-900 dark:text-white">' + escapeHtml(mi.category) + '</p>' +
+          '<p class="text-xs text-gray-500 ml-2">' + escapeHtml(mi.suggestion || '') + '</p></div>';
+      });
+      $('missing-list').innerHTML = miHtml;
+    } else {
+      hide($('missing-section'));
+    }
+
+    // Link button
+    if (r.matched && r.matched.length > 0) {
+      show($('btn-link-matched'));
+      hide($('no-match-hint'));
+    } else {
+      hide($('btn-link-matched'));
+      show($('no-match-hint'));
+    }
+  }
+
+  async function linkMatched() {
+    if (!state.matchTenderId || !state.matchResult) return;
+    var linked = state.matchResult.matched.map(function(m) { return m.qualification.id; });
+    try {
+      await Promise.all(linked.map(function(qid) {
+        return fetch('/api/bidder-qualifications/' + qid + '/link/' + state.matchTenderId, { method: 'POST' });
+      }));
+      showToast('已关联 ' + linked.length + ' 个资质到项目', 'success');
+    } catch (e) { showToast('关联失败', 'error'); }
+  }
+
+  function resetMatch() {
+    state.selectedTender = null;
+    state.matchResult = null;
+    state.matchTenderId = null;
+    state.tenderSearch = '';
+    state.tenderResults = [];
+    $('tender-search-input').value = '';
+    hide($('tender-results'));
+    hide($('selected-tender-chip'));
+    hide($('match-results-section'));
+    show($('match-search-section'));
+    $('btn-run-match').disabled = true;
+  }
+
+  // ==================== Expiring Modal ====================
+  async function loadExpiringModal() {
+    state.expiringLoading = true;
+    show($('expiring-loading'));
+    hide($('expiring-empty'));
+    hide($('expiring-list'));
+
+    try {
+      var res = await fetch('/api/bidder-qualifications/expiring?days=30');
+      var data = await res.json();
+      state.expiringList = data.items || [];
+      renderExpiringList();
+    } catch (e) { console.error(e); }
+    state.expiringLoading = false;
+    hide($('expiring-loading'));
+  }
+
+  function renderExpiringList() {
+    if (!state.expiringList.length) {
+      show($('expiring-empty'));
+      hide($('expiring-list'));
+      return;
+    }
+    show($('expiring-list'));
+    hide($('expiring-empty'));
+
+    var html = '';
+    state.expiringList.forEach(function(eq) {
+      var dayClass = eq.days_until_expiry <= 7 ? 'text-red-600 font-bold' : 'text-gray-400';
+      html += '<div class="flex items-center justify-between bg-orange-50 dark:bg-orange-900/20 rounded-lg px-3 py-2.5 border border-orange-200 dark:border-orange-800">' +
+        '<div class="min-w-0 flex-1">' +
+          '<p class="font-medium text-sm text-gray-900 dark:text-white truncate">' + escapeHtml(eq.name) + '</p>' +
+          '<p class="text-xs text-gray-500">' + escapeHtml(eq.category) + (eq.level ? ' / ' + eq.level : '') + '</p></div>' +
+        '<div class="text-right ml-3 shrink-0">' +
+          '<p class="text-sm font-bold text-orange-600">' + (eq.valid_to ? eq.valid_to.slice(0, 10) : '-') + '</p>' +
+          '<p class="text-xs ' + dayClass + '">' + (eq.days_until_expiry !== null ? eq.days_until_expiry + '天后到期' : '') + '</p></div></div>';
+    });
+    $('expiring-list').innerHTML = html;
+  }
+
+  function openExpiringModalFn() {
+    show($('expiring-modal'));
+    if (!state.expiringList.length) loadExpiringModal();
+  }
+
+  // ==================== Batch Import / Export ====================
+  async function batchImport(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    try {
+      var text = await file.text();
+      var items = file.name.endsWith('.json') ? JSON.parse(text) : [];
+      var count = 0;
+      for (var i = 0; i < items.length; i++) {
+        var res = await fetch('/api/bidder-qualifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(items[i])
+        });
+        if (res.ok) count++;
+      }
+      loadQualifications();
+      loadStats();
+      showToast('成功导入 ' + count + ' 条资质', 'success');
+    } catch (err) { showToast('导入失败: ' + err.message, 'error'); }
+    e.target.value = '';
+  }
+
+  function exportQualifications() {
+    var rows = state.qualifications.map(function(q) {
+      return {
+        '资质名称': q.name,
+        '类别': q.category,
+        '等级': q.level,
+        '证书编号': q.certificate_no || '',
+        '有效期起': q.valid_from ? q.valid_from.slice(0, 10) : '',
+        '有效期止': q.valid_to ? q.valid_to.slice(0, 10) : '',
+        '发证机关': q.issuer || '',
+        '状态': q.status
+      };
+    });
+    var csv = [Object.keys(rows[0] || {}).join(','),
+               ...rows.map(function(r) { return Object.values(r).map(function(v) { return '"' + v + '"'; }).join(','); })].join('\n');
+    var blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = 'qualifications.csv'; a.click();
+    URL.revokeObjectURL(url);
+    showToast('已导出 CSV', 'success');
+  }
+
+  // ==================== Event Listeners ====================
+  function setupEventListeners() {
+    // Page header buttons
+    $('btn-add').addEventListener('click', function() { openFormModal(null); });
+    $('btn-export').addEventListener('click', exportQualifications);
+    $('batch-import-input').addEventListener('change', batchImport);
+    $('btn-expiring').addEventListener('click', openExpiringModalFn);
+
+    // Filters
+    $('btn-search').addEventListener('click', function() {
+      state.search = $('search-input').value.trim();
+      state.filterCategory = $('filter-category').value;
+      state.filterStatus = $('filter-status').value;
+      loadQualifications(1);
+    });
+    $('search-input').addEventListener('keyup', function(e) {
+      if (e.key === 'Enter') {
+        state.search = $('search-input').value.trim();
+        state.filterCategory = $('filter-category').value;
+        state.filterStatus = $('filter-status').value;
+        loadQualifications(1);
+      }
+    });
+    $('filter-category').addEventListener('change', function() {
+      state.filterCategory = $('filter-category').value;
+      state.filterStatus = $('filter-status').value;
+      state.search = $('search-input').value.trim();
+      loadQualifications(1);
+    });
+    $('filter-status').addEventListener('change', function() {
+      state.filterCategory = $('filter-category').value;
+      state.filterStatus = $('filter-status').value;
+      state.search = $('search-input').value.trim();
+      loadQualifications(1);
+    });
+
+    // Table actions
+    $('qualifications-tbody').addEventListener('click', function(e) {
+      var btn = e.target.closest('button[data-edit]');
+      if (btn) {
+        var q = state.qualifications.find(function(x) { return x.id == btn.dataset.edit; });
+        if (q) openFormModal(q);
+      }
+      btn = e.target.closest('button[data-delete]');
+      if (btn) deleteQualification(btn.dataset.delete);
+      btn = e.target.closest('button[data-match]');
+      if (btn) {
+        var q = state.qualifications.find(function(x) { return x.id == btn.dataset.match; });
+        if (q) openMatchModal(q);
+      }
+    });
+
+    // Pagination
+    $('pagination-buttons').addEventListener('click', function(e) {
+      var btn = e.target.closest('button[data-page]');
+      if (btn) loadQualifications(parseInt(btn.dataset.page));
+    });
+
+    // Form modal
+    $('btn-close-form-modal').addEventListener('click', closeFormModal);
+    $('btn-cancel-form').addEventListener('click', closeFormModal);
+    $('qualification-form').addEventListener('submit', saveQualification);
+    $('form-modal').addEventListener('click', function(e) {
+      if (e.target === $('form-modal')) closeFormModal();
+    });
+
+    // Match modal
+    $('btn-close-match-modal').addEventListener('click', closeMatchModal);
+    $('match-modal').addEventListener('click', function(e) {
+      if (e.target === $('match-modal')) closeMatchModal();
+    });
+    $('tender-search-input').addEventListener('input', searchTenders);
+    $('tender-results').addEventListener('click', function(e) {
+      var btn = e.target.closest('button[data-select-tender]');
+      if (btn) {
+        var t = state.tenderResults.find(function(x) { return x.id == btn.dataset.selectTender; });
+        if (t) selectTender(t);
+      }
+    });
+    $('btn-clear-selected-tender').addEventListener('click', function() {
+      state.selectedTender = null;
+      state.matchTenderId = null;
+      hide($('selected-tender-chip'));
+      $('tender-search-input').value = '';
+      $('btn-run-match').disabled = true;
+    });
+    $('btn-run-match').addEventListener('click', runMatch);
+    $('btn-link-matched').addEventListener('click', linkMatched);
+    $('btn-reset-match').addEventListener('click', resetMatch);
+
+    // Expiring modal
+    $('btn-close-expiring-modal').addEventListener('click', function() { hide($('expiring-modal')); });
+    $('btn-close-expiring').addEventListener('click', function() { hide($('expiring-modal')); });
+    $('expiring-modal').addEventListener('click', function(e) {
+      if (e.target === $('expiring-modal')) hide($('expiring-modal'));
+    });
+  }
+
+  // Start
+  init();
+})();
 </script>
 {% endblock %}

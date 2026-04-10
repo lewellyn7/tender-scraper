@@ -18,25 +18,25 @@ Usage:
 import argparse
 import json
 import re
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-from collections import defaultdict
+from typing import Dict, List, Optional
 
 
 class AuditLogQuery:
     """审计日志查询引擎"""
-    
+
     # 日志行正则：时间戳 | 会话ID | 工具名 | 参数哈希 | 执行结果 | 耗时(ms) | 详细信息
     # 支持两种时间戳格式：标准格式 (%Y-%m-%dT%H:%M:%S.%fZ) 和 Python logging 默认格式
     LOG_PATTERN = re.compile(
         r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^|]*?)\s*\|\s*([^\|]+)\s*\|\s*([^\|]+)\s*\|\s*([^\|]+)\s*\|\s*([^\|]+)\s*\|\s*(\d+)\s*\|\s*(.+)$'
     )
-    
+
     def __init__(self, log_dir: str = "logs"):
         self.log_dir = Path(log_dir)
         self.log_file = self.log_dir / "audit.log"
-    
+
     def parse_line(self, line: str) -> Optional[Dict]:
         """
         解析日志行
@@ -50,9 +50,9 @@ class AuditLogQuery:
         match = self.LOG_PATTERN.match(line.strip())
         if not match:
             return None
-        
+
         timestamp_str, session_id, tool_name, params_hash, result_status, duration_ms, details = match.groups()
-        
+
         # 尝试多种时间戳格式
         timestamp = datetime.now()
         for fmt in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%S,%fZ", "%Y-%m-%d %H:%M:%S,%f", "%Y-%m-%d %H:%M:%S"]:
@@ -63,12 +63,12 @@ class AuditLogQuery:
                 break
             except ValueError:
                 continue
-        
+
         try:
             details_json = json.loads(details)
         except json.JSONDecodeError:
             details_json = {"raw": details}
-        
+
         return {
             "timestamp": timestamp,
             "timestamp_str": timestamp_str,
@@ -79,7 +79,7 @@ class AuditLogQuery:
             "duration_ms": int(duration_ms),
             "details": details_json
         }
-    
+
     def parse_time_range(self, since: str) -> datetime:
         """
         解析时间范围字符串
@@ -102,7 +102,7 @@ class AuditLogQuery:
                 return datetime.now() - timedelta(weeks=value)
             elif unit == 'm':
                 return datetime.now() - timedelta(minutes=value)
-        
+
         # 绝对时间
         try:
             return datetime.strptime(since, "%Y-%m-%d")
@@ -111,7 +111,7 @@ class AuditLogQuery:
                 return datetime.strptime(since, "%Y-%m-%d %H:%M:%S")
             except ValueError:
                 raise ValueError(f"无法解析时间范围: {since}")
-    
+
     def query(
         self,
         tool_name: Optional[str] = None,
@@ -142,52 +142,52 @@ class AuditLogQuery:
             匹配的日志记录列表
         """
         results = []
-        
+
         if not self.log_file.exists():
             return results
-        
+
         # 解析时间范围
         since_dt = self.parse_time_range(since) if since else None
         until_dt = self.parse_time_range(until) if until else None
-        
+
         with open(self.log_file, 'r', encoding='utf-8') as f:
             for line in f:
                 record = self.parse_line(line)
                 if not record:
                     continue
-                
+
                 # 应用过滤条件
                 if tool_name and tool_name.lower() not in record["tool_name"].lower():
                     continue
-                
+
                 if since_dt and record["timestamp"] < since_dt:
                     continue
-                
+
                 if until_dt and record["timestamp"] > until_dt:
                     continue
-                
+
                 if status and record["result_status"].upper() != status.upper():
                     continue
-                
+
                 if session_id and session_id not in record["session_id"]:
                     continue
-                
+
                 if params_hash and record["params_hash"] != params_hash:
                     continue
-                
+
                 if min_duration and record["duration_ms"] < min_duration:
                     continue
-                
+
                 if max_duration and record["duration_ms"] > max_duration:
                     continue
-                
+
                 results.append(record)
-                
+
                 if len(results) >= limit:
                     break
-        
+
         return results
-    
+
     def get_stats(self, since: Optional[str] = None) -> Dict:
         """
         获取审计统计信息
@@ -209,17 +209,17 @@ class AuditLogQuery:
             "tool_breakdown": defaultdict(lambda: {"count": 0, "success": 0, "failed": 0, "total_duration": 0}),
             "session_breakdown": defaultdict(int)
         }
-        
+
         records = self.query(since=since, limit=100000) if since else self.query(limit=100000)
-        
+
         total_duration = 0
         duration_count = 0
-        
+
         for record in records:
             stats["total_calls"] += 1
             stats["session_breakdown"][record["session_id"]] += 1
             stats["tool_breakdown"][record["tool_name"]]["count"] += 1
-            
+
             if record["result_status"] == "SUCCESS":
                 stats["success_count"] += 1
                 stats["tool_breakdown"][record["tool_name"]]["success"] += 1
@@ -229,7 +229,7 @@ class AuditLogQuery:
             elif record["result_status"] == "STARTED":
                 stats["started_count"] += 1
                 continue  # STARTED 状态不计入耗时统计
-            
+
             # 耗时统计
             if record["duration_ms"] > 0:
                 total_duration += record["duration_ms"]
@@ -237,19 +237,19 @@ class AuditLogQuery:
                 stats["max_duration_ms"] = max(stats["max_duration_ms"], record["duration_ms"])
                 stats["min_duration_ms"] = min(stats["min_duration_ms"], record["duration_ms"])
                 stats["tool_breakdown"][record["tool_name"]]["total_duration"] += record["duration_ms"]
-        
+
         if duration_count > 0:
             stats["avg_duration_ms"] = total_duration // duration_count
-        
+
         if stats["min_duration_ms"] == float('inf'):
             stats["min_duration_ms"] = 0
-        
+
         # 转换 defaultdict 为普通 dict
         stats["tool_breakdown"] = dict(stats["tool_breakdown"])
         stats["session_breakdown"] = dict(stats["session_breakdown"])
-        
+
         return stats
-    
+
     def format_result(self, record: Dict) -> str:
         """格式化单条记录"""
         status_icon = "✓" if record["result_status"] == "SUCCESS" else "✗" if record["result_status"] == "FAILED" else "→"
@@ -269,7 +269,7 @@ def main():
   python audit_query.py --min-duration 1000 --since "1h"
         """
     )
-    
+
     parser.add_argument("--query", "-q", help="按工具名查询（支持模糊匹配）")
     parser.add_argument("--since", "-s", help="起始时间（如 '1h', '2d', '2024-01-01'）")
     parser.add_argument("--until", "-u", help="结束时间")
@@ -281,14 +281,14 @@ def main():
     parser.add_argument("--limit", "-l", type=int, default=100, help="返回结果数量限制")
     parser.add_argument("--stats", action="store_true", help="显示统计信息")
     parser.add_argument("--log-dir", default="logs", help="日志目录")
-    
+
     args = parser.parse_args()
-    
+
     query_engine = AuditLogQuery(log_dir=args.log_dir)
-    
+
     if args.stats:
         stats = query_engine.get_stats(since=args.since)
-        
+
         print("=" * 60)
         print("审计日志统计")
         if args.since:
@@ -299,16 +299,16 @@ def main():
         print(f"平均耗时: {stats['avg_duration_ms']}ms")
         print(f"最小耗时: {stats['min_duration_ms']}ms | 最大耗时: {stats['max_duration_ms']}ms")
         print()
-        
+
         print("工具调用分布:")
         print("-" * 60)
         for tool, data in sorted(stats['tool_breakdown'].items(), key=lambda x: x[1]['count'], reverse=True):
             avg_dur = data['total_duration'] // data['count'] if data['count'] > 0 else 0
             print(f"  {tool:25} | 调用: {data['count']:5} | 成功: {data['success']:5} | 失败: {data['failed']:3} | 平均耗时: {avg_dur:5}ms")
-        
+
         print()
         print(f"会话数: {len(stats['session_breakdown'])}")
-        
+
     else:
         results = query_engine.query(
             tool_name=args.query,
@@ -321,11 +321,11 @@ def main():
             max_duration=args.max_duration,
             limit=args.limit
         )
-        
+
         if not results:
             print("未找到匹配的审计记录")
             return
-        
+
         print(f"找到 {len(results)} 条记录:")
         print("-" * 80)
         for record in results:

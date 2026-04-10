@@ -8,15 +8,10 @@
   - app.database.tables.modals           : filter_presets / logs / duplicates / cache / backup / stats / schema
 """
 
-import json
-import os
 import queue
 import sqlite3
 import threading
-import time
-from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 
 from loguru import logger
 

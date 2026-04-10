@@ -10,7 +10,6 @@ from datetime import datetime
 import pandas as pd
 from loguru import logger
 
-
 # 中文列名映射
 COLUMN_RENAME = {
     "title": "项目名称",

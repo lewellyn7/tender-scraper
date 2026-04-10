@@ -16,7 +16,7 @@ from urllib.parse import urljoin
 from loguru import logger
 
 from app.core.browser import StealthBrowser
-from app.models.tender import TenderInfo, ContactInfo, TenderAttachment
+from app.models.tender import ContactInfo, TenderAttachment, TenderInfo
 
 
 class BaseCrawler(ABC):
@@ -199,34 +199,34 @@ class BaseCrawler(ABC):
                 pass
         return None
 
-    def _extract_budget(self, page) -> str:
+    async def _extract_budget(self, page) -> str:
         """提取预算金额（通用实现）"""
-        return asyncio.run(self._extract_field(page, [
+        return await self._extract_field(page, [
             r"预算金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
             r"采购预算[：:]\s*([\d,\.]+)\s*(?:万元|元)",
             r"项目预算[：:]\s*([\d,\.]+)\s*(?:万元|元)",
             r"最高限价[：:]\s*([\d,\.]+)\s*(?:万元|元)",
-        ]))
+        ])
 
-    def _extract_deadline(self, page) -> Tuple[str, Optional[datetime]]:
+    async def _extract_deadline(self, page) -> Tuple[str, Optional[datetime]]:
         """提取截止时间（通用实现），返回 (原始文本, datetime)"""
-        raw = asyncio.run(self._extract_field(page, [
+        raw = await self._extract_field(page, [
             r"投标截止时间[：:]*\s*([^\n]+)",
             r"截止时间[：:]*\s*([^\n]+)",
             r"投标文件递交截止时间[：:]*\s*([^\n]+)",
             r"截止日期[：:]*\s*([^\n]+)",
             r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}[日]?\s*\d{1,2}[:时]\d{1,2}分?)",
-        ]))
+        ])
         dt = self._parse_datetime(raw) if raw else None
         return raw, dt
 
-    def _extract_bid_amount(self, page) -> str:
+    async def _extract_bid_amount(self, page) -> str:
         """提取中标金额（通用实现）"""
-        return asyncio.run(self._extract_field(page, [
+        return await self._extract_field(page, [
             r"中标金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
             r"成交金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
             r"合同金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
-        ]))
+        ])
 
     # ─── 批量采集 ────────────────────────────────────────────────
 
