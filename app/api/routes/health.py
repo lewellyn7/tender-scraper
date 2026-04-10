@@ -21,8 +21,9 @@ async def health_check():
 @router.get("/health/extended")
 async def extended_health():
     """扩展健康检查 - 检查各组件状态"""
-    import asyncio
     from app.database.db import get_db
+    import os
+    import httpx
     
     components = {}
     overall_healthy = True
@@ -39,7 +40,6 @@ async def extended_health():
     
     # Redis check
     try:
-        import os
         redis_url = os.getenv("REDIS_URL", "")
         if redis_url:
             import redis
@@ -51,22 +51,24 @@ async def extended_health():
     except Exception as e:
         components["redis"] = {"status": "unhealthy", "error": str(e)}
     
-    # Crawler sources check
+    # Crawler sources check - use browser headers to avoid 403
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            # Check CQGGZY
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+        }
+        async with httpx.AsyncClient(timeout=10.0, headers=headers, follow_redirects=True) as client:
             try:
-                r = await client.get("https://www.cqggzy.com", follow_redirects=True)
+                r = await client.get("https://www.cqggzy.com")
                 components["cqggzy"] = {"status": "healthy", "code": r.status_code}
-            except:
+            except Exception:
                 components["cqggzy"] = {"status": "unhealthy"}
             
-            # Check CCGP
             try:
-                r = await client.get("https://www.ccgp-chongqing.gov.cn", follow_redirects=True)
+                r = await client.get("https://www.ccgp-chongqing.gov.cn")
                 components["ccgp"] = {"status": "healthy", "code": r.status_code}
-            except:
+            except Exception:
                 components["ccgp"] = {"status": "unhealthy"}
     except Exception as e:
         components["crawlers"] = {"status": "unknown", "error": str(e)}
