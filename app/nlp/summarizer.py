@@ -71,10 +71,10 @@ class TextSummarizer:
 
         top = self.score_sentences(sentences, top_k=max_sentences)
         # 按原文顺序排序
-        order = {s: i for i, (s, _) in enumerate(sentences)}
+        order = {sent: i for i, sent in enumerate(sentences)}
         top.sort(key=lambda x: order[x[0]])
 
-        return "。".join(s[0] for s in top) + "。"
+        return "。".join(s for s, _ in top) + "。"
 
     def extract_budget(self, text: str) -> str:
         """抽取预算金额"""
