@@ -8,7 +8,9 @@
   - app.database.tables.modals           : filter_presets / logs / duplicates / cache / backup / stats / schema
 """
 
+import os
 import queue
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -25,6 +27,80 @@ from app.database.tables import (
 )
 
 DB_PATH = Path(__file__).parent.parent.parent / "config" / "tender_scraper.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+USE_PG = DATABASE_URL.startswith("postgresql://")
+
+# PostgreSQL connection pool
+_pg_pool = None
+
+def _get_pg_pool():
+    global _pg_pool
+    if _pg_pool is None:
+        import psycopg2
+        from psycopg2 import pool
+        _pg_pool = pool.ThreadedConnectionPool(
+            minconn=1, maxconn=5,
+            dsn=DATABASE_URL,
+            connect_timeout=10,
+        )
+    return _pg_pool
+
+def _pg_conn():
+    """Get a PostgreSQL connection"""
+    pool = _get_pg_pool()
+    conn = pool.getconn()
+    conn.autocommit = False
+    return conn
+
+def _pg_close_conn(conn):
+    """Return connection to pool"""
+    pool = _get_pg_pool()
+    pool.putconn(conn)
+
+def _convert_placeholders(query: str) -> str:
+    """Convert SQLite ? placeholders to PostgreSQL %s"""
+    return query.replace("?", "%s")
+
+
+class PGConnectionWrapper:
+    """Wraps psycopg2 connection to auto-convert ? placeholders to %s"""
+    __slots__ = ('conn',)
+    
+    def __init__(self, conn):
+        self.conn = conn
+    
+    def execute(self, sql, params=None):
+        converted = _convert_placeholders(sql)
+        if params is None:
+            return self.conn.execute(converted)
+        return self.conn.execute(converted, params)
+    
+    def executemany(self, sql, params_list):
+        converted = _convert_placeholders(sql)
+        return self.conn.executemany(converted, params_list)
+    
+    def cursor(self, *args, **kwargs):
+        return self.conn.cursor(*args, **kwargs)
+    
+    def commit(self):
+        return self.conn.commit()
+    
+    def rollback(self):
+        return self.conn.rollback()
+    
+    def close(self):
+        return self.conn.close()
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *args):
+        pass
+    
+    @property
+    def dsn(self):
+        return self.conn.dsn
+
 
 
 class Database(
@@ -66,17 +142,25 @@ class Database(
         self._initialized = True
         logger.info(f"DB (singleton): {self.db_path}")
 
-    def _get_conn(self) -> sqlite3.Connection:
-        if not hasattr(self._local, "conn") or self._local.conn is None:
-            self._local.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            self._local.conn.row_factory = sqlite3.Row
-            self._local.conn.execute("PRAGMA journal_mode=WAL")
-            self._local.conn.execute("PRAGMA synchronous=NORMAL")
-            self._local.conn.execute("PRAGMA cache_size=-64000")
-            self._local.conn.execute("PRAGMA temp_store=MEMORY")
-        return self._local.conn
+    def _get_conn(self):
+        if USE_PG:
+            if not hasattr(self._local, "pg_conn") or self._local.pg_conn is None:
+                self._local.pg_conn = _pg_conn()
+            return self._local.pg_conn
+        else:
+            if not hasattr(self._local, "conn") or self._local.conn is None:
+                self._local.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                self._local.conn.row_factory = sqlite3.Row
+                self._local.conn.execute("PRAGMA journal_mode=WAL")
+                self._local.conn.execute("PRAGMA synchronous=NORMAL")
+                self._local.conn.execute("PRAGMA cache_size=-64000")
+                self._local.conn.execute("PRAGMA temp_store=MEMORY")
+            return self._local.conn
 
     def _init_tables(self):
+        if USE_PG:
+            # PG schema is created by migration script
+            return
         c = self._get_conn()
         c.executescript("""
             CREATE TABLE IF NOT EXISTS favorites(
@@ -283,19 +367,43 @@ class Database(
             return
         conn = self._get_conn()
         try:
-            conn.execute("BEGIN")
-            for sql, params in batch:
-                conn.execute(sql, params)
-            conn.execute("COMMIT")
-        except (sqlite3.IntegrityError, sqlite3.OperationalError, OSError) as e:
-            conn.execute("ROLLBACK")
+            if USE_PG:
+                conn.execute("BEGIN")
+                for sql, params in batch:
+                    conn.execute(_convert_placeholders(sql), params or None)
+                conn.commit()
+            else:
+                conn.execute("BEGIN")
+                for sql, params in batch:
+                    conn.execute(sql, params)
+                conn.execute("COMMIT")
+        except Exception as e:
+            if USE_PG:
+                conn.rollback()
+            else:
+                conn.execute("ROLLBACK")
             logger.error(f"_execute_batch: {e}")
+
+    def _pg_execute(self, conn, sql, params=None):
+        """Execute SQL on PostgreSQL, converting ? placeholders to %s"""
+        if params is None:
+            return conn.execute(_convert_placeholders(sql))
+        return conn.execute(_convert_placeholders(sql), params)
 
     def close(self):
         self._shutdown = True
-        if hasattr(self._local, "conn") and self._local.conn:
-            self._local.conn.close()
-            self._local.conn = None
+        if USE_PG:
+            if hasattr(self._local, "pg_conn") and self._local.pg_conn:
+                try:
+                    self._local.pg_conn.rollback()
+                except Exception:
+                    pass
+                _pg_close_conn(self._local.pg_conn)
+                self._local.pg_conn = None
+        else:
+            if hasattr(self._local, "conn") and self._local.conn:
+                self._local.conn.close()
+                self._local.conn = None
 
 
 _db_instance = None

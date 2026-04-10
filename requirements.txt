@@ -40,3 +40,4 @@ pytest-asyncio==0.23.6
 bcrypt>=4.1.0,<5.1.0
 jieba==0.42.1
 xlsxwriter==3.1.2
+psycopg2-binary==2.9.9
