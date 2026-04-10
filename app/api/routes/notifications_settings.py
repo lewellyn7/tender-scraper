@@ -5,11 +5,12 @@ import os
 from pathlib import Path
 from typing import Dict, List
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
 from loguru import logger
 
 from app.utils.notifications import get_notif_manager
+from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api", tags=["通知和设置"])
 SYS_PATH = Path(__file__).parent.parent.parent.parent
@@ -19,7 +20,7 @@ SETTINGS_FILE = SYS_PATH / "config" / "settings.json"
 
 
 @router.get("/notifications/config")
-def get_notif_config():
+def get_notif_config(user_id: str = Depends(get_current_user)):
     return JSONResponse(get_notif_manager().get_config())
 
 
@@ -45,7 +46,7 @@ def update_notif_config(
 
 
 @router.post("/notifications/test")
-async def test_notification():
+async def test_notification(user_id: str = Depends(get_current_user)):
     nm = get_notif_manager()
     cfg = nm.get_config()
     if not cfg.get("enabled"):
@@ -69,7 +70,7 @@ async def test_notification():
 
 
 @router.get("/ragflow/config")
-def get_ragflow_config():
+def get_ragflow_config(user_id: str = Depends(get_current_user)):
     return JSONResponse({
         "base_url": os.getenv("RAGFLOW_BASE_URL", "http://localhost:8088"),
         "api_key": os.getenv("RAGFLOW_API_KEY", "")[:4] + "****" if os.getenv("RAGFLOW_API_KEY") else "",
@@ -120,7 +121,7 @@ def update_ragflow_config(
 
 
 @router.get("/llm/config")
-def get_llm_config():
+def get_llm_config(user_id: str = Depends(get_current_user)):
     return JSONResponse({
         "provider": os.getenv("LLM_PROVIDER", "none"),
         "model": os.getenv("LLM_MODEL", "gpt-4o-mini"),
@@ -129,7 +130,7 @@ def get_llm_config():
 
 
 @router.post("/llm/config")
-def update_llm_config(api_key: str = Body(""), model: str = Body("gpt-4o-mini"), provider: str = Body("openai")):
+def update_llm_config(api_key: str = Body(""), model: str = Body("gpt-4o-mini"), provider: str = Body("openai"), user_id: str = Depends(get_current_user)):
     import pathlib
     env_path = pathlib.Path(SYS_PATH) / ".env"
     lines = []
@@ -163,7 +164,7 @@ def update_llm_config(api_key: str = Body(""), model: str = Body("gpt-4o-mini"),
 
 
 @router.get("/settings")
-def get_settings():
+def get_settings(user_id: str = Depends(get_current_user)):
     if SETTINGS_FILE.exists():
         try:
             with open(SETTINGS_FILE, encoding="utf-8") as f:
@@ -174,7 +175,7 @@ def get_settings():
 
 
 @router.post("/settings")
-def save_settings(data: Dict = Body(...)):
+def save_settings(data: Dict = Body(...), user_id: str = Depends(get_current_user)):
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -191,7 +192,7 @@ def save_settings(data: Dict = Body(...)):
 
 
 @router.post("/collect")
-async def trigger_collection():
+async def trigger_collection(user_id: str = Depends(get_current_user)):
     from app.api.routes.projects import _clear_cache
 
     _clear_cache()

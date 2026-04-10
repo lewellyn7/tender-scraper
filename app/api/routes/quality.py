@@ -1,9 +1,10 @@
 """质量评估路由"""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from fastapi.responses import JSONResponse
 
 from app.services.quality_evaluation import QualityEvaluationService
+from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/quality", tags=["质量评估"])
 
@@ -49,7 +50,7 @@ async def evaluate(
 
 
 @router.get("/stats")
-async def quality_stats():
+async def quality_stats(user_id: str = Depends(get_current_user)):
     """获取质量统计（全局平均分 + 分布）"""
     avg = _evaluator.get_avg_scores()
     dist = _evaluator.get_quality_distribution()

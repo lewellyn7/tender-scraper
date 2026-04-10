@@ -1,16 +1,19 @@
 """重复检测路由"""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from fastapi.responses import JSONResponse
 
 from app.database import get_db
 from app.utils.tfidf_matcher import TFIDFMatcher
+from app.api.dependencies import get_current_user
+from app.utils.tfidf_matcher import TFIDFMatcher
+from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/duplicates", tags=["重复检测"])
 
 
 @router.get("")
-def find_duplicates(threshold: float = Query(0.7, ge=0.3, le=0.95)):
+def find_duplicates(threshold: float = Query(0.7, ge=0.3, le=0.95), user_id: str = Depends(get_current_user)):
     """查找重复项目"""
     db = get_db()
     conn = db._get_conn()

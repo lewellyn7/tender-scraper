@@ -1,11 +1,12 @@
 """自然语言问答路由 - RAG 检索 + 结构化响应"""
 
 from typing import Optional
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from loguru import logger
 
 from services.ragflow_service import get_ragflow_service
+from app.api.dependencies import get_current_user
 from app.nlp.classifier import TenderClassifier
 from app.nlp.summarizer import TextSummarizer
 
@@ -45,6 +46,7 @@ async def ask(
     question: str = Query(..., description="自然语言问题", min_length=2, max_length=500),
     dataset_ids: Optional[str] = Query(None, description="知识库 ID，逗号分隔"),
     top_k: int = Query(3, ge=1, le=20, description="检索 chunk 数"),
+    user_id: str = Depends(get_current_user)
 ):
     """
     自然语言问答接口
@@ -114,6 +116,7 @@ async def ask(
 @router.get("/intent")
 async def detect_intent(
     query: str = Query(..., description="查询文本", min_length=2, max_length=500),
+    user_id: str = Depends(get_current_user)
 ):
     """意图检测接口"""
     intent = _detect_intent(query)
@@ -133,6 +136,7 @@ async def classify_text(
     title: str = Query(..., description="标题", max_length=500),
     content: str = Query("", description="正文（可选）", max_length=5000),
     budget: str = Query("", description="金额（可选）", max_length=100),
+    user_id: str = Depends(get_current_user)
 ):
     """文本分类接口 - 返回类别/地域/优先级/关键词"""
     result = _classifier.classify(title, content, budget)

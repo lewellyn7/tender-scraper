@@ -2,10 +2,11 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, Query, Depends
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.database import get_db
+from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/db", tags=["数据库"])
 
@@ -14,7 +15,7 @@ BACKUP_ROOT = Path(__file__).parent.parent.parent.parent / "data" / "backups"
 
 
 @router.post("/backup")
-def create_backup():
+def create_backup(user_id: str = Depends(get_current_user)):
     """创建数据库备份"""
     backup_path = get_db().backup_database()
     if backup_path:
@@ -23,14 +24,14 @@ def create_backup():
 
 
 @router.get("/backups")
-def list_backups(limit: int = Query(10, ge=1, le=50)):
+def list_backups(limit: int = Query(10, ge=1, le=50), user_id: str = Depends(get_current_user)):
     """列出备份"""
     backups = get_db().list_db_backups(limit)
     return JSONResponse({"backups": backups})
 
 
 @router.post("/restore")
-def restore_backup(backup_path: str = Body(...)):
+def restore_backup(backup_path: str = Body(...), user_id: str = Depends(get_current_user)):
     """恢复数据库"""
     success = get_db().restore_database(backup_path)
     if success:
@@ -39,7 +40,7 @@ def restore_backup(backup_path: str = Body(...)):
 
 
 @router.delete("/backup")
-def delete_backup(backup_path: str = Body(...)):
+def delete_backup(backup_path: str = Body(...), user_id: str = Depends(get_current_user)):
     """删除备份"""
     success = get_db().delete_db_backup(backup_path)
     if success:
@@ -48,14 +49,14 @@ def delete_backup(backup_path: str = Body(...)):
 
 
 @router.post("/cleanup")
-def cleanup_old_backups(keep_count: int = Body(10, ge=1)):
+def cleanup_old_backups(keep_count: int = Body(10, ge=1), user_id: str = Depends(get_current_user)):
     """清理旧备份"""
     deleted = get_db().cleanup_old_backups(keep_count)
     return JSONResponse({"success": True, "deleted": deleted})
 
 
 @router.get("/backup/download")
-def download_backup(path: str = Query(...)):
+def download_backup(path: str = Query(...), user_id: str = Depends(get_current_user)):
     """下载备份文件 — 仅允许备份目录内的文件"""
     # 解析并安全化路径：禁止 ../ 分隔符逃逸
     p = Path(path).resolve()

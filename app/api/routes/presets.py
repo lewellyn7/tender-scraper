@@ -1,15 +1,16 @@
 """预设路由"""
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
 
 from app.database import get_db
+from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/presets", tags=["预设"])
 
 
 @router.get("")
-def get_presets():
+def get_presets(user_id: str = Depends(get_current_user)):
     """获取所有预设"""
     db = get_db()
     presets = db.get_presets()
@@ -32,7 +33,7 @@ def save_preset(
 
 
 @router.delete("/{preset_key}")
-def delete_preset(preset_key: str):
+def delete_preset(preset_key: str, user_id: str = Depends(get_current_user)):
     """删除预设"""
     db = get_db()
     success = db.delete_preset(preset_key)

@@ -2,10 +2,11 @@
 
 import io
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.database import get_db
+from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/export", tags=["导出"])
 
@@ -66,7 +67,7 @@ def export_excel(
 
 
 @router.get("/csv")
-def export_csv(keyword: str = Query(""), category: str = Query("")):
+def export_csv(keyword: str = Query(""), category: str = Query(""), user_id: str = Depends(get_current_user)):
     """导出 CSV"""
     import csv
 

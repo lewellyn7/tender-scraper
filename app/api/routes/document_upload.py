@@ -4,11 +4,14 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Depends
 from fastapi.responses import JSONResponse
 
 from app.database import get_db
 from app.services.document_analyzer import DocumentAnalyzer
+from app.api.dependencies import get_current_user
+from app.services.document_analyzer import DocumentAnalyzer
+from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/documents", tags=["文档管理"])
 
@@ -185,7 +188,7 @@ async def analyze_only(
 
 
 @router.get("/formats", summary="支持的文档格式")
-def supported_formats():
+def supported_formats(user_id: str = Depends(get_current_user)):
     """返回支持的文档格式列表"""
     return JSONResponse({
         "formats": list(ALLOWED_EXTENSIONS),

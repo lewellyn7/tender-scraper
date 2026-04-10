@@ -3,11 +3,14 @@
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query, Request
+from fastapi import APIRouter, Body, HTTPException, Query, Request, Depends
 from fastapi.responses import JSONResponse
 
 from app.database import get_db
 from app.services.qualification_matcher import QualificationMatcher
+from app.api.dependencies import get_current_user
+from app.services.qualification_matcher import QualificationMatcher
+from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/bidder-qualifications", tags=["资质管理"])
 
@@ -25,7 +28,7 @@ def _normalize_status(q: dict) -> dict:
 
 
 @router.post("", summary="创建资质")
-def create_qualification(request: Request, data: dict = Body(...)):
+def create_qualification(request: Request, data: dict = Body(...), user_id: str = Depends(get_current_user)):
     """创建新资质记录"""
     if not data.get("name"):
         raise HTTPException(status_code=400, detail="资质名称不能为空")
@@ -66,7 +69,7 @@ def list_qualifications(
 
 
 @router.get("/expiring", summary="即将过期资质")
-def expiring_qualifications(days: int = Query(30, ge=1, le=365)):
+def expiring_qualifications(days: int = Query(30, ge=1, le=365), user_id: str = Depends(get_current_user)):
     """获取 N 天内即将过期的资质"""
     db = get_db()
     items = db.get_qualifications_expiring(days=days)
@@ -75,7 +78,7 @@ def expiring_qualifications(days: int = Query(30, ge=1, le=365)):
 
 
 @router.get("/match/{tender_id}", summary="招标项目资质匹配")
-def match_qualifications(tender_id: int):
+def match_qualifications(tender_id: int, user_id: str = Depends(get_current_user)):
     """对指定招标项目进行资质自动匹配"""
     db = get_db()
     tender = db.get_tender_requirements(tender_id)
@@ -91,7 +94,7 @@ def match_qualifications(tender_id: int):
 
 
 @router.get("/{qid}", summary="资质详情")
-def get_qualification(qid: int):
+def get_qualification(qid: int, user_id: str = Depends(get_current_user)):
     """获取单条资质详情"""
     db = get_db()
     q = db.get_qualification(qid)
@@ -101,7 +104,7 @@ def get_qualification(qid: int):
 
 
 @router.put("/{qid}", summary="更新资质")
-def update_qualification(qid: int, data: dict = Body(...)):
+def update_qualification(qid: int, data: dict = Body(...), user_id: str = Depends(get_current_user)):
     """更新资质记录"""
     db = get_db()
     existing = db.get_qualification(qid)
@@ -116,7 +119,7 @@ def update_qualification(qid: int, data: dict = Body(...)):
 
 
 @router.delete("/{qid}", summary="删除资质")
-def delete_qualification(qid: int):
+def delete_qualification(qid: int, user_id: str = Depends(get_current_user)):
     """删除资质记录"""
     db = get_db()
     existing = db.get_qualification(qid)
@@ -127,7 +130,7 @@ def delete_qualification(qid: int):
 
 
 @router.post("/{qid}/link/{tender_id}", summary="关联招标项目")
-def link_tender(qid: int, tender_id: int):
+def link_tender(qid: int, tender_id: int, user_id: str = Depends(get_current_user)):
     """将招标项目关联到资质"""
     db = get_db()
     existing = db.get_qualification(qid)

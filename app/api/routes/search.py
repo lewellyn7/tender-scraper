@@ -2,7 +2,8 @@
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
+from app.api.dependencies import get_current_user
 from fastapi.responses import JSONResponse
 from loguru import logger
 
@@ -86,7 +87,7 @@ async def semantic_search(
 
 
 @router.get("/datasets")
-async def list_datasets():
+async def list_datasets(user_id: str = Depends(get_current_user)):
     """获取可用知识库列表"""
     service = get_ragflow_service()
     try:

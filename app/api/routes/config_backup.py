@@ -3,10 +3,11 @@
 from pathlib import Path
 from typing import Dict
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, Query, Depends
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.database import get_db
+from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api", tags=["配置和备份"])
 SYS_PATH = Path(__file__).parent.parent.parent.parent
@@ -15,7 +16,7 @@ SYS_PATH = Path(__file__).parent.parent.parent.parent
 
 
 @router.post("/config/backup")
-def backup_config(data: Dict = Body(...)):
+def backup_config(data: Dict = Body(...), user_id: str = Depends(get_current_user)):
     db = get_db()
     db.backup_config(
         version_label=data.get("version_label", ""),
@@ -26,7 +27,7 @@ def backup_config(data: Dict = Body(...)):
 
 
 @router.get("/config/backups")
-def list_backups(limit: int = Query(10, ge=1, le=50)):
+def list_backups(limit: int = Query(10, ge=1, le=50), user_id: str = Depends(get_current_user)):
     backups = get_db().get_config_backups(limit)
     for b in backups:
         b.pop("config_data", None)
@@ -34,7 +35,7 @@ def list_backups(limit: int = Query(10, ge=1, le=50)):
 
 
 @router.post("/config/restore/{backup_id}")
-def restore_backup(backup_id: str):
+def restore_backup(backup_id: str, user_id: str = Depends(get_current_user)):
     b = get_db().restore_config(backup_id)
     if not b:
         return JSONResponse({"error": "backup not found"}, status_code=404)
@@ -45,7 +46,7 @@ def restore_backup(backup_id: str):
 
 
 @router.post("/db/backup")
-def backup_database():
+def backup_database(user_id: str = Depends(get_current_user)):
     backup_path = get_db().backup_database()
     if backup_path:
         return JSONResponse(
@@ -55,13 +56,13 @@ def backup_database():
 
 
 @router.get("/db/backups")
-def list_db_backups(limit: int = Query(10, ge=1, le=50)):
+def list_db_backups(limit: int = Query(10, ge=1, le=50), user_id: str = Depends(get_current_user)):
     backups = get_db().list_db_backups(limit)
     return JSONResponse({"backups": backups})
 
 
 @router.post("/db/restore")
-def restore_database(backup_path: str = Body(...)):
+def restore_database(backup_path: str = Body(...), user_id: str = Depends(get_current_user)):
     success = get_db().restore_database(backup_path)
     if success:
         return JSONResponse({"success": True, "message": "数据库恢复成功"})
@@ -69,7 +70,7 @@ def restore_database(backup_path: str = Body(...)):
 
 
 @router.delete("/db/backup")
-def delete_db_backup(backup_path: str = Body(...)):
+def delete_db_backup(backup_path: str = Body(...), user_id: str = Depends(get_current_user)):
     success = get_db().delete_db_backup(backup_path)
     if success:
         return JSONResponse({"success": True, "message": "备份已删除"})
@@ -77,7 +78,7 @@ def delete_db_backup(backup_path: str = Body(...)):
 
 
 @router.get("/db/backup/download")
-def download_db_backup(path: str = Query(...)):
+def download_db_backup(path: str = Query(...), user_id: str = Depends(get_current_user)):
     p = Path(path)
     if not p.exists():
         return JSONResponse({"error": "文件不存在"}, status_code=404)
@@ -85,7 +86,7 @@ def download_db_backup(path: str = Query(...)):
 
 
 @router.post("/db/cleanup")
-def cleanup_old_backups(keep_count: int = Body(10, ge=1)):
+def cleanup_old_backups(keep_count: int = Body(10, ge=1), user_id: str = Depends(get_current_user)):
     deleted = get_db().cleanup_old_backups(keep_count)
     return JSONResponse(
         {"success": True, "deleted": deleted, "message": f"已清理 {deleted} 个旧备份"}

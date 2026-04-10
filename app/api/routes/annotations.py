@@ -1,15 +1,16 @@
 """标注路由"""
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, Query, Depends
 from fastapi.responses import JSONResponse
 
 from app.database import get_db
+from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/annotations", tags=["标注"])
 
 
 @router.get("")
-def get_annotations(limit: int = Query(500, ge=1, le=1000)):
+def get_annotations(limit: int = Query(500, ge=1, le=1000), user_id: str = Depends(get_current_user)):
     """获取所有标注"""
     db = get_db()
     annotations = db.get_all_annotations(limit=limit)
@@ -17,7 +18,7 @@ def get_annotations(limit: int = Query(500, ge=1, le=1000)):
 
 
 @router.get("/{project_url}")
-def get_annotation(project_url: str):
+def get_annotation(project_url: str, user_id: str = Depends(get_current_user)):
     """获取单个项目标注"""
     db = get_db()
     annotation = db.get_annotation(project_url)

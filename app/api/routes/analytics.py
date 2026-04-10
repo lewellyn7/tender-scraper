@@ -1,15 +1,16 @@
 """分析统计路由"""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from fastapi.responses import JSONResponse
 
 from app.database import get_db
+from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/analytics", tags=["分析"])
 
 
 @router.get("")
-def get_analytics(days: int = Query(30, ge=1, le=365)):
+def get_analytics(days: int = Query(30, ge=1, le=365), user_id: str = Depends(get_current_user)):
     """获取分析数据"""
     db = get_db()
     conn = db._get_conn()
