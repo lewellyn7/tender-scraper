@@ -41,21 +41,17 @@ class TestRAGFlowService:
             assert "name" in datasets[0]
     
     @pytest.mark.asyncio
-    async def test_search_chunks(self, service):
-        """语义检索测试"""
-        # 使用默认数据集测试
-        from app.config import RAGFLOW_DATASET_ID
-        if not RAGFLOW_DATASET_ID:
-            pytest.skip("No dataset ID configured")
-        
+    async def test_search_chunks(self, service, ragflow_mock):
+        """语义检索测试（使用 mock，无需真实 RAGFlow）"""
         chunks = await service.search_chunks(
             query="测试",
-            dataset_ids=[RAGFLOW_DATASET_ID],
+            dataset_ids=["test_dataset_id"],
             top_k=3
         )
         assert isinstance(chunks, list)
-        if chunks:
-            assert "content" in chunks[0] or "text" in chunks[0]
+        assert len(chunks) == 2
+        assert chunks[0]["content"] == "这是测试检索内容，涉及智慧城市建设。"
+        assert "similarity" in chunks[0]
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

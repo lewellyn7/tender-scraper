@@ -36,3 +36,40 @@ def sample_project():
         "budget": "100万元",
         "publish_date": "2024-01-01"
     }
+
+
+@pytest.fixture
+def ragflow_mock(monkeypatch):
+    """RAGFlow 检索 mock fixture — patch search_chunks + 设置 DATASET_ID"""
+    from services.ragflow_service import RAGFlowService
+    import services.ragflow_service as ragflow_module
+
+    # 注入 DATASET_ID（避免 test 跳过）
+    monkeypatch.setattr(ragflow_module, "DEFAULT_DATASET_ID", "test_dataset_id")
+
+    async def mock_search(*args, **kwargs):
+        return [
+            {
+                "id": "chunk_001",
+                "content": "这是测试检索内容，涉及智慧城市建设。",
+                "document_id": "doc_001",
+                "document_keyword": "智慧城市方案.docx",
+                "dataset_id": "test_dataset_id",
+                "similarity": 4.2,
+                "vector_similarity": 0.45,
+                "term_similarity": 0.18,
+            },
+            {
+                "id": "chunk_002",
+                "content": "招标采购系统架构设计，包含前后端分离方案。",
+                "document_id": "doc_002",
+                "document_keyword": "系统架构设计.docx",
+                "dataset_id": "test_dataset_id",
+                "similarity": 3.8,
+                "vector_similarity": 0.40,
+                "term_similarity": 0.15,
+            },
+        ]
+
+    monkeypatch.setattr(RAGFlowService, "search_chunks", mock_search)
+    return mock_search
