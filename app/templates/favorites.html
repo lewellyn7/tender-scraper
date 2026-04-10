@@ -159,7 +159,7 @@
 
   async function removeFavorite(url) {
     if (!confirm("确认取消收藏?")) return;
-    await fetch("/api/favorites/" + encodeURIComponent(url), { method: "DELETE", credentials: 'include' });
+    await fetch("/api/favorites/" + encodeURIComponent(url), { method: "DELETE", headers: authHeaders() });
     state.favorites = state.favorites.filter(f => f.project_url !== url);
     renderFavorites();
   }
@@ -167,9 +167,8 @@
   async function updateFavStatus(url, status) {
     await fetch("/api/favorites/" + encodeURIComponent(url), {
       method: "PATCH",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(status),
-      credentials: 'include'
+      headers: Object.assign({"Content-Type": "application/json"}, authHeaders()),
+      body: JSON.stringify(status)
     });
   }
 
@@ -195,9 +194,8 @@
     const tags = state.annotationForm.tags_str.split(",").map(t => t.trim()).filter(Boolean);
     await fetch("/api/annotations", {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ ...state.annotationForm, tags }),
-      credentials: 'include'
+      headers: Object.assign({"Content-Type": "application/json"}, authHeaders()),
+      body: JSON.stringify({ ...state.annotationForm, tags })
     });
     closeAnnotationModal();
     await loadFavorites();

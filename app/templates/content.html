@@ -114,8 +114,8 @@
         loading = true;
         showSkeleton(true);
         Promise.all([
-            fetch('/api/projects?limit=200', { credentials: 'include' }),
-            fetch('/api/stats', { credentials: 'include' }).catch(function() { return { ok: false }; })
+            fetch('/api/projects?limit=200', {headers: authHeaders()}),
+            fetch('/api/stats', {headers: authHeaders()}).catch(function() { return { ok: false }; })
         ])
         .then(function(results) {
             return Promise.all([results[0].json(), results[1].ok ? results[1].json() : null]);

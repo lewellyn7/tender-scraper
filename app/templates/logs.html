@@ -93,7 +93,7 @@
 
   async function clearLogs() {
     if (!confirm("确认清理7天前的日志?")) return;
-    await fetch("/api/logs?before_days=7", { method: "DELETE", credentials: 'include' });
+    await fetch("/api/logs?before_days=7", { method: "DELETE", headers: authHeaders() });
     await loadLogs();
   }
 

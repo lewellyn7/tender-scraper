@@ -62,7 +62,7 @@
     
     try {
       const qs = params.toString();
-      const res = await authFetch('/api/projects' + (qs ? '?' + qs : ''), { credentials: 'include' });
+      const res = await authFetch('/api/projects' + (qs ? '?' + qs : ''));
       const data = await res.json();
       state.projects = data.data || [];
       renderTable();
