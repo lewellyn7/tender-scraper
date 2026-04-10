@@ -6,14 +6,29 @@ import httpx
 from fastapi import APIRouter, Body
 from fastapi.responses import JSONResponse
 
+from fastapi import HTTPException, Request
+
 from app.database import get_db
+from app.utils.session import get_user_from_session
 
 router = APIRouter(prefix="/api/notifications", tags=["通知"])
 
 
+def get_current_user_id(request) -> str:
+    """获取当前用户ID"""
+    token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
+    if not token:
+        raise HTTPException(status_code=401, detail="未登录")
+    user = get_user_from_session(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="无效的session")
+    return user["user_id"]
+
+
 @router.get("/config")
-def get_notification_config():
-    """获取通知配置"""
+def get_notification_config(request: Request):
+    """获取通知配置（需登录）"""
+    get_current_user_id(request)  # require auth
     db = get_db()
     conn = db._get_conn()
     row = conn.execute(
@@ -37,8 +52,9 @@ def get_notification_config():
 
 
 @router.post("/config")
-def save_notification_config(config: dict = Body(...)):
-    """保存通知配置"""
+def save_notification_config(request: Request, config: dict = Body(...)):
+    """保存通知配置（需登录）"""
+    get_current_user_id(request)  # require auth
     db = get_db()
     conn = db._get_conn()
     import json

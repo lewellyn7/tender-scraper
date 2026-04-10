@@ -13,7 +13,7 @@ services:
       - redis-data:/data
     command: >
       redis-server
-      --requirepass infini_rag_flow
+      --requirepass ${REDIS_PASSWORD:-}
       --appendonly yes
       --maxmemory 256mb
       --maxmemory-policy allkeys-lru
@@ -34,7 +34,7 @@ services:
       - "5435:5432"
     environment:
       - POSTGRES_USER=${DB_USER:-root}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-root123}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME:-tender_scraper}
       - POSTGRES_INITDB_ARGS=--encoding=UTF8
     volumes:
@@ -70,8 +70,8 @@ services:
       - PORT=8000
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD:-root123}@postgres:5432/${DB_NAME:-tender_scraper}
-      - REDIS_URL=redis://:infini_rag_flow@redis:6379/0
+      - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - RAGFLOW_MCP_URL=http://host.docker.internal:9382
       - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-ragflow-Z95CAjDHSyKZflHv6xMD6SXvmjdkSzCZCZK5BSyQcSw}
       - RAGFLOW_BASE_URL=http://host.docker.internal:8088
@@ -118,8 +118,8 @@ services:
       - PORT=8000
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD:-root123}@postgres:5432/${DB_NAME:-tender_scraper}
-      - REDIS_URL=redis://:infini_rag_flow@redis:6379/0
+      - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - RAGFLOW_MCP_URL=http://host.docker.internal:9382
       - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-ragflow-Z95CAjDHSyKZflHv6xMD6SXvmjdkSzCZCZK5BSyQcSw}
       - RAGFLOW_BASE_URL=http://host.docker.internal:8088

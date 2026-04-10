@@ -9,8 +9,21 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from loguru import logger
 
+from fastapi import HTTPException, Request
+
 from app.database import get_db
 from app.utils.tfidf_matcher import TFIDFMatcher
+from app.utils.session import get_user_from_session
+
+
+def get_current_user_id_optional(request) -> str:
+    """获取当前用户ID（可选，未登录返回None）"""
+    token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
+    if token:
+        user = get_user_from_session(token)
+        if user:
+            return user["user_id"]
+    return None
 
 router = APIRouter(prefix="/api", tags=["项目"])
 SYS_PATH = Path(__file__).parent.parent.parent.parent
@@ -75,7 +88,7 @@ def _clear_cache():
 
 
 @router.get("/projects")
-def get_projects(
+def get_projects(request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     keyword: str = Query(""),
@@ -143,13 +156,19 @@ def get_projects(
     total_f = len(filtered)
     start = (page - 1) * page_size
     page_projects = filtered[start : start + page_size]
-    # 批量预加载 favorites 和 annotations (优化 N+1 查询)
+    # 批量预加载 favorites 和 annotations（用户个性化数据，需登录）
     urls = [p.get("url", "") for p in page_projects]
-    fav_map, ann_map = _batch_load_favorites_and_annotations(urls, db)
-    for p in page_projects:
-        url = p.get("url", "")
-        p["is_favorite"] = url in fav_map
-        p["annotation"] = ann_map.get(url)
+    user_id = get_current_user_id_optional(request)
+    if user_id:
+        fav_map, ann_map = _batch_load_favorites_and_annotations(urls, db)
+        for p in page_projects:
+            url = p.get("url", "")
+            p["is_favorite"] = url in fav_map
+            p["annotation"] = ann_map.get(url)
+    else:
+        for p in page_projects:
+            p["is_favorite"] = False
+            p["annotation"] = None
     data_file = SYS_PATH / "output" / "latest.json"
     last_run = "-"
     if data_file.exists():
@@ -171,13 +190,18 @@ def get_projects(
 
 
 @router.get("/project/{project_url}")
-def get_project(project_url: str):
+def get_project(request: Request, project_url: str):
     db = get_db()
     projects, _ = _load_projects()
+    user_id = get_current_user_id_optional(request)
     for p in projects:
         if p.get("url", "") == project_url:
-            p["is_favorite"] = db.is_favorite(project_url)
-            p["annotation"] = db.get_annotation(project_url)
+            if user_id:
+                p["is_favorite"] = db.is_favorite(project_url)
+                p["annotation"] = db.get_annotation(project_url)
+            else:
+                p["is_favorite"] = False
+                p["annotation"] = None
             return JSONResponse(p)
     return JSONResponse({"error": "not found"}, status_code=404)
 
