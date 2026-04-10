@@ -28,21 +28,13 @@ docker-compose*.yml
 
 # Docs & Configs (不需要进入镜像)
 *.md
-ARCHITECTURE.md
-AUDIT_REPORT.md
-CODE_QUALITY_CRITIQUE.md
-CRITICAL_REVIEW_REPORT.md
-CRITICAL_SECURITY_AUDIT.md
-FINAL_AUDIT_REPORT.md
-MERGE_REPORT.md
-PROJECT_REVIEW_FINAL.md
-TODO_AUDIT_FIXES.md
-UPDATED_AUDIT_REPORT.md
 notes/
 docs/
-config/
 tests/
 monitoring/
+config/*.json
+config/db_backups/
+config/tender_scraper.db
 
 # Local data
 *.db

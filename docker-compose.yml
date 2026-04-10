@@ -2,6 +2,24 @@
 # 招投标采集系统 - 生产部署配置
 # ============================================================
 services:
+  # --- Redis 缓存 ---
+  redis:
+    image: redis:7-alpine
+    container_name: tender-scraper-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - tender-net
+
   # --- PostgreSQL + pgvector ---
   postgres:
     image: pgvector/pgvector:pg16
@@ -43,12 +61,14 @@ services:
       - "8888:8000"
     environment:
       - TZ=Asia/Shanghai
+      - HOST=0.0.0.0
       - PORT=8000
       - DB_HOST=postgres
       - DB_PORT=5432
       - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD:-root123}@postgres:5432/${DB_NAME:-tender_scraper}
+      - REDIS_URL=redis://redis:6379/0
       - RAGFLOW_MCP_URL=http://host.docker.internal:9382
-      - RAGFLOW_API_KEY=ragflow-Z95CAjDHSyKZflHv6xMD6SXvmjdkSzCZCZK5BSyQcSw
+      - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-ragflow-Z95CAjDHSyKZflHv6xMD6SXvmjdkSzCZCZK5BSyQcSw}
       - RAGFLOW_BASE_URL=http://host.docker.internal:8088
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -57,7 +77,8 @@ services:
       - ./logs:/app/logs
       - scraper-data:/app/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8888/health', timeout=5)"]
+      # 注意：容器内部端口是 8000，不是 8888
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -65,6 +86,8 @@ services:
     networks:
       - tender-net
     depends_on:
+      redis:
+        condition: service_healthy
       postgres:
         condition: service_healthy
     deploy:
@@ -76,7 +99,7 @@ services:
           cpus: "0.5"
           memory: 512M
 
-  # --- 定时采集任务 (用同一个镜像，通过 command 区分) ---
+  # --- 定时采集任务（用同一个镜像，通过 command 区分）---
   scheduler:
     build:
       context: .
@@ -87,12 +110,14 @@ services:
     command: ["python", "-m", "app.scheduler"]
     environment:
       - TZ=Asia/Shanghai
+      - HOST=0.0.0.0
       - PORT=8000
       - DB_HOST=postgres
       - DB_PORT=5432
       - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD:-root123}@postgres:5432/${DB_NAME:-tender_scraper}
+      - REDIS_URL=redis://redis:6379/0
       - RAGFLOW_MCP_URL=http://host.docker.internal:9382
-      - RAGFLOW_API_KEY=ragflow-Z95CAjDHSyKZflHv6xMD6SXvmjdkSzCZCZK5BSyQcSw
+      - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-ragflow-Z95CAjDHSyKZflHv6xMD6SXvmjdkSzCZCZK5BSyQcSw}
       - RAGFLOW_BASE_URL=http://host.docker.internal:8088
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -102,6 +127,11 @@ services:
       - scraper-data:/app/data
     networks:
       - tender-net
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -110,12 +140,10 @@ services:
         reservations:
           cpus: "0.5"
           memory: 512M
-    depends_on:
-      web:
-        condition: service_healthy
 
 volumes:
   postgres-data:
+  redis-data:
   scraper-data:
 
 networks:
