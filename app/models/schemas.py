@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class UserRole(str, Enum):
@@ -50,8 +50,7 @@ class UserResponse(UserBase):
     enabled: bool
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class LoginRequest(BaseModel):
@@ -91,8 +90,7 @@ class ProjectResponse(ProjectBase):
     keywords_matched: bool = False
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProjectUpdate(BaseModel):
@@ -116,8 +114,7 @@ class FavoriteResponse(FavoriteBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FavoriteStatusUpdate(BaseModel):
@@ -152,8 +149,7 @@ class AnnotationResponse(AnnotationBase):
     id: Optional[int] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========== 预设模型 ==========
@@ -174,8 +170,7 @@ class PresetResponse(PresetBase):
     filter_config: dict = {}
     is_default: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========== 日志模型 ==========
@@ -195,8 +190,7 @@ class LogResponse(BaseModel):
     source: str
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========== 统计模型 ==========
