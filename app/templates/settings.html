@@ -264,6 +264,17 @@
 
 <script>
 (function() {
+  // ==================== Auth Helper ====================
+  function authHeaders() {
+    var t = localStorage.getItem('session_token');
+    return t ? {'X-Session-Token': t} : {};
+  }
+  function authFetch(url, opts) {
+    var headers = Object.assign({'Content-Type': 'application/json'}, authHeaders());
+    return fetch(url, Object.assign({headers: headers}, opts || {}));
+  }
+  function getToken() { return localStorage.getItem('session_token'); }
+
   // ==================== State ====================
   var state = {
     activeTab: 'notifications',
@@ -326,7 +337,7 @@
   // ==================== Notifications ====================
   async function loadNotifConfig() {
     try {
-      var r = await fetch('/api/notifications/config');
+      var r = await authFetch('/api/notifications/config');
       var d = await r.json();
       state.notif = { ...d, keywords_str: (d.keywords_filter || []).join(', ') };
       $('notif-enabled').checked = state.notif.enabled;
@@ -351,7 +362,7 @@
       keywords_filter: kws
     };
     try {
-      var r = await fetch('/api/notifications/config', {
+      var r = await authFetch('/api/notifications/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -371,7 +382,7 @@
     var msgEl = $('notif-msg');
     msgEl.classList.add('hidden');
     try {
-      var r = await fetch('/api/notifications/test', { method: 'POST' });
+      var r = await authFetch('/api/notifications/test', { method: 'POST' });
       var d = await r.json();
       msgEl.textContent = d.success ? '测试消息已发送!' : '发送失败: ' + (d.error || '未知错误');
       msgEl.classList.remove('hidden');
@@ -386,7 +397,7 @@
   // ==================== Presets ====================
   async function loadPresets() {
     try {
-      var r = await fetch('/api/presets');
+      var r = await authFetch('/api/presets');
       var d = await r.json();
       state.presets = d.presets || [];
       renderPresets();
@@ -448,7 +459,7 @@
       is_default: $('preset-default').checked
     };
     try {
-      await fetch('/api/presets', {
+      await authFetch('/api/presets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -461,7 +472,7 @@
   async function deletePreset(key) {
     if (!confirm('确认删除此预设?')) return;
     try {
-      await fetch('/api/presets/' + key, { method: 'DELETE' });
+      await authFetch('/api/presets/' + key, { method: 'DELETE' });
       await loadPresets();
     } catch (e) { alert('删除失败: ' + e.message); }
   }
@@ -469,7 +480,7 @@
   // ==================== Backups ====================
   async function loadBackups() {
     try {
-      var r = await fetch('/api/config/backups');
+      var r = await authFetch('/api/config/backups');
       var d = await r.json();
       state.backups = d.backups || [];
       renderBackups();
@@ -502,9 +513,9 @@
     if (!label) return;
     var desc = prompt('描述 (可选):', '') || '';
     try {
-      var sr = await fetch('/api/settings');
+      var sr = await authFetch('/api/settings');
       var st = await sr.json();
-      await fetch('/api/config/backup', {
+      await authFetch('/api/config/backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ version_label: label, config_data: st, description: desc })
@@ -517,10 +528,10 @@
   async function restoreBackup(id) {
     if (!confirm('确认恢复此备份? 当前配置将被覆盖.')) return;
     try {
-      var r = await fetch('/api/config/restore/' + id, { method: 'POST' });
+      var r = await authFetch('/api/config/restore/' + id, { method: 'POST' });
       var d = await r.json();
       if (d.backup && d.backup.config_data) {
-        await fetch('/api/settings', {
+        await authFetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(d.backup.config_data)
@@ -532,7 +543,7 @@
 
   async function exportBackup(b) {
     try {
-      var r = await fetch('/api/config/restore/' + b.id, { method: 'POST' });
+      var r = await authFetch('/api/config/restore/' + b.id, { method: 'POST' });
       var d = await r.json();
       if (d.backup) {
         var blob = new Blob([JSON.stringify(d.backup.config_data, null, 2)], { type: 'application/json' });
@@ -552,7 +563,7 @@
     var text = await file.text();
     try {
       var data = JSON.parse(text);
-      await fetch('/api/settings', {
+      await authFetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -568,7 +579,7 @@
     hide($('dup-empty'));
     hide($('dup-results'));
     try {
-      var r = await fetch('/api/duplicates?threshold=' + state.dupThreshold);
+      var r = await authFetch('/api/duplicates?threshold=' + state.dupThreshold);
       var d = await r.json();
       state.dupGroups = d.duplicates || [];
       renderDuplicates();
@@ -614,7 +625,7 @@
   // ==================== Account ====================
   async function loadUserInfo() {
     try {
-      var d = await fetch('/api/users/me').then(function(r) { return r.json(); });
+      var d = await authFetch('/api/users/me').then(function(r) { return r.json(); });
       state.accountForm = { username: d.username, display_name: d.display_name || d.username, role: d.role, old_password: '', new_password: '' };
       $('account-username').value = d.username || '';
       $('account-display-name').value = d.display_name || d.username || '';
@@ -627,7 +638,7 @@
     msgEl.classList.add('hidden');
     try {
       if ($('account-new-password').value) {
-        await fetch('/api/users/change-password', {
+        await authFetch('/api/users/change-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -651,9 +662,9 @@
   // ==================== Users (Admin) ====================
   async function loadUsers() {
     try {
-      var d = await fetch('/api/users/admin/list').then(function(r) { return r.json(); });
+      var d = await authFetch('/api/users/admin/list').then(function(r) { return r.json(); });
       state.users = d.users || [];
-      var sd = await fetch('/api/users/stats').then(function(r) { return r.json(); });
+      var sd = await authFetch('/api/users/stats').then(function(r) { return r.json(); });
       state.userStats = sd;
       $('stat-total').textContent = sd.total || 0;
       $('stat-active').textContent = sd.active || 0;
@@ -722,7 +733,7 @@
     msgEl.classList.add('hidden');
     try {
       if (state.editingUser) {
-        await fetch('/api/users/admin/update/' + state.editingUser.user_id, {
+        await authFetch('/api/users/admin/update/' + state.editingUser.user_id, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -734,7 +745,7 @@
       } else {
         var pwd = $('user-form-password').value;
         if (!pwd) { msgEl.textContent = 'ERROR: 密码不能为空'; msgEl.classList.remove('hidden'); msgEl.className = 'mt-3 text-sm text-red-600'; return; }
-        await fetch('/api/users/admin/create', {
+        await authFetch('/api/users/admin/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -752,7 +763,7 @@
 
   async function updateUserRole(uid, role) {
     try {
-      await fetch('/api/users/admin/update/' + uid, {
+      await authFetch('/api/users/admin/update/' + uid, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role })
@@ -765,7 +776,7 @@
     var user = state.users.find(function(u) { return u.user_id == uid; });
     if (!user) return;
     try {
-      await fetch('/api/users/admin/update/' + uid, {
+      await authFetch('/api/users/admin/update/' + uid, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: !user.enabled })
@@ -778,7 +789,7 @@
     var pwd = prompt('请输入新密码:');
     if (!pwd) return;
     try {
-      await fetch('/api/users/admin/reset-password/' + uid, {
+      await authFetch('/api/users/admin/reset-password/' + uid, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ new_password: pwd })
@@ -790,7 +801,7 @@
   async function deleteUser(uid) {
     if (!confirm('确认删除此用户?')) return;
     try {
-      await fetch('/api/users/admin/delete/' + uid, { method: 'DELETE' });
+      await authFetch('/api/users/admin/delete/' + uid, { method: 'DELETE' });
       await loadUsers();
     } catch (e) { alert('删除失败: ' + e.message); }
   }
@@ -798,7 +809,7 @@
   // ==================== DB Backups ====================
   async function loadDbBackups() {
     try {
-      var d = await fetch('/api/db/backups').then(function(r) { return r.json(); });
+      var d = await authFetch('/api/db/backups').then(function(r) { return r.json(); });
       state.dbBackups = d.backups || [];
       renderDbBackups();
     } catch (e) { console.error('Failed to load DB backups:', e); }
@@ -828,7 +839,7 @@
 
   async function createDbBackup() {
     try {
-      var d = await fetch('/api/db/backup', { method: 'POST' }).then(function(r) { return r.json(); });
+      var d = await authFetch('/api/db/backup', { method: 'POST' }).then(function(r) { return r.json(); });
       if (d.success) {
         showToast('数据库备份创建成功!', 'success');
         await loadDbBackups();
@@ -842,7 +853,7 @@
     if (!confirm('确认从此备份恢复数据库？当前数据将被覆盖！')) return;
     if (!confirm('这是最后一次确认，恢复后将无法撤销！')) return;
     try {
-      var d = await fetch('/api/db/restore', {
+      var d = await authFetch('/api/db/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ backup_path: path })
@@ -858,7 +869,7 @@
   async function deleteDbBackup(path) {
     if (!confirm('确认删除此备份？')) return;
     try {
-      var d = await fetch('/api/db/backup', {
+      var d = await authFetch('/api/db/backup', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ backup_path: path })
@@ -875,7 +886,7 @@
   async function cleanupDbBackups() {
     if (!confirm('确认清理旧备份？将保留最近的 10 个备份。')) return;
     try {
-      var d = await fetch('/api/db/cleanup', {
+      var d = await authFetch('/api/db/cleanup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keep_count: 10 })
@@ -999,7 +1010,7 @@
   async function init() {
     // Check if user is admin
     try {
-      var userData = await fetch('/api/users/me').then(function(r) { return r.json(); });
+      var userData = await authFetch('/api/users/me').then(function(r) { return r.json(); });
       state.isAdmin = userData.role === 'admin';
     } catch (e) {
       state.isAdmin = false;

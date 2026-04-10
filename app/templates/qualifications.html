@@ -326,6 +326,10 @@
 </div>
 
 <script>
+  // Auth helper
+  function authFetch(u,o){return fetch(u,Object.assign({headers:Object.assign({'Content-Type':'application/json'},authHeaders())},o||{}))}
+  function authHeaders(){return localStorage.getItem('session_token')?{'X-Session-Token':localStorage.getItem('session_token')}:{}}
+
 (function() {
   // ==================== State ====================
   var state = {
@@ -388,7 +392,7 @@
     if (state.search) params.set('search', state.search);
 
     try {
-      var res = await fetch('/api/bidder-qualifications?' + params);
+      var res = await authFetch('/api/bidder-qualifications?' + params);
       var data = await res.json();
       state.qualifications = data.items || [];
       state.total = data.total || 0;
@@ -401,10 +405,10 @@
   async function loadStats() {
     try {
       var [allRes, expRes, validRes, expiredRes] = await Promise.all([
-        fetch('/api/bidder-qualifications?page_size=1'),
-        fetch('/api/bidder-qualifications/expiring?days=30'),
-        fetch('/api/bidder-qualifications?status=有效&page_size=1'),
-        fetch('/api/bidder-qualifications?status=过期&page_size=1')
+        authFetch('/api/bidder-qualifications?page_size=1'),
+        authFetch('/api/bidder-qualifications/expiring?days=30'),
+        authFetch('/api/bidder-qualifications?status=有效&page_size=1'),
+        authFetch('/api/bidder-qualifications?status=过期&page_size=1')
       ]);
       var [all, exp, valid, expired] = await Promise.all([allRes.json(), expRes.json(), validRes.json(), expiredRes.json()]);
       state.stats.total = all.total || 0;
@@ -595,7 +599,7 @@
   async function deleteQualification(id) {
     if (!confirm('确定删除该资质？')) return;
     try {
-      var res = await fetch('/api/bidder-qualifications/' + id, { method: 'DELETE' });
+      var res = await authFetch('/api/bidder-qualifications/' + id, { method: 'DELETE' });
       if (res.ok) {
         loadQualifications(state.currentPage);
         loadStats();
@@ -637,7 +641,7 @@
     show($('tender-search-spinner'));
     state.tenderSearchTimer = setTimeout(async function() {
       try {
-        var res = await fetch('/api/favorites?search=' + encodeURIComponent(query) + '&limit=20');
+        var res = await authFetch('/api/favorites?search=' + encodeURIComponent(query) + '&limit=20');
         var data = await res.json();
         state.tenderResults = data.favorites || [];
         renderTenderResults();
@@ -677,7 +681,7 @@
     hide($('match-results-section'));
 
     try {
-      var res = await fetch('/api/bidder-qualifications/match/' + (state.selectedTender.id || state.matchTenderId));
+      var res = await authFetch('/api/bidder-qualifications/match/' + (state.selectedTender.id || state.matchTenderId));
       if (!res.ok) throw new Error('匹配请求失败');
       state.matchResult = await res.json();
       state.matchTender = state.matchResult.tender;
@@ -780,7 +784,7 @@
     var linked = state.matchResult.matched.map(function(m) { return m.qualification.id; });
     try {
       await Promise.all(linked.map(function(qid) {
-        return fetch('/api/bidder-qualifications/' + qid + '/link/' + state.matchTenderId, { method: 'POST' });
+        return authFetch('/api/bidder-qualifications/' + qid + '/link/' + state.matchTenderId, { method: 'POST' });
       }));
       showToast('已关联 ' + linked.length + ' 个资质到项目', 'success');
     } catch (e) { showToast('关联失败', 'error'); }
@@ -808,7 +812,7 @@
     hide($('expiring-list'));
 
     try {
-      var res = await fetch('/api/bidder-qualifications/expiring?days=30');
+      var res = await authFetch('/api/bidder-qualifications/expiring?days=30');
       var data = await res.json();
       state.expiringList = data.items || [];
       renderExpiringList();
@@ -854,7 +858,7 @@
       var items = file.name.endsWith('.json') ? JSON.parse(text) : [];
       var count = 0;
       for (var i = 0; i < items.length; i++) {
-        var res = await fetch('/api/bidder-qualifications', {
+        var res = await authFetch('/api/bidder-qualifications', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(items[i])

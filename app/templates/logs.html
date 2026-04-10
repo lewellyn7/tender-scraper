@@ -28,6 +28,9 @@
   </div>
 </div>
 <script>
+  // Auth helper
+  function authHeaders(){return localStorage.getItem('session_token')?{'X-Session-Token':localStorage.getItem('session_token')}:{}}
+
 (function() {
   const state = { logs: [], levelFilter: "", limit: 200, loading: false };
 
@@ -78,7 +81,7 @@
     containerEl.classList.add('hidden');
     try {
       const url = "/api/logs?limit=" + state.limit + (state.levelFilter ? "&level=" + state.levelFilter : "");
-      const res = await fetch(url, { credentials: 'include' });
+      const res = await fetch(url, {headers: authHeaders()});
       const data = await res.json();
       state.logs = data.logs || [];
     } catch(e) {

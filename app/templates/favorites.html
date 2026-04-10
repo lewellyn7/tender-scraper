@@ -48,6 +48,9 @@
   </div>
 </div>
 <script>
+  // Auth helper
+  function authHeaders(){return localStorage.getItem('session_token')?{'X-Session-Token':localStorage.getItem('session_token')}:{}}
+
 (function() {
   const state = {
     favorites: [],
@@ -144,7 +147,7 @@
     emptyEl.classList.add('hidden');
     gridEl.classList.add('hidden');
     try {
-      const res = await fetch("/api/favorites?status=" + state.filterStatus, { credentials: 'include' });
+      const res = await fetch("/api/favorites?status=" + state.filterStatus, {headers: authHeaders()});
       const data = await res.json();
       state.favorites = data.favorites || [];
     } catch(e) {

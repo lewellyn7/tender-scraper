@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="min-h-[70vh] flex items-center justify-center px-4">
+  <div class="w-full max-w-md">
+
+    <!-- Tab Switcher -->
+    <div class="flex mb-6 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+      <button id="tab-login" class="flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors bg-white dark:bg-gray-700 shadow-sm text-blue-600" onclick="switchTab('login')">登录</button>
+      <button id="tab-register" class="flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" onclick="switchTab('register')">注册</button>
+    </div>
+
+    <!-- Login Form -->
+    <div id="form-login" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
+      <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-6 text-center">采集系统</h2>
+
+      <div id="login-error" class="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm hidden"></div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">用户名</label>
+          <input type="text" id="login-username" class="w-full border rounded-lg px-3 py-2.5 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="输入用户名" autocomplete="username">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">密码</label>
+          <input type="password" id="login-password" class="w-full border rounded-lg px-3 py-2.5 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="输入密码" autocomplete="current-password">
+        </div>
+        <button id="btn-login" onclick="doLogin()" class="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          登录
+        </button>
+      </div>
+    </div>
+
+    <!-- Register Form -->
+    <div id="form-register" class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm hidden">
+      <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-6 text-center">创建账户</h2>
+
+      <div id="register-error" class="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm hidden"></div>
+      <div id="register-success" class="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-600 dark:text-green-400 text-sm hidden"></div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">用户名</label>
+          <input type="text" id="reg-username" class="w-full border rounded-lg px-3 py-2.5 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="3-20位字母数字" autocomplete="username">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">显示名称</label>
+          <input type="text" id="reg-display-name" class="w-full border rounded-lg px-3 py-2.5 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="显示名称（选填）">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">密码</label>
+          <input type="password" id="reg-password" class="w-full border rounded-lg px-3 py-2.5 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="至少6位" autocomplete="new-password">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">确认密码</label>
+          <input type="password" id="reg-password-confirm" class="w-full border rounded-lg px-3 py-2.5 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="再次输入密码" autocomplete="new-password">
+        </div>
+        <button id="btn-register" onclick="doRegister()" class="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+          注册
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── Auth Helper ──────────────────────────────────────────────
+function getToken() { return localStorage.getItem('session_token'); }
+function setToken(t) { localStorage.setItem('session_token', t); }
+function clearToken() { localStorage.removeItem('session_token'); }
+function authHeaders() { return getToken() ? {'X-Session-Token': getToken()} : {}; }
+
+// ── Tab Switcher ─────────────────────────────────────────────
+function switchTab(tab) {
+  var isLogin = tab === 'login';
+  $('tab-login').className = 'flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ' + (isLogin ? 'bg-white dark:bg-gray-700 shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300');
+  $('tab-register').className = 'flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ' + (!isLogin ? 'bg-white dark:bg-gray-700 shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300');
+  $('form-login').classList.toggle('hidden', !isLogin);
+  $('form-register').classList.toggle('hidden', isLogin);
+  // Clear messages
+  $('login-error').classList.add('hidden');
+  $('register-error').classList.add('hidden');
+  $('register-success').classList.add('hidden');
+}
+
+// ── Login ────────────────────────────────────────────────────
+async function doLogin() {
+  var username = $('login-username').value.trim();
+  var password = $('login-password').value;
+  var btn = $('btn-login');
+
+  if (!username || !password) {
+    showError('login-error', '请填写用户名和密码'); return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '登录中...';
+  try {
+    var r = await fetch('/api/users/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password})
+    });
+    var d = await r.json();
+    if (r.status === 200 && d.token) {
+      setToken(d.token);
+      localStorage.setItem('user_role', d.user?.role || 'viewer');
+      localStorage.setItem('user_name', d.user?.username || username);
+      showError('login-error', '');
+      // Redirect to dashboard or intended page
+      var target = new URLSearchParams(location.search).get('redirect') || '/';
+      location.href = target;
+    } else {
+      showError('login-error', d.detail || d.error || '用户名或密码错误');
+    }
+  } catch(e) {
+    showError('login-error', '网络错误，请稍后重试');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '登录';
+  }
+}
+
+// ── Register ─────────────────────────────────────────────────
+async function doRegister() {
+  var username = $('reg-username').value.trim();
+  var displayName = $('reg-display-name').value.trim();
+  var password = $('reg-password').value;
+  var passwordConfirm = $('reg-password-confirm').value;
+  var btn = $('btn-register');
+
+  if (!username || username.length < 3) {
+    showError('register-error', '用户名至少3位'); return;
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    showError('register-error', '用户名只能包含字母、数字、下划线'); return;
+  }
+  if (!password || password.length < 6) {
+    showError('register-error', '密码至少6位'); return;
+  }
+  if (password !== passwordConfirm) {
+    showError('register-error', '两次密码不一致'); return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '注册中...';
+  try {
+    var r = await fetch('/api/users/register', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password, display_name: displayName || username})
+    });
+    var d = await r.json();
+    if (r.status === 200 && d.user_id) {
+      // Auto-login after register
+      await doLogin();
+    } else {
+      showError('register-error', d.detail || d.error || '注册失败');
+    }
+  } catch(e) {
+    showError('register-error', '网络错误，请稍后重试');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '注册';
+  }
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+function showError(id, msg) {
+  var el = $(id);
+  if (!msg) { el.classList.add('hidden'); return; }
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function $(id) { return document.getElementById(id); }
+
+// ── Enter key ────────────────────────────────────────────────
+$('login-password').addEventListener('keyup', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+$('reg-password-confirm').addEventListener('keyup', function(e) {
+  if (e.key === 'Enter') doRegister();
+});
+</script>
+{% endblock %}

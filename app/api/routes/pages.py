@@ -102,3 +102,12 @@ async def get_document_upload_page(request: Request):
         request, "document_upload.html",
         {"request": request, "user_info": _get_user_info(request)}
     )
+
+
+@router.get("/login", response_class=HTMLResponse)
+async def get_login_page(request: Request):
+    """登录/注册页面"""
+    return _templates.TemplateResponse(
+        request, "login.html",
+        {"request": request, "user_info": _get_user_info(request)}
+    )

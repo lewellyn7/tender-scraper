@@ -105,7 +105,7 @@
                         <span id="userRoleBadge" class="text-xs px-1.5 py-0.5 bg-blue-200 dark:bg-blue-800 rounded text-blue-700 dark:text-blue-300"></span>
                     </div>
                     <!-- Login link (guest) -->
-                    <a id="loginLink" href="/settings"
+                    <a id="loginLink" href="/login"
                        class="hidden sm:inline-flex text-sm text-blue-600 hover:text-blue-500 font-medium">
                         登录 / 注册
                     </a>
@@ -229,6 +229,30 @@
 
         // Apply initial theme icon state
         applyTheme(window.AppState.theme);
+
+        // ── Session: localStorage token + server validation ───────────────
+        function clearSession() {
+            localStorage.removeItem('session_token');
+            localStorage.removeItem('user_role');
+            localStorage.removeItem('user_name');
+            localStorage.removeItem('session_checked');
+        }
+        (async function restoreSession() {
+            const token = localStorage.getItem('session_token');
+            if (!token) { updateRoleVisibility(); return; }
+            try {
+                const r = await fetch('/api/users/me', {headers: {'X-Session-Token': token}});
+                if (r.ok) {
+                    const d = await r.json();
+                    window.AppState.user = {role: d.role, username: d.username, display_name: d.display_name || d.username};
+                    localStorage.setItem('user_role', d.role);
+                    localStorage.setItem('user_name', d.username);
+                } else {
+                    clearSession();
+                }
+            } catch(e) { /* offline, keep localStorage state */ }
+            updateRoleVisibility();
+        })();
 
         // ── Role-based visibility ───────────────────────────────────────
         function updateRoleVisibility() {

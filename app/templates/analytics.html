@@ -103,7 +103,7 @@
     els.contentEl.style.display = 'none';
 
     try {
-      const res = await fetch('/api/analytics?days=' + state.days);
+      const res = await authFetch('/api/analytics?days=' + state.days);
       const data = await res.json();
 
       state.stats = data;

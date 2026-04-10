@@ -199,6 +199,9 @@
 
 {% block scripts %}
 <script>
+  function authHeaders(){return localStorage.getItem('session_token')?{'X-Session-Token':localStorage.getItem('session_token')}:{}}
+  function authFetch(u,o){return fetch(u,Object.assign({headers:Object.assign({'Content-Type':'application/json'},authHeaders())},o||{}))}
+
   const zone = document.getElementById('upload-zone');
   const fileInput = document.getElementById('file-input');
   const uploadBtn = document.getElementById('upload-btn');
@@ -217,7 +220,7 @@
   // 加载最近资质列表
   async function loadRecentQualifications() {
     try {
-      const resp = await fetch('/api/bidder-qualifications?page_size=50');
+      const resp = await authFetch('/api/bidder-qualifications?page_size=50');
       const data = await resp.json();
       const items = data.items || [];
       qualSelect.innerHTML = '<option value="">-- 不关联，创建新记录 --</option>';
@@ -278,7 +281,7 @@
     progressLabel.textContent = 'AI 分析中...';
 
     try {
-      const resp = await fetch('/api/documents/analyze-only', { method: 'POST', body: formData });
+      const resp = await authFetch('/api/documents/analyze-only', { method: 'POST', body: formData });
       const data = await resp.json();
       progressFill.style.width = '100%';
 
@@ -364,7 +367,7 @@
     progressLabel.textContent = '上传并保存到数据库...';
 
     try {
-      const resp = await fetch('/api/documents/upload', { method: 'POST', body: formData });
+      const resp = await authFetch('/api/documents/upload', { method: 'POST', body: formData });
       const data = await resp.json();
       progressFill.style.width = '100%';
 
