@@ -61,7 +61,8 @@
     if (state.filters.category) params.set('category', state.filters.category);
     
     try {
-      const res = await fetch('/api/projects?' + params.toString(), { credentials: 'include' });
+      const qs = params.toString();
+      const res = await fetch('/api/projects' + (qs ? '?' + qs : ''), { credentials: 'include' });
       const data = await res.json();
       state.projects = data.data || [];
       renderTable();

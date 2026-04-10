@@ -164,6 +164,10 @@ class Database(
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS config(
+                config_key TEXT PRIMARY KEY,
+                config_value TEXT NOT NULL
+            );
         """)
         c.commit()
         self._init_indexes()
