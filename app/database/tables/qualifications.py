@@ -191,3 +191,77 @@ class QualificationsMixin:
         except Exception as e:
             logger.error(f"link_tender_to_qualification: {e}")
             return False
+
+    # ── Qualification Categories ───────────────────────────────────────────────
+
+    def get_qualification_categories(self) -> List[dict]:
+        """Return list of qualification categories."""
+        try:
+            c = self._get_conn()
+            rows = c.execute(
+                "SELECT id, name FROM qualification_categories ORDER BY name"
+            ).fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.warning(f"get_qualification_categories: {e}")
+            return []
+
+    def add_qualification_category(self, name: str) -> Optional[int]:
+        """Add a new qualification category. Returns the new ID."""
+        try:
+            c = self._get_conn()
+            try:
+                row = c.execute(
+                    "INSERT INTO qualification_categories (name) VALUES (?) RETURNING id", (name,)
+                ).fetchone()
+                c.commit()
+                return row[0] if row else None
+            except Exception as inner:
+                c.execute("ROLLBACK")
+                raise inner
+        except Exception as e:
+            logger.error(f"add_qualification_category: {e}")
+            return None
+
+    def delete_qualification_category(self, category_id: int) -> bool:
+        """Delete a qualification category."""
+        try:
+            c = self._get_conn()
+            c.execute("DELETE FROM qualification_categories WHERE id = ?", (category_id,))
+            c.commit()
+            return True
+        except Exception as e:
+            logger.error(f"delete_qualification_category: {e}")
+            return False
+
+    # ── Qualification Field Config ─────────────────────────────────────────────
+
+    def get_qualification_field_config(self) -> dict:
+        """Return field configuration for qualifications."""
+        return {
+            "name": {"label": "资质名称", "enabled": True, "required": True, "type": "text"},
+            "category": {"label": "类别", "enabled": True, "required": True, "type": "select"},
+            "level": {"label": "等级", "enabled": True, "required": False, "type": "select"},
+            "certificate_no": {"label": "证书编号", "enabled": True, "required": False, "type": "text"},
+            "valid_from": {"label": "有效期起", "enabled": True, "required": False, "type": "date"},
+            "valid_to": {"label": "有效期止", "enabled": True, "required": True, "type": "date"},
+            "issuer": {"label": "发证机关", "enabled": True, "required": False, "type": "text"},
+            "file_path": {"label": "资质文件", "enabled": True, "required": False, "type": "file"},
+            "status": {"label": "状态", "enabled": True, "required": True, "type": "select"},
+            "notes": {"label": "备注", "enabled": True, "required": False, "type": "textarea"},
+        }
+
+    def update_qualification_field_config(self, config: dict) -> bool:
+        """Update field configuration (stored in config table)."""
+        try:
+            c = self._get_conn()
+            import json
+            c.execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES ('qualification_field_config', ?)",
+                (json.dumps(config),),
+            )
+            c.commit()
+            return True
+        except Exception as e:
+            logger.error(f"update_qualification_field_config: {e}")
+            return False

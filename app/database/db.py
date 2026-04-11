@@ -54,6 +54,9 @@ def _pg_conn():
 
 def _pg_close_conn(conn):
     """Return connection to pool"""
+    # Unwrap if wrapped
+    if isinstance(conn, PGConnectionWrapper):
+        conn = conn.conn
     pool = _get_pg_pool()
     pool.putconn(conn)
 
@@ -62,41 +65,137 @@ def _convert_placeholders(query: str) -> str:
     return query.replace("?", "%s")
 
 
+class PGCursorWrapper:
+    """Wraps psycopg2 cursor so fetchone()/fetchall() return dict-like objects.
+    This makes dict(row) work the same way as sqlite3.Row."""
+    __slots__ = ('cursor', 'columns')
+
+    def __init__(self, cursor):
+        self.cursor = cursor
+        self.columns = None
+
+    def _ensure_columns(self):
+        if self.columns is None:
+            self.columns = [desc[0] for desc in self.cursor.description] if self.cursor.description else []
+
+    def fetchone(self):
+        self._ensure_columns()
+        row = self.cursor.fetchone()
+        if row is None:
+            return None
+        return _DictRow(row, self.columns)
+
+    def fetchall(self):
+        self._ensure_columns()
+        rows = self.cursor.fetchall()
+        return [_DictRow(r, self.columns) for r in rows]
+
+    def fetchmany(self, size=None):
+        self._ensure_columns()
+        rows = self.cursor.fetchmany(size) if size else self.cursor.fetchmany()
+        return [_DictRow(r, self.columns) for r in rows]
+
+    def close(self):
+        self.cursor.close()
+
+    @property
+    def description(self):
+        return self.cursor.description
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        row = self.fetchone()
+        if row is None:
+            raise StopIteration
+        return row
+
+
+class _DictRow:
+    """A dict-like row that also supports dict() conversion."""
+    __slots__ = ('_row', '_keys')
+
+    def __init__(self, row, columns):
+        self._row = row
+        self._keys = columns
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._row[key]
+        return self._row[self._keys.index(key)]
+
+    def keys(self):
+        return self._keys
+
+    def values(self):
+        return self._row
+
+    def items(self):
+        return list(zip(self._keys, self._row))
+
+    def __len__(self):
+        return len(self._row)
+
+    def __iter__(self):
+        return iter(self._row)
+
+    def __repr__(self):
+        return f'<DictRow({dict(self)})>'
+
+    def __eq__(self, other):
+        if isinstance(other, _DictRow):
+            return self._row == other._row and self._keys == other._keys
+        if isinstance(other, dict):
+            return dict(self) == other
+        return False
+
+
 class PGConnectionWrapper:
-    """Wraps psycopg2 connection to auto-convert ? placeholders to %s"""
+    """Wraps psycopg2 connection to auto-convert ? placeholders to %s and provide execute()"""
     __slots__ = ('conn',)
-    
+
     def __init__(self, conn):
         self.conn = conn
-    
+
     def execute(self, sql, params=None):
+        """Execute SQL and return a cursor (so .fetchone()/.fetchall() work)"""
         converted = _convert_placeholders(sql)
+        cursor = self.conn.cursor()
         if params is None:
-            return self.conn.execute(converted)
-        return self.conn.execute(converted, params)
-    
+            cursor.execute(converted)
+        else:
+            cursor.execute(converted, params)
+        return PGCursorWrapper(cursor)
+
     def executemany(self, sql, params_list):
+        """Execute SQL for many params"""
         converted = _convert_placeholders(sql)
-        return self.conn.executemany(converted, params_list)
-    
+        cursor = self.conn.cursor()
+        cursor.executemany(converted, params_list)
+        return PGCursorWrapper(cursor)
+
     def cursor(self, *args, **kwargs):
         return self.conn.cursor(*args, **kwargs)
-    
+
     def commit(self):
         return self.conn.commit()
-    
+
     def rollback(self):
         return self.conn.rollback()
-    
+
     def close(self):
-        return self.conn.close()
-    
+        """Return connection to pool (don't actually close the physical connection)"""
+        # Get the pool and return connection
+        pool = _get_pg_pool()
+        pool.putconn(self.conn)
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, *args):
         pass
-    
+
     @property
     def dsn(self):
         return self.conn.dsn
@@ -146,7 +245,7 @@ class Database(
         if USE_PG:
             if not hasattr(self._local, "pg_conn") or self._local.pg_conn is None:
                 self._local.pg_conn = _pg_conn()
-            return self._local.pg_conn
+            return PGConnectionWrapper(self._local.pg_conn)
         else:
             if not hasattr(self._local, "conn") or self._local.conn is None:
                 self._local.conn = sqlite3.connect(self.db_path, check_same_thread=False)
