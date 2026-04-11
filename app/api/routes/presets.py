@@ -1,5 +1,6 @@
 """预设路由"""
 
+from datetime import datetime
 from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
 
@@ -9,12 +10,23 @@ from app.api.dependencies import get_current_user
 router = APIRouter(prefix="/api/presets", tags=["预设"])
 
 
+def _serialize(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    return obj
+
+
+def _serialize_row(row):
+    return {k: _serialize(v) for k, v in row.items()}
+
+
 @router.get("")
 def get_presets(user_id: str = Depends(get_current_user)):
     """获取所有预设"""
     db = get_db()
     presets = db.get_presets()
-    return JSONResponse({"presets": presets})
+    serialized = [_serialize_row(p) for p in presets]
+    return JSONResponse({"presets": serialized})
 
 
 @router.post("")

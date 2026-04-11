@@ -104,6 +104,15 @@ async def get_document_upload_page(request: Request):
     )
 
 
+@router.get("/nl-query", response_class=HTMLResponse)
+async def get_nl_query_page(request: Request):
+    """自然语言招标查询页面"""
+    return _templates.TemplateResponse(
+        request, "nl_query.html",
+        {"request": request, "user_info": _get_user_info(request)}
+    )
+
+
 @router.get("/login", response_class=HTMLResponse)
 async def get_login_page(request: Request):
     """登录/注册页面"""

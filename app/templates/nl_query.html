@@ -1,0 +1,412 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Header -->
+<div class="flex justify-between items-center mb-4">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white">智能招标查询</h1>
+    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">自然语言查询招标信息，AI 智能理解意图</p>
+  </div>
+  <div class="flex gap-2 items-center">
+    <button type="button" id="historyBtn" class="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition flex items-center gap-1">
+      📜 历史
+    </button>
+    <button type="button" id="exportBtn" class="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition flex items-center gap-1" disabled>
+      📥 导出CSV
+    </button>
+    <span class="px-3 py-1 text-xs rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300" id="intentBadge">就绪</span>
+  </div>
+</div>
+
+<!-- History Panel (hidden by default) -->
+<div id="historyPanel" class="hidden mb-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+  <div class="flex justify-between items-center mb-3">
+    <h3 class="font-semibold text-gray-900 dark:text-white text-sm">查询历史</h3>
+    <div class="flex gap-2">
+      <button type="button" id="clearHistoryBtn" class="text-xs text-red-500 hover:text-red-700 transition">清空</button>
+      <button type="button" id="closeHistoryBtn" class="text-xs text-gray-400 hover:text-gray-600 transition">关闭</button>
+    </div>
+  </div>
+  <div id="historyList" class="space-y-1 max-h-48 overflow-y-auto">
+    <p class="text-xs text-gray-400 text-center py-4" id="historyEmpty">暂无查询历史</p>
+  </div>
+</div>
+
+<!-- Chat Container -->
+<div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden" style="height: calc(100vh - 320px); min-height: 360px;">
+
+  <!-- Messages Area -->
+  <div id="messagesArea" class="p-4 overflow-y-auto h-full space-y-4">
+    <!-- Welcome message -->
+    <div class="flex gap-3">
+      <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
+        <span class="text-blue-600 dark:text-blue-400 text-sm">🤖</span>
+      </div>
+      <div class="flex-1">
+        <div class="bg-gray-100 dark:bg-gray-700 rounded-xl rounded-tl-none px-4 py-3 max-w-2xl">
+          <p class="text-sm text-gray-700 dark:text-gray-200">你好！我是招标智能助手。请用自然语言描述你想查找的招标信息，比如：</p>
+          <div class="mt-2 space-y-1 text-xs text-gray-500 dark:text-gray-400">
+            <p>• "最近的政府采购项目"</p>
+            <p>• "预算500万以上的工程招标"</p>
+            <p>• "重庆地区的采购公告"</p>
+            <p>• "IT设备采购招标"</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input Area -->
+  <div class="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-800">
+    <div class="flex gap-3">
+      <div class="flex-1 relative">
+        <input
+          type="text"
+          id="queryInput"
+          class="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          placeholder="输入你的招标查询，如：重庆地区的IT设备采购招标..."
+          autocomplete="off"
+        />
+        <span id="intentHint" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hidden"></span>
+      </div>
+      <button
+        type="button"
+        id="sendBtn"
+        class="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition font-medium flex items-center gap-2"
+      >
+        <span id="sendIcon">发送</span>
+        <span id="loadingIcon" class="hidden">
+          <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </span>
+      </button>
+    </div>
+    <!-- Intent pills -->
+    <div class="flex gap-2 mt-2 flex-wrap">
+      <button type="button" class="intent-pill px-2 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-blue-900 transition" data-intent="招标公告">招标公告</button>
+      <button type="button" class="intent-pill px-2 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-blue-900 transition" data-intent="中标结果">中标结果</button>
+      <button type="button" class="intent-pill px-2 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-blue-900 transition" data-intent="预算金额">预算金额</button>
+      <button type="button" class="intent-pill px-2 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-blue-900 transition" data-intent="时间节点">时间节点</button>
+      <button type="button" class="intent-pill px-2 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-blue-900 transition" data-intent="采购需求">采购需求</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var $ = function(id) { return document.getElementById(id); };
+  var $$ = function(sel) { return document.querySelectorAll(sel); };
+
+  // ========== Local Storage History ==========
+  var HISTORY_KEY = 'nl_query_history';
+  var MAX_HISTORY = 20;
+  var _lastResults = null;
+
+  function getHistory() {
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); }
+    catch(e) { return []; }
+  }
+
+  function saveToHistory(query, intent, resultCount) {
+    var h = getHistory();
+    // Avoid duplicate consecutive entries
+    if (h.length > 0 && h[0].q === query) return;
+    h.unshift({ q: query, intent: intent, count: resultCount, time: Date.now() });
+    if (h.length > MAX_HISTORY) h = h.slice(0, MAX_HISTORY);
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)); } catch(e) {}
+    renderHistory();
+  }
+
+  function clearHistory() {
+    try { localStorage.removeItem(HISTORY_KEY); } catch(e) {}
+    renderHistory();
+  }
+
+  function renderHistory() {
+    var h = getHistory();
+    var list = $('historyList');
+    var empty = $('historyEmpty');
+    if (h.length === 0) {
+      empty && (empty.style.display = '');
+      list.innerHTML = '';
+      if (empty) list.appendChild(empty);
+      return;
+    }
+    empty && (empty.style.display = 'none');
+    list.innerHTML = h.map(function(item, i) {
+      var date = new Date(item.time);
+      var timeStr = date.toLocaleDateString('zh-CN', {month:'2-digit',day:'2-digit'}) + ' ' + date.toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'});
+      return '<div class="flex justify-between items-center py-2 px-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer history-item" data-q="' + escAttr(item.q) + '" data-index="' + i + '">' +
+        '<div class="flex-1 min-w-0"><div class="text-sm text-gray-800 dark:text-gray-200 truncate">' + escHtml(item.q) + '</div>' +
+        '<div class="text-xs text-gray-400">' + escHtml(item.intent) + ' · ' + item.count + '条结果 · ' + timeStr + '</div></div>' +
+        '<button class="text-gray-300 hover:text-red-500 ml-2 history-del" data-index="' + i + '">×</button></div>';
+    }).join('');
+  }
+
+  function escAttr(s) {
+    return String(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function escHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  // ========== Toast ==========
+  function showToast(msg, type) {
+    var el = document.createElement('div');
+    el.className = 'toast-message px-4 py-3 rounded-lg text-sm ' + (type === 'error' ? 'bg-red-500 text-white' : 'bg-green-500 text-white');
+    el.textContent = msg;
+    $('toastContainer').appendChild(el);
+    el.style.opacity = '0';
+    requestAnimationFrame(function() {
+      el.style.transition = 'opacity 0.3s';
+      el.style.opacity = '1';
+      setTimeout(function() {
+        el.style.opacity = '0';
+        setTimeout(function() { el.remove(); }, 300);
+      }, 3000);
+    });
+  }
+
+  function scrollToBottom() {
+    var area = $('messagesArea');
+    area.scrollTop = area.scrollHeight;
+  }
+
+  // ========== Intent Detection ==========
+  var INTENT_KEYWORDS = {
+    '招标公告': ['招标', '采购', '公告', '招标信息'],
+    '中标结果': ['中标', '成交', '结果', '中标人', '供应商'],
+    '预算金额': ['预算', '金额', '价格', '万', '元'],
+    '时间节点': ['截止', '报名', '开标', '投标', '时间'],
+    '采购需求': ['需求', '规格', '参数', '设备', '服务'],
+  };
+
+  $('queryInput').addEventListener('input', function() {
+    var q = this.value.trim();
+    var hint = $('intentHint');
+    if (q.length < 3) { hint.textContent = ''; hint.classList.add('hidden'); return; }
+    var detected = null;
+    for (var intent in INTENT_KEYWORDS) {
+      for (var i = 0; i < INTENT_KEYWORDS[intent].length; i++) {
+        if (q.indexOf(INTENT_KEYWORDS[intent][i]) !== -1) { detected = intent; break; }
+      }
+      if (detected) break;
+    }
+    if (detected) {
+      hint.textContent = '意图: ' + detected;
+      hint.classList.remove('hidden');
+    } else {
+      hint.classList.add('hidden');
+    }
+  });
+
+  // ========== Intent Pills ==========
+  $$('.intent-pill').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var intent = this.dataset.intent;
+      $('queryInput').value = '查找' + intent + '项目';
+      $('queryInput').focus();
+    });
+  });
+
+  // ========== History Panel ==========
+  $('historyBtn').addEventListener('click', function() {
+    var panel = $('historyPanel');
+    panel.classList.toggle('hidden');
+    renderHistory();
+  });
+  $('closeHistoryBtn').addEventListener('click', function() { $('historyPanel').classList.add('hidden'); });
+  $('clearHistoryBtn').addEventListener('click', function() {
+    clearHistory();
+    showToast('历史已清空', 'success');
+  });
+
+  // History item click: re-run query
+  $('historyList').addEventListener('click', function(e) {
+    var delBtn = e.target.closest('.history-del');
+    if (delBtn) {
+      var idx = parseInt(delBtn.dataset.index, 10);
+      var h = getHistory();
+      h.splice(idx, 1);
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)); } catch(e) {}
+      renderHistory();
+      return;
+    }
+    var item = e.target.closest('.history-item');
+    if (item) {
+      var q = item.dataset.q;
+      $('queryInput').value = q;
+      $('historyPanel').classList.add('hidden');
+      sendQuery(q);
+    }
+  });
+
+  // ========== CSV Export ==========
+  function exportCSV(data) {
+    if (!data || !data.results || data.results.length === 0) {
+      showToast('没有可导出的数据', 'error');
+      return;
+    }
+    var rows = data.results;
+    var header = ['标题', '类型', '预算', '发布日期', '来源', '项目链接'];
+    var csv = header.map(function(h) { return '"' + h + '"'; }).join(',') + '\n';
+    rows.forEach(function(r) {
+      csv += [
+        '"' + (r.title || '').replace(/"/g, '""') + '"',
+        '"' + (r.tender_type || '').replace(/"/g, '""') + '"',
+        '"' + (r.budget || '').replace(/"/g, '""') + '"',
+        '"' + (r.publish_date || '').replace(/"/g, '""') + '"',
+        '"' + (r.source || '').replace(/"/g, '""') + '"',
+        '"' + (r.project_url || '').replace(/"/g, '""') + '"',
+      ].join(',') + '\n';
+    });
+    var blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    var queryText = (data.query || '查询').substring(0, 20);
+    a.href = url;
+    a.download = '招标查询_' + queryText + '_' + new Date().toISOString().slice(0,10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('已导出 ' + rows.length + ' 条记录', 'success');
+  }
+
+  // ========== User Message ==========
+  function addUserMessage(text) {
+    var div = document.createElement('div');
+    div.className = 'flex gap-3 justify-end';
+    div.innerHTML = '<div class="flex-1"></div><div class="flex-shrink-0"><div class="bg-blue-600 text-white rounded-xl rounded-tr-none px-4 py-3 max-w-xl"><p class="text-sm">' + escHtml(text) + '</p></div></div>';
+    $('messagesArea').appendChild(div);
+    scrollToBottom();
+  }
+
+  // ========== Bot Message with Results ==========
+  function addBotMessage(data) {
+    _lastResults = data;
+
+    // Summary bubble
+    var summaryDiv = document.createElement('div');
+    summaryDiv.className = 'flex gap-3';
+    summaryDiv.innerHTML = '<div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center"><span class="text-blue-600 dark:text-blue-400 text-sm">🤖</span></div>' +
+      '<div class="flex-1"><div class="bg-gray-100 dark:bg-gray-700 rounded-xl rounded-tl-none px-4 py-3 max-w-2xl">' +
+      '<p class="text-sm text-gray-700 dark:text-gray-200 mb-2">' + escHtml(data.summary || '查询完成') + '</p>' +
+      '<div class="flex items-center gap-3 text-xs text-gray-400"><span>意图: <span class="text-blue-600 dark:text-blue-400">' + escHtml(data.intent_label || data.intent || '') + '</span></span><span>共 ' + data.total + ' 条结果</span></div></div></div>';
+    $('messagesArea').appendChild(summaryDiv);
+
+    // Result cards grid
+    if (data.results && data.results.length > 0) {
+      var grid = document.createElement('div');
+      grid.className = 'pl-11 grid grid-cols-1 md:grid-cols-2 gap-3 mt-2';
+      data.results.forEach(function(item) {
+        var card = document.createElement('div');
+        card.className = 'bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition';
+        card.innerHTML = '<div class="flex justify-between items-start mb-2">' +
+          '<span class="px-2 py-0.5 text-xs rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">' + escHtml(item.intent_matched || data.intent || '') + '</span>' +
+          '<span class="text-xs text-gray-400">' + escHtml(item.source || '') + '</span></div>' +
+          '<h3 class="font-semibold text-gray-900 dark:text-white mb-1 line-clamp-2">' + escHtml(item.title || '无标题') + '</h3>' +
+          '<div class="flex flex-wrap gap-3 text-xs text-gray-500 dark:text-gray-400 mt-2">' +
+          '<span>' + escHtml(item.tender_type || '未分类') + '</span>' +
+          '<span>' + escHtml(item.budget || '未公示') + '</span>' +
+          '<span>' + formatDate(item.publish_date) + '</span></div>' +
+          '<div class="mt-3 flex gap-2"><a class="text-xs px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900 transition" href="' + escHtml(item.project_url || '#') + '" target="_blank">查看详情 →</a>' +
+          '<a class="text-xs px-3 py-1.5 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-100 dark:hover:bg-green-900 transition" href="/analytics?q=' + encodeURIComponent(data.query || '') + '" target="_blank">📈 分析</a></div>';
+        grid.appendChild(card);
+      });
+      $('messagesArea').appendChild(grid);
+
+      // Enable export button
+      $('exportBtn').disabled = false;
+    } else {
+      $('exportBtn').disabled = true;
+    }
+
+    // Save to history
+    saveToHistory(data.query, data.intent, data.total);
+
+    scrollToBottom();
+  }
+
+  // ========== Error Message ==========
+  function addErrorMessage(err) {
+    var div = document.createElement('div');
+    div.className = 'flex gap-3';
+    div.innerHTML = '<div class="flex-shrink-0 w-8 h-8 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center"><span class="text-red-600 dark:text-red-400 text-sm">⚠️</span></div>' +
+      '<div class="flex-1"><div class="bg-red-50 dark:bg-red-900/20 rounded-xl rounded-tl-none px-4 py-3"><p class="text-sm text-red-700 dark:text-red-300">查询失败: ' + escHtml(String(err)) + '</p></div></div>';
+    $('messagesArea').appendChild(div);
+    scrollToBottom();
+  }
+
+  function formatDate(d) {
+    if (!d) return '';
+    if (d instanceof Date) return d.toLocaleDateString('zh-CN');
+    return String(d).slice(0, 10);
+  }
+
+  // ========== Send Query ==========
+  var isLoading = false;
+
+  async function sendQuery(text) {
+    if (isLoading) return;
+    text = text.trim();
+    if (!text || text.length < 2) return;
+
+    isLoading = true;
+    $('sendBtn').disabled = true;
+    $('sendIcon').textContent = '';
+    $('loadingIcon').classList.remove('hidden');
+    $('exportBtn').disabled = true;
+    _lastResults = null;
+
+    addUserMessage(text);
+    $('queryInput').value = '';
+
+    try {
+      var res = await authFetch('/api/chat/nl-query?q=' + encodeURIComponent(text) + '&limit=10');
+      if (res.status === 401) { window.location.href = '/login'; return; }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var json = await res.json();
+      if (json.code !== 0) throw new Error(json.message || '查询失败');
+      addBotMessage(json.data || {});
+    } catch(e) {
+      addErrorMessage(e.message || '网络错误');
+    } finally {
+      isLoading = false;
+      $('sendBtn').disabled = false;
+      $('sendIcon').textContent = '发送';
+      $('loadingIcon').classList.add('hidden');
+    }
+  }
+
+  // ========== Event Listeners ==========
+  $('sendBtn').addEventListener('click', function() { sendQuery($('queryInput').value); });
+  $('queryInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuery(this.value); }
+  });
+  $('exportBtn').addEventListener('click', function() {
+    if (_lastResults) exportCSV(_lastResults);
+  });
+
+  // ========== Init ==========
+  $('queryInput').focus();
+  renderHistory();
+
+})();
+</script>
+
+<style>
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+</style>
+{% endblock %}

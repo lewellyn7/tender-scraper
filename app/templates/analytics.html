@@ -17,6 +17,18 @@
     </div>
   </div>
 
+  <!-- NL Query Filter Banner (shown when ?q= is in URL) -->
+  <div id="nlQueryBanner" class="hidden mb-4 flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3">
+    <div class="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
+      <span>🔍</span>
+      <span>当前显示关键词「<strong id="nlQueryText"></strong>」的统计结果</span>
+    </div>
+    <div class="flex gap-2">
+      <a href="/nl-query" class="text-xs px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition">← 返回查询</a>
+      <button type="button" id="clearNlQuery" class="text-xs px-3 py-1 text-gray-400 hover:text-gray-600 transition">× 清除</button>
+    </div>
+  </div>
+
   <!-- Summary Cards -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
     <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
@@ -97,7 +109,21 @@
     kwEmpty: document.getElementById('keywordHeatEmpty'),
   };
 
-  // Init
+  // Init: handle ?q= NL query filter
+  (function() {
+    var params = new URLSearchParams(window.location.search);
+    var q = params.get('q');
+    if (q) {
+      var banner = document.getElementById('nlQueryBanner');
+      var text = document.getElementById('nlQueryText');
+      text.textContent = q;
+      banner.classList.remove('hidden');
+      document.getElementById('clearNlQuery').addEventListener('click', function() {
+        window.location.href = '/analytics';
+      });
+    }
+  })();
+
   async function loadAnalytics() {
     els.loadingEl.style.display = 'block';
     els.contentEl.style.display = 'none';

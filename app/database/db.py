@@ -58,6 +58,11 @@ def _pg_close_conn(conn):
     if isinstance(conn, PGConnectionWrapper):
         conn = conn.conn
     pool = _get_pg_pool()
+    # Rollback any aborted transaction before returning to pool
+    try:
+        conn.rollback()
+    except Exception:
+        pass
     pool.putconn(conn)
 
 def _convert_placeholders(query: str) -> str:

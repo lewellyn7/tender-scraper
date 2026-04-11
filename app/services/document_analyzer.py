@@ -31,6 +31,61 @@ except ImportError:
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")  # openai | ragflow | none
 
 
+def _analyze_with_llm_service(text: str) -> Dict:
+    """通过 LLMService 多模型调用分析文档（支持重试+fallback）"""
+    try:
+        import asyncio
+        from app.services.llm_service import get_llm_service
+
+        async def _call():
+            service = await get_llm_service()
+            if not service.providers:
+                return None
+            prompt = f"""你是资质文档分析专家。从以下资质文档内容中提取结构化信息，返回严格JSON格式（无markdown）。
+
+提取字段：
+- name: 资质名称（字符串）
+- category: 资质类别，如"建筑"、"IT"、"服务"等（字符串）
+- level: 资质等级，如"一级"、"甲级"、"特级"等（字符串）
+- certificate_no: 证书编号（字符串）
+- valid_from: 有效期开始，ISO格式如"2020-01-01"，无则null（字符串|null）
+- valid_to: 有效期结束，ISO格式如"2025-12-31"，无则null（字符串|null）
+- issuer: 发证机关（字符串）
+- confidence: 置信度0.0-1.0（浮点数）
+
+如果无法提取某字段，设为null。不要编造信息。
+
+文档内容：
+{text[:8000]}
+
+返回JSON："""
+            result = await service.chat(
+                prompt=prompt,
+                json_mode=True,
+                temperature=0.1,
+                max_tokens=2048,
+            )
+            return result
+
+        result = asyncio.run(_call())
+        if not result or not result.success:
+            return {"error": result.error if result else "no providers configured"}
+
+        try:
+            parsed = json.loads(result.content)
+            if "confidence" not in parsed:
+                parsed["confidence"] = 0.8
+            parsed["_llm_provider"] = result.provider
+            parsed["_llm_model"] = result.model
+            parsed["_llm_latency_ms"] = result.latency_ms
+            return parsed
+        except json.JSONDecodeError:
+            return {"error": f"JSON解析失败: {result.content[:200]}"}
+    except Exception as e:
+        logger.error(f"LLMService call failed: {e}")
+        return {"error": str(e)}
+
+
 def _call_openai_analysis(text: str) -> Dict:
     """调用 OpenAI API 分析文档内容"""
     try:
@@ -280,13 +335,24 @@ class DocumentAnalyzer:
             return f"[不支持的格式: {suffix}]"
 
     def analyze_with_llm(self, text: str) -> Dict:
-        """调用 LLM 进行结构化信息提取"""
+        """调用 LLM 进行结构化信息提取（多模型 + 自动 fallback）"""
+        if LLM_PROVIDER == "none":
+            return _rule_based_extract(text)
+        # 优先使用新的 LLMService（支持多模型 + 重试）
+        llm_result = _analyze_with_llm_service(text)
+        if llm_result and "error" not in llm_result:
+            return llm_result
+        # LLM 失败，降级到旧方式（兼容）
         if LLM_PROVIDER == "openai":
             return _call_openai_analysis(text)
         elif LLM_PROVIDER == "ragflow":
             return _call_ragflow_analysis(text)
-        else:
-            return _rule_based_extract(text)
+        # 全部失败，使用规则提取
+        logger.warning(f"LLM分析失败，回退到规则提取: {llm_result}")
+        fields = _rule_based_extract(text)
+        if llm_result:
+            fields["llm_error"] = llm_result.get("error", "unknown")
+        return fields
 
     def analyze_document(
         self,

@@ -486,7 +486,32 @@
 </div>
 
 <script>
-  // Auth helper
+(function() {
+  // ── State ──────────────────────────────────────────────────
+  var state = {
+    currentPage: 1,
+    pageSize: 10,
+    loading: false,
+    filterCategory: '',
+    filterStatus: '',
+    search: '',
+    qualifications: [],
+    total: 0,
+    expiringCount: 0,
+    stats: { total: 0, expiring: 0, valid: 0, expired: 0 },
+    editingId: null,
+    matchTenderId: null,
+    matchResult: null,
+    expiringList: [],
+    expiringLoading: false,
+  };
+
+  var uploadState = { file: null, filePath: null, originalName: null };
+
+  // ── DOM helpers ───────────────────────────────────────────────
+  function setText(el, text) { if (el) el.textContent = text; }
+
+  // ── Auth helper ──────────────────────────────────────────────
 
   // ==================== Init ====================
   async function init() {
@@ -881,21 +906,26 @@
     };
 
     try {
-      var res = await fetch(url, {
+      var res = await authFetch(url, {
         method: method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       var data = await res.json();
+      if (res.status === 401) {
+        closeFormModal();
+        showToast('登录已过期，请刷新页面重新登录', 'error');
+        return;
+      }
       if (data.success || res.ok) {
         closeFormModal();
         loadQualifications(state.currentPage);
         loadStats();
         showToast(state.editingId ? '已更新' : '已添加', 'success');
       } else {
+        closeFormModal();
         showToast('操作失败', 'error');
       }
-    } catch (err) { showToast('操作失败: ' + err.message, 'error'); }
+    } catch (err) { closeFormModal(); showToast('操作失败: ' + err.message, 'error'); }
   }
 
   async function deleteQualification(id) {

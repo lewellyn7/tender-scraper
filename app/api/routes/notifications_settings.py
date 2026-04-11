@@ -123,45 +123,124 @@ def update_ragflow_config(
 
 @router.get("/llm/config")
 def get_llm_config(user_id: str = Depends(get_current_user)):
-    return JSONResponse({
-        "provider": os.getenv("LLM_PROVIDER", "none"),
-        "model": os.getenv("LLM_MODEL", "gpt-4o-mini"),
-        "api_key": os.getenv("OPENAI_API_KEY", "")[:4] + "****" if os.getenv("OPENAI_API_KEY") else "",
-    })
+    """获取 LLM 多模型配置（API Key 已脱敏）"""
+    providers = _load_llm_providers()
+    # 脱敏处理
+    safe_providers = []
+    for p in providers:
+        masked = dict(p)
+        if masked.get("api_key"):
+            masked["api_key"] = masked["api_key"][:4] + "****"
+        safe_providers.append(masked)
+    return JSONResponse({"providers": safe_providers})
 
 
 @router.post("/llm/config")
-def update_llm_config(api_key: str = Body(""), model: str = Body("gpt-4o-mini"), provider: str = Body("openai"), user_id: str = Depends(get_current_user)):
-    import pathlib
-    env_path = pathlib.Path(SYS_PATH) / ".env"
-    lines = []
-    if env_path.exists():
-        lines = env_path.read_text().splitlines()
-    # Update or add lines
-    updated = False
-    new_lines = []
-    for line in lines:
-        if line.startswith("LLM_PROVIDER="):
-            new_lines.append(f"LLM_PROVIDER={provider}")
-            updated = True
-        elif line.startswith("LLM_MODEL="):
-            new_lines.append(f"LLM_MODEL={model}")
-            updated = True
-        elif line.startswith("OPENAI_API_KEY="):
-            if api_key:
-                new_lines.append(f"OPENAI_API_KEY={api_key}")
-                updated = True
-            else:
-                new_lines.append(line)
-                updated = True
+def update_llm_config(
+    providers: list = Body(default=None),
+    user_id: str = Depends(get_current_user),
+):
+    """更新 LLM 多模型配置（支持 fallback 链）"""
+    if providers is None:
+        return JSONResponse({"success": False, "error": "providers required"}, status_code=400)
+    if not isinstance(providers, list):
+        return JSONResponse({"success": False, "error": "providers must be a list"}, status_code=400)
+    # 验证配置
+    for p in providers:
+        if not isinstance(p, dict) or not p.get("provider_type"):
+            return JSONResponse({"success": False, "error": "each provider needs provider_type"}, status_code=400)
+
+    # 写入配置
+    _save_llm_providers(providers)
+    # 热更新全局 LLM Service
+    try:
+        from app.services.llm_service import reload_llm_service
+        reload_llm_service()
+    except Exception:
+        pass
+    return {"success": True, "providers": len(providers)}
+
+
+@router.post("/llm/config/test")
+async def test_llm_config(
+    provider_type: str = Body(...),
+    api_key: str = Body(""),
+    model: str = Body(""),
+    base_url: str = Body(""),
+    user_id: str = Depends(get_current_user),
+):
+    """测试单个 LLM Provider 连接"""
+    from app.services.llm_service import LLMService, LLMProviderConfig, PROVIDER_OPENAI, PROVIDER_ANTHROPIC, PROVIDER_OLLAMA, PROVIDER_QWEN, PROVIDER_MINIMAX
+
+    defaults = {
+        PROVIDER_OPENAI: "gpt-4o-mini",
+        PROVIDER_ANTHROPIC: "claude-sonnet-4-20250514",
+        PROVIDER_OLLAMA: "llama3",
+        PROVIDER_QWEN: "qwen-plus",
+        PROVIDER_MINIMAX: "MiniMax-M2",
+    }
+    config = LLMProviderConfig(
+        name=f"test-{provider_type}",
+        provider_type=provider_type,
+        api_key=api_key,
+        base_url=base_url,
+        model=model or defaults.get(provider_type, "gpt-4o-mini"),
+        max_retries=2,
+        enabled=True,
+    )
+    service = LLMService([config])
+
+    try:
+        result = await service.chat(
+            prompt="请回复 JSON 格式：{\"status\": \"ok\", \"message\": \"连接成功\"}",
+            json_mode=True,
+            max_tokens=256,
+        )
+        if result.success:
+            return JSONResponse({"success": True, "provider": provider_type, "model": result.model, "latency_ms": result.latency_ms})
         else:
-            new_lines.append(line)
-    if not updated:
-        new_lines.extend([f"LLM_PROVIDER={provider}", f"LLM_MODEL={model}"])
-        if api_key:
-            new_lines.append(f"OPENAI_API_KEY={api_key}")
-    env_path.write_text("\n".join(new_lines) + "\n")
-    return {"success": True}
+            return JSONResponse({"success": False, "error": result.error}, status_code=502)
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+# ── LLM 配置存储 ─────────────────────────────────────────
+
+def _mask_key(key: str) -> str:
+    if not key:
+        return ""
+    return key[:4] + "****"
+
+
+def _load_llm_providers() -> list:
+    """从 config/llm_providers.json 加载配置"""
+    config_path = SYS_PATH / "config" / "llm_providers.json"
+    if not config_path.exists():
+        # 兼容旧的 .env 格式
+        primary = {
+            "name": os.getenv("LLM_PROVIDER", "openai"),
+            "provider_type": os.getenv("LLM_PROVIDER", "openai"),
+            "model": os.getenv("LLM_MODEL", "gpt-4o-mini"),
+            "api_key": os.getenv("OPENAI_API_KEY", ""),
+            "base_url": os.getenv("OPENAI_BASE_URL", ""),
+            "max_retries": 3,
+            "timeout": 60,
+            "enabled": True,
+        }
+        return [p for p in [primary] if p["provider_type"] != "none"]
+    try:
+        return json.loads(config_path.read_text())
+    except Exception:
+        return []
+
+
+def _save_llm_providers(providers: list):
+    """保存多 Provider 配置到 JSON 文件"""
+    config_path = SYS_PATH / "config" / "llm_providers.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    # 写入时保留 api_key 明文（文件本身在 .gitignore 中）
+    config_path.write_text(json.dumps(providers, ensure_ascii=False, indent=2))
+    logger.info(f"LLM config saved: {len(providers)} providers")
 
 
 @router.get("/settings")

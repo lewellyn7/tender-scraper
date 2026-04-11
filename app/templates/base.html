@@ -37,6 +37,45 @@
         } else {
             document.documentElement.classList.remove('dark');
         }
+
+        // ── Common Helpers (must load before page scripts) ──────────────────────
+        function $(id) { return document.getElementById(id); }
+        function escapeHtml(str) {
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+        function authHeaders() {
+            var t = localStorage.getItem('session_token');
+            return t ? {'X-Session-Token': t} : {};
+        }
+        function authFetch(u, o) {
+            return fetch(u, Object.assign({headers: Object.assign({'Content-Type': 'application/json'}, authHeaders())}, o || {}));
+        }
+        function show(el) { if (el) el.classList.remove('hidden'); }
+        function hide(el) { if (el) el.classList.add('hidden'); }
+        function toggle(el, visible) { if (el) el.classList.toggle('hidden', !visible); }
+
+        // ── Toast helper ───────────────────────────────────────────────────────
+        function showToast(msg, type) {
+            type = type || 'success';
+            var container = document.getElementById('toastContainer');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toastContainer';
+                container.className = 'toast-container';
+                document.body.appendChild(container);
+            }
+            var el = document.createElement('div');
+            el.className = 'toast-message toast-' + type;
+            el.textContent = msg;
+            container.appendChild(el);
+            setTimeout(function() {
+                el.classList.add('toast-exit');
+                setTimeout(function() { el.remove(); }, 300);
+            }, 3000);
+        }
+        function showMascotToast() {
+            showToast('你好！我是 Jarvis！有事随时叫我 🦞', 'info');
+        }
     </script>
 
     <!-- ========== NAVBAR ========== -->
@@ -63,6 +102,10 @@
                         <a href="/analytics" class="nav-link nav-link--desk"
                            data-show-role="viewer,operator,admin">
                             📈<span class="nav-label">分析</span>
+                        </a>
+                        <a href="/nl-query" class="nav-link nav-link--desk"
+                           data-show-role="viewer,operator,admin">
+                            🔍<span class="nav-label">智能查询</span>
                         </a>
                         <a href="/logs" class="nav-link nav-link--desk"
                            data-show-role="operator,admin">
@@ -191,19 +234,6 @@
 
     <!-- ========== SCRIPTS ========== -->
     <script>
-        // ── Common Helpers ──────────────────────────────────────────────
-        function $(id) { return document.getElementById(id); }
-        function escapeHtml(str) {
-            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-        }
-        function authHeaders() {
-            var t = localStorage.getItem('session_token');
-            return t ? {'X-Session-Token': t} : {};
-        }
-        function authFetch(u, o) {
-            return fetch(u, Object.assign({headers: Object.assign({'Content-Type': 'application/json'}, authHeaders())}, o || {}));
-        }
-
         // ── Theme toggle ───────────────────────────────────────────────
         function applyTheme(theme) {
             const isDark = theme === 'dark';
@@ -327,30 +357,6 @@
             });
         })();
 
-        // ── Toast helper (available globally) ───────────────────────────
-        function showToast(msg, type) {
-            type = type || 'success';
-            var container = document.getElementById('toastContainer');
-            if (!container) {
-                container = document.createElement('div');
-                container.id = 'toastContainer';
-                container.className = 'toast-container';
-                document.body.appendChild(container);
-            }
-            var el = document.createElement('div');
-            el.className = 'toast-message toast-' + type;
-            el.textContent = msg;
-            container.appendChild(el);
-            setTimeout(function() {
-                el.classList.add('toast-exit');
-                setTimeout(function() { el.remove(); }, 300);
-            }, 3000);
-        }
-
-        // ── Mascot toast ───────────────────────────────────────────────
-        function showMascotToast() {
-            showToast('你好！我是 Jarvis！有事随时叫我 🦞', 'info');
-        }
     </script>
 </body>
 </html>

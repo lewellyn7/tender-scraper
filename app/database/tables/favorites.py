@@ -90,6 +90,33 @@ class FavoritesMixin:
             logger.error(f"get_favorites: {e}")
             return []
 
+    def search_favorites(self, query: str, intent: str = None, limit: int = 20) -> List[dict]:
+        """全文检索 favorites 表（支持 PG + SQLite）
+
+        Args:
+            query: 搜索关键词
+            intent: 可选，按 tender_type 过滤（如 "招标公告", "中标结果"）
+            limit: 返回数量上限
+        """
+        try:
+            c = self._get_conn()
+            like_pattern = f"%{query}%"
+            if intent:
+                sql = """SELECT * FROM favorites
+                         WHERE (title LIKE ? OR tender_type LIKE ? OR budget LIKE ?)
+                         AND tender_type = ?
+                         ORDER BY updated_at DESC LIMIT ?"""
+                rows = c.execute(sql, (like_pattern, like_pattern, like_pattern, intent, limit)).fetchall()
+            else:
+                sql = """SELECT * FROM favorites
+                         WHERE title LIKE ? OR tender_type LIKE ? OR budget LIKE ?
+                         ORDER BY updated_at DESC LIMIT ?"""
+                rows = c.execute(sql, (like_pattern, like_pattern, like_pattern, limit)).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"search_favorites: {e}")
+            return []
+
     def update_favorite_status(self, project_url: str, status: str) -> bool:
         try:
             self._batch_queue.put(

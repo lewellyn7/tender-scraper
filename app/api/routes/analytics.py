@@ -1,9 +1,11 @@
 """分析统计路由"""
 
+from datetime import datetime, date, timedelta
 from fastapi import APIRouter, Query, Depends
 from fastapi.responses import JSONResponse
 
 from app.database import get_db
+from app.database.db import USE_PG
 from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/analytics", tags=["分析"])
@@ -15,27 +17,39 @@ def get_analytics(days: int = Query(30, ge=1, le=365), user_id: str = Depends(ge
     db = get_db()
     conn = db._get_conn()
 
+    start_date = (datetime.now() - timedelta(days=days)).date().isoformat()
+
     # 获取项目统计
     total_projects = conn.execute("SELECT COUNT(*) FROM favorites").fetchone()[0]
     pending_projects = conn.execute(
-        "SELECT COUNT(*) FROM favorites WHERE status = ?", ("pending",)
+        "SELECT COUNT(*) FROM favorites WHERE status = %s", ("pending",)
     ).fetchone()[0]
-    # matched_projects: count entries with non-empty title (successfully fetched)
     matched_projects = conn.execute(
         "SELECT COUNT(*) FROM favorites WHERE title IS NOT NULL AND title != ''"
     ).fetchone()[0]
 
-    # 获取最近趋势
-    trends = conn.execute(
+    # 获取最近趋势（数据库兼容的日期写法）
+    if USE_PG:
+        date_col = "TO_CHAR(created_at, 'YYYY-MM-DD')"
+        trends_sql = f"""
+            SELECT {date_col} as date, COUNT(*) as count
+            FROM favorites
+            WHERE created_at >= %s
+            GROUP BY {date_col}
+            ORDER BY date
         """
-        SELECT DATE(created_at) as date, COUNT(*) as count
-        FROM favorites
-        WHERE created_at >= DATE('now', ? || ' days')
-        GROUP BY DATE(created_at)
-        ORDER BY date
-        """,
-        (-days,),
-    ).fetchall()
+    else:
+        date_col = "strftime('%Y-%m-%d', created_at)"
+        trends_sql = f"""
+            SELECT {date_col} as date, COUNT(*) as count
+            FROM favorites
+            WHERE date(created_at) >= date('now', '-' || %s || ' days')
+            GROUP BY {date_col}
+            ORDER BY date
+        """
+    # PG uses start_date string; SQLite uses days integer in date arithmetic
+    trends_param = (start_date,) if USE_PG else (days,)
+    trends = conn.execute(trends_sql, trends_param).fetchall()
 
     # 获取分类统计
     categories = conn.execute("""
@@ -68,9 +82,9 @@ def get_analytics(days: int = Query(30, ge=1, le=365), user_id: str = Depends(ge
     source_dist = conn.execute("""
         SELECT
             CASE
-                WHEN source_url LIKE '%ccgp%' THEN '政府采购网'
-                WHEN source_url LIKE '%ggzy%' THEN '公共资源交易中心'
-                WHEN source_url LIKE '%bidding%' THEN '招标投标平台'
+                WHEN source_url LIKE '%%ccgp%%' THEN '政府采购网'
+                WHEN source_url LIKE '%%ggzy%%' THEN '公共资源交易中心'
+                WHEN source_url LIKE '%%bidding%%' THEN '招标投标平台'
                 WHEN source_url = '' OR source_url IS NULL THEN '未知来源'
                 ELSE '其他'
             END as source,
@@ -88,12 +102,10 @@ def get_analytics(days: int = Query(30, ge=1, le=365), user_id: str = Depends(ge
     ).fetchall()
     import re
     from collections import Counter
-    # 常见无意义词
     stop_words = {'的', '了', '和', '与', '或', '及', '的', '在', '为', '于', '对', '等', '由', '以', '被', '将', '把', '给', '向', '从', '通过', '关于', '项目', '采购', '招标', '公告'}
     word_counter = Counter()
     for (title,) in titles:
         if title:
-            # 简单分词：按标点和空格拆分
             words = re.findall(r'[\u4e00-\u9fa5]+', title)
             for word in words:
                 if len(word) >= 2 and word not in stop_words:

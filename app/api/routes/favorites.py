@@ -1,5 +1,6 @@
 """收藏路由"""
 
+from datetime import datetime
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -7,6 +8,18 @@ from app.database import get_db
 from app.utils.session import get_user_from_session
 
 router = APIRouter(prefix="/api/favorites", tags=["收藏"])
+
+
+def _serialize(obj):
+    """将 datetime 对象转换为 ISO 字符串"""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    return obj
+
+
+def _serialize_row(row):
+    """序列化字典中的 datetime 字段"""
+    return {k: _serialize(v) for k, v in row.items()}
 
 
 def get_current_user_id(request) -> str:
@@ -25,7 +38,8 @@ def get_favorites(status: str = None, limit: int = 500):
     """获取收藏列表"""
     db = get_db()
     favorites = db.get_favorites(status=status, limit=limit)
-    return JSONResponse({"favorites": favorites})
+    serialized = [_serialize_row(f) for f in favorites]
+    return JSONResponse({"favorites": serialized})
 
 
 @router.post("")

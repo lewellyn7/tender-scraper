@@ -14,7 +14,9 @@ router = APIRouter(prefix="/api/bidder-qualifications", tags=["资质管理"])
 
 
 def _normalize_status(q: dict) -> dict:
-    """规范化资质状态：自动将过期资质的 status 更新为'过期'"""
+    """规范化资质状态 + 转换日期为字符串"""
+    if q is None:
+        return {}
     if q.get("valid_to"):
         try:
             valid_to = date.fromisoformat(str(q["valid_to"]))
@@ -22,6 +24,10 @@ def _normalize_status(q: dict) -> dict:
                 q["status"] = "过期"
         except (ValueError, TypeError):
             pass
+    # 转换 date/datetime 对象为 ISO 字符串以便 JSON 序列化
+    for k, v in q.items():
+        if hasattr(v, 'isoformat'):
+            q[k] = v.isoformat()
     return q
 
 
@@ -32,6 +38,8 @@ def create_qualification(request: Request, data: dict = Body(...), user_id: str 
         raise HTTPException(status_code=400, detail="资质名称不能为空")
 
     db = get_db()
+    # 注入当前用户ID
+    data["user_id"] = user_id
     qid = db.add_qualification(data)
     if qid is None:
         return JSONResponse({"success": False, "error": "创建失败"}, status_code=500)

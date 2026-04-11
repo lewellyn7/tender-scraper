@@ -1,5 +1,6 @@
 """标注和预设路由"""
 
+from datetime import datetime
 from typing import Dict
 
 from fastapi import APIRouter, Body, Depends
@@ -9,6 +10,22 @@ from app.database import get_db
 from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api", tags=["标注和预设"])
+
+
+def _serialize(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    return obj
+
+
+def _serialize_rows(rows):
+    result = []
+    for row in rows:
+        if isinstance(row, dict):
+            result.append({k: _serialize(v) for k, v in row.items()})
+        else:
+            result.append(row)
+    return result
 
 # ========== annotations ==========
 
@@ -33,7 +50,8 @@ def get_annotation(project_url: str, user_id: str = Depends(get_current_user)):
 
 @router.get("/annotations")
 def list_annotations(user_id: str = Depends(get_current_user)):
-    return JSONResponse({"annotations": get_db().get_all_annotations()})
+    anns = get_db().get_all_annotations()
+    return JSONResponse({"annotations": _serialize_rows(anns)})
 
 
 # ========== presets ==========
@@ -53,7 +71,8 @@ def save_preset(data: Dict = Body(...), user_id: str = Depends(get_current_user)
 
 @router.get("/presets")
 def list_presets(user_id: str = Depends(get_current_user)):
-    return JSONResponse({"presets": get_db().get_presets()})
+    presets = get_db().get_presets()
+    return JSONResponse({"presets": _serialize_rows(presets)})
 
 
 @router.delete("/presets/{preset_key}")

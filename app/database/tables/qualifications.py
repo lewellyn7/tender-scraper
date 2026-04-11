@@ -13,11 +13,12 @@ class QualificationsMixin:
         """添加资质记录，返回新记录ID"""
         try:
             conn = self._get_conn()
-            conn.execute(
+            row = conn.execute(
                 """INSERT INTO bidder_qualifications
                    (name, category, level, certificate_no, valid_from, valid_to,
-                    issuer, file_path, linked_tenders, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    issuer, file_path, linked_tenders, status, notes, user_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   RETURNING id""",
                 (
                     data.get("name", ""),
                     data.get("category", ""),
@@ -29,10 +30,11 @@ class QualificationsMixin:
                     data.get("file_path", ""),
                     json.dumps(data.get("linked_tenders", []), ensure_ascii=False),
                     data.get("status", "有效"),
+                    data.get("notes", ""),
+                    data.get("user_id", ""),
                 ),
-            )
+            ).fetchone()
             conn.commit()
-            row = conn.execute("SELECT last_insert_rowid() as id").fetchone()
             return row[0] if row else None
         except Exception as e:
             logger.error(f"add_qualification: {e}")
@@ -132,16 +134,28 @@ class QualificationsMixin:
     def get_qualifications_expiring(self, days: int = 30) -> List[dict]:
         """获取即将过期的资质"""
         try:
+            from app.database.db import USE_PG
             c = self._get_conn()
-            rows = c.execute(
-                """SELECT * FROM bidder_qualifications
-                   WHERE valid_to IS NOT NULL
-                     AND valid_to <= date('now', ? || ' days')
-                     AND valid_to >= date('now')
-                     AND status = '有效'
-                   ORDER BY valid_to ASC""",
-                (str(days),),
-            ).fetchall()
+            if USE_PG:
+                rows = c.execute(
+                    """SELECT * FROM bidder_qualifications
+                       WHERE valid_to IS NOT NULL
+                         AND valid_to <= CURRENT_DATE + MAKE_INTERVAL(days => %s)
+                         AND valid_to >= CURRENT_DATE
+                         AND status = '有效'
+                       ORDER BY valid_to ASC""",
+                    (days,),
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    """SELECT * FROM bidder_qualifications
+                       WHERE valid_to IS NOT NULL
+                         AND valid_to <= date('now', ? || ' days')
+                         AND valid_to >= date('now')
+                         AND status = '有效'
+                       ORDER BY valid_to ASC""",
+                    (str(days),),
+                ).fetchall()
             return [dict(r) for r in rows]
         except Exception as e:
             logger.error(f"get_qualifications_expiring: {e}")
