@@ -47,3 +47,8 @@ api_router.include_router(presets_router)
 api_router.include_router(search_router)
 api_router.include_router(chat_router)
 api_router.include_router(quality_router)
+
+
+# priority_scheduler API
+from app.api.routes.priority_scheduler import router as priority_scheduler_router
+api_router.include_router(priority_scheduler_router)
