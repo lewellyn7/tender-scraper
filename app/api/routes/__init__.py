@@ -52,3 +52,7 @@ api_router.include_router(quality_router)
 # priority_scheduler API
 from app.api.routes.priority_scheduler import router as priority_scheduler_router
 api_router.include_router(priority_scheduler_router)
+
+# predictive_scaler API
+from app.api.routes.predictive_scaler import router as predictive_scaler_router
+api_router.include_router(predictive_scaler_router)
