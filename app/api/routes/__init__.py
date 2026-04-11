@@ -7,6 +7,7 @@ from .annotations import router as annotations_router
 from .annotations_presets import router as annotations_presets_router
 from .bidder_qualifications import router as bidder_qualifications_router
 from .config_backup import router as config_backup_router
+from .qualification_categories import router as qualification_categories_router
 from .database import router as database_router
 from .document_upload import router as document_upload_router
 from .duplicates import router as duplicates_router
@@ -33,6 +34,7 @@ api_router.include_router(logs_router)
 api_router.include_router(annotations_router)
 api_router.include_router(annotations_presets_router)
 api_router.include_router(config_backup_router)
+api_router.include_router(qualification_categories_router)
 api_router.include_router(database_router)
 api_router.include_router(notifications_router)
 api_router.include_router(notifications_settings_router)

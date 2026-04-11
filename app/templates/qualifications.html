@@ -30,7 +30,11 @@
       <!-- Add new -->
       <button type="button" id="btn-add" class="inline-flex items-center gap-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition shadow-sm">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        添加资质
+        手动添加
+      </button>
+      <button type="button" id="btn-upload" class="inline-flex items-center gap-1 px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition shadow-sm">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+        上传资质
       </button>
     </div>
   </div>
@@ -110,6 +114,7 @@
           <th class="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">有效期</th>
           <th class="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">状态</th>
           <th class="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">剩余</th>
+          <th class="text-center px-4 py-3 font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">原文</th>
           <th class="text-right px-4 py-3 font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">操作</th>
         </tr>
       </thead>
@@ -323,6 +328,161 @@
     </div>
   </div>
 
+  <!-- ================================================
+       UPLOAD MODAL - 上传资质文件 → 解析 → 表单确认
+  ================================================= -->
+  <div id="upload-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 hidden">
+    <div class="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg font-bold text-gray-900 dark:text-white">上传资质文件</h3>
+        <button type="button" id="btn-close-upload-modal" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+          <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Step 1: File Upload Zone -->
+      <div id="upload-step-1">
+        <div id="drop-zone" class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-10 text-center cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition">
+          <svg class="w-12 h-12 mx-auto text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          <p class="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">拖拽文件到此处，或点击选择</p>
+          <p class="text-xs text-gray-400">支持 PDF、JPG、PNG、DOCX，单文件 ≤ 10MB</p>
+          <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.docx" class="hidden"/>
+        </div>
+        <div id="upload-preview" class="mt-3 hidden">
+          <div class="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+            <svg class="w-8 h-8 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            <div class="flex-1 min-w-0">
+              <p id="upload-filename" class="text-sm font-medium text-gray-900 dark:text-white truncate"></p>
+              <p id="upload-filesize" class="text-xs text-gray-500"></p>
+            </div>
+            <button type="button" id="btn-remove-file" class="p-1 text-gray-400 hover:text-red-500 transition shrink-0">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="flex justify-end mt-4">
+          <button type="button" id="btn-upload-analyze" disabled class="px-5 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition shadow-sm flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+            上传并解析
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2: Analyzing spinner -->
+      <div id="upload-step-2" class="hidden text-center py-12">
+        <svg class="w-12 h-12 mx-auto animate-spin text-blue-500 mb-4" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <p class="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">正在解析文档…</p>
+        <p class="text-xs text-gray-400">PDF 文字提取 / 图片 OCR / LLM 结构化分析</p>
+      </div>
+
+      <!-- Step 3: Parsed fields form -->
+      <div id="upload-step-3" class="hidden">
+        <div class="flex items-center gap-2 mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <svg class="w-5 h-5 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <p class="text-xs text-blue-700 dark:text-blue-300">文档已解析，请核对并修正以下信息，确认后保存到资质库</p>
+        </div>
+        <div id="upload-error" class="hidden mb-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+          <p class="text-sm text-red-600 dark:text-red-400" id="upload-error-msg"></p>
+        </div>
+        <form id="upload-qualification-form" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="sm:col-span-2">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">资质名称 *</label>
+            <input type="text" id="up-name" required class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"/>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">类别</label>
+            <select id="up-category" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white">
+              <option value="">请选择</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">等级</label>
+            <select id="up-level" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white">
+              <option value="">请选择</option>
+              <option value="特级">特级</option>
+              <option value="一级">一级</option>
+              <option value="二级">二级</option>
+              <option value="三级">三级</option>
+              <option value="甲级">甲级</option>
+              <option value="乙级">乙级</option>
+              <option value="丙级">丙级</option>
+              <option value="其他">其他</option>
+            </select>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">证书编号</label>
+            <input type="text" id="up-certificate-no" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white font-mono"/>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">有效期起</label>
+            <input type="date" id="up-valid-from" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white"/>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">有效期止</label>
+            <input type="date" id="up-valid-to" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white"/>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">发证机关</label>
+            <input type="text" id="up-issuer" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white"/>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">状态</label>
+            <select id="up-status" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white">
+              <option value="有效">有效</option>
+              <option value="待审核">待审核</option>
+              <option value="已撤销">已撤销</option>
+            </select>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">备注</label>
+            <textarea id="up-notes" rows="2" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-white resize-none"></textarea>
+          </div>
+          <div class="sm:col-span-2 flex items-center justify-between mt-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <p class="text-xs text-gray-400">
+              原始文件: <span id="up-original-name" class="text-gray-500"></span>
+              <span id="up-confidence-badge" class="ml-2 px-1.5 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-700 hidden"></span>
+            </p>
+            <div class="flex gap-2">
+              <button type="button" id="btn-upload-cancel" class="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition">取消</button>
+              <button type="submit" form="upload-qualification-form" class="px-5 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition shadow-sm">确认保存</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================
+       DOCUMENT VIEWER MODAL
+  ================================================= -->
+  <div id="doc-viewer-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4 hidden">
+    <div class="bg-white dark:bg-gray-800 rounded-xl w-full max-w-3xl shadow-2xl max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+        <h3 id="doc-viewer-title" class="text-base font-bold text-gray-900 dark:text-white truncate flex-1 mr-4"></h3>
+        <div class="flex items-center gap-2 shrink-0">
+          <a id="doc-download-btn" href="#" target="_blank" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition">下载</a>
+          <button type="button" id="btn-close-doc-viewer" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+            <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="flex-1 overflow-auto p-4" id="doc-viewer-content">
+        <iframe id="doc-iframe" class="w-full h-full min-h-[60vh] border-0" src=""></iframe>
+        <div id="doc-unsupported" class="hidden text-center py-16">
+          <svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <p class="text-gray-500 text-sm">此文件格式无法直接在浏览器中预览</p>
+          <a id="doc-unsupported-download" href="#" target="_blank" class="mt-3 inline-block px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">下载查看</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -423,6 +583,10 @@
           '<span>' + (q.valid_to ? q.valid_to.slice(0,10) : '-') + '</span></td>' +
         '<td class="px-4 py-3 whitespace-nowrap"><span class="px-2 py-0.5 rounded text-xs font-medium ' + statusClass + '">' + escapeHtml(q.status) + '</span></td>' +
         '<td class="px-4 py-3 whitespace-nowrap">' + daysText + '</td>' +
+        '<td class="px-4 py-3 text-center">' +
+          '<button type="button" data-view-doc="' + q.id + '" class="p-1.5 text-purple-500 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded transition' + (q.file_path ? '' : ' opacity-30 cursor-not-allowed') + '" title="查看原文" ' + (q.file_path ? '' : 'disabled') + '>' +
+            '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg></button>' +
+        '</td>' +
         '<td class="px-4 py-3"><div class="flex justify-end gap-1.5">' +
           '<button type="button" data-match="' + q.id + '" class="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition" title="资质匹配">' +
             '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></button>' +
@@ -511,6 +675,188 @@
       $('form-status').value = '有效';
     }
     show($('form-modal'));
+  }
+
+    // ── Upload Modal helpers ────────────────────────────────
+  function resetUploadModal() {
+    uploadState.file = null;
+    uploadState.filePath = null;
+    uploadState.originalName = null;
+    $('file-input').value = '';
+    hide($('upload-preview'));
+    $('btn-upload-analyze').disabled = true;
+    hide($('upload-step-2'));
+    hide($('upload-step-3'));
+    show($('upload-step-1'));
+    hide($('upload-error'));
+  }
+
+  function closeUploadModal() {
+    hide($('upload-modal'));
+    resetUploadModal();
+  }
+
+  function handleUploadFile(file) {
+    var allowed = ['pdf', 'jpg', 'jpeg', 'png', 'docx'];
+    var ext = file.name.split('.').pop().toLowerCase();
+    if (!allowed.includes(ext)) {
+      showToast('仅支持 PDF、JPG、PNG、DOCX 格式', 'error');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('文件不能超过 10MB', 'error');
+      return;
+    }
+    uploadState.file = file;
+    uploadState.originalName = file.name;
+    $('upload-filename').textContent = file.name;
+    $('upload-filesize').textContent = (file.size / 1024 / 1024).toFixed(2) + ' MB';
+    show($('upload-preview'));
+    $('btn-upload-analyze').disabled = false;
+  }
+
+  async function loadUploadCategories() {
+    // Load categories from API into select
+    var sel = $('up-category');
+    sel.innerHTML = '<option value="">请选择</option>';
+    try {
+      var res = await authFetch('/api/qualification-config/categories');
+      var data = await res.json();
+      (data.categories || []).forEach(function(c) {
+        var opt = document.createElement('option');
+        opt.value = c.name;
+        opt.textContent = c.name + (c.count ? ' (' + c.count + ')' : '');
+        sel.appendChild(opt);
+      });
+    } catch (_) {
+      ['建筑', 'IT', '服务', '设备', '其他'].forEach(function(n) {
+        var opt = document.createElement('option');
+        opt.value = n;
+        opt.textContent = n;
+        sel.appendChild(opt);
+      });
+    }
+  }
+
+  async function uploadAndAnalyze() {
+    if (!uploadState.file) return;
+    hide($('upload-step-1'));
+    hide($('upload-step-3'));
+    hide($('upload-error'));
+    show($('upload-step-2'));
+
+    var formData = new FormData();
+    formData.append('file', uploadState.file);
+
+    try {
+      var res = await fetch('/api/documents/analyze-preview', {
+        method: 'POST',
+        body: formData,
+      });
+      var data = await res.json();
+
+      hide($('upload-step-2'));
+
+      if (!data.success) {
+        show($('upload-error'));
+        $('upload-error-msg').textContent = data.error || '文档解析失败';
+        show($('upload-step-1'));
+        return;
+      }
+
+      // Populate form with parsed fields
+      var f = data.fields || {};
+      $('up-name').value = f.name || uploadState.originalName.replace(/\.[^.]+$/, '') || '';
+      $('up-category').value = f.category || '';
+      $('up-level').value = f.level || '';
+      $('up-certificate-no').value = f.certificate_no || '';
+      $('up-valid-from').value = f.valid_from || '';
+      $('up-valid-to').value = f.valid_to || '';
+      $('up-issuer').value = f.issuer || '';
+      $('up-status').value = f.status || '有效';
+      $('up-notes').value = '';
+      $('up-original-name').textContent = uploadState.originalName;
+
+      uploadState.filePath = data.file_path;
+
+      // Confidence badge
+      if (f.confidence != null) {
+        var badge = $('up-confidence-badge');
+        badge.textContent = 'AI 置信度 ' + (f.confidence * 100).toFixed(0) + '%';
+        badge.className = 'ml-2 px-1.5 py-0.5 rounded text-xs ' + (f.confidence > 0.7 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400');
+        show(badge);
+      } else {
+        hide($('up-confidence-badge'));
+      }
+
+      show($('upload-step-3'));
+    } catch (err) {
+      hide($('upload-step-2'));
+      show($('upload-error'));
+      $('upload-error-msg').textContent = '网络错误：' + err.message;
+      show($('upload-step-1'));
+    }
+  }
+
+  async function saveUploadedQualification() {
+    var payload = {
+      name: $('up-name').value.trim(),
+      category: $('up-category').value,
+      level: $('up-level').value,
+      certificate_no: $('up-certificate-no').value,
+      valid_from: $('up-valid-from').value,
+      valid_to: $('up-valid-to').value,
+      issuer: $('up-issuer').value,
+      status: $('up-status').value,
+      notes: $('up-notes').value,
+      file_path: uploadState.filePath || '',
+    };
+
+    if (!payload.name) {
+      showToast('请填写资质名称', 'error');
+      return;
+    }
+
+    try {
+      var res = await authFetch('/api/bidder-qualifications', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('保存失败');
+      showToast('资质保存成功', 'success');
+      closeUploadModal();
+      loadQualifications(1);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  function openDocViewer(q) {
+    if (!q.file_path) {
+      showToast('无原始文件', 'error');
+      return;
+    }
+    $('doc-viewer-title').textContent = q.name || '资质文件';
+    var iframe = $('doc-iframe');
+    var unsupported = $('doc-unsupported');
+    var ext = (q.file_path || '').split('.').pop().toLowerCase();
+    if (['pdf', 'jpg', 'jpeg', 'png'].includes(ext)) {
+      iframe.src = q.file_path;
+      iframe.classList.remove('hidden');
+      unsupported.classList.add('hidden');
+    } else {
+      iframe.classList.add('hidden');
+      unsupported.classList.remove('hidden');
+    }
+    $('doc-download-btn').href = q.file_path;
+    $('doc-unsupported-download').href = q.file_path;
+    show($('doc-viewer-modal'));
+  }
+
+  function closeDocViewer() {
+    hide($('doc-viewer-modal'));
+    $('doc-iframe').src = '';
   }
 
   function closeFormModal() {
@@ -946,6 +1292,70 @@
     $('btn-close-expiring').addEventListener('click', function() { hide($('expiring-modal')); });
     $('expiring-modal').addEventListener('click', function(e) {
       if (e.target === $('expiring-modal')) hide($('expiring-modal'));
+    });
+
+    // ── Upload Modal ────────────────────────────────────────
+    var uploadState = {
+      file: null,
+      filePath: null,
+      originalName: null,
+    };
+
+    $('btn-upload').addEventListener('click', function() {
+      resetUploadModal();
+      loadUploadCategories();
+      show($('upload-modal'));
+    });
+    $('btn-close-upload-modal').addEventListener('click', closeUploadModal);
+    $('btn-upload-cancel').addEventListener('click', closeUploadModal);
+    $('upload-modal').addEventListener('click', function(e) {
+      if (e.target === $('upload-modal')) closeUploadModal();
+    });
+
+    // Drop zone + file input
+    var dropZone = $('drop-zone');
+    var fileInput = $('file-input');
+    dropZone.addEventListener('click', function() { fileInput.click(); });
+    dropZone.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      dropZone.classList.add('border-blue-400', 'bg-blue-50', 'dark:bg-blue-900/20');
+    });
+    dropZone.addEventListener('dragleave', function() {
+      dropZone.classList.remove('border-blue-400', 'bg-blue-50', 'dark:bg-blue-900/20');
+    });
+    dropZone.addEventListener('drop', function(e) {
+      e.preventDefault();
+      dropZone.classList.remove('border-blue-400', 'bg-blue-50', 'dark:bg-blue-900/20');
+      var f = e.dataTransfer.files[0];
+      if (f) handleUploadFile(f);
+    });
+    fileInput.addEventListener('change', function() {
+      if (fileInput.files[0]) handleUploadFile(fileInput.files[0]);
+    });
+    $('btn-remove-file').addEventListener('click', function(e) {
+      e.stopPropagation();
+      resetUploadModal();
+    });
+
+    $('btn-upload-analyze').addEventListener('click', uploadAndAnalyze);
+    $('upload-qualification-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      saveUploadedQualification();
+    });
+
+    // ── Document Viewer Modal ────────────────────────────────
+    $('btn-close-doc-viewer').addEventListener('click', closeDocViewer);
+    $('doc-viewer-modal').addEventListener('click', function(e) {
+      if (e.target === $('doc-viewer-modal')) closeDocViewer();
+    });
+
+    // ── View / Delete / Edit from table ────────────────────
+    $('qualifications-tbody').addEventListener('click', function(e) {
+      var btn = e.target.closest('button[data-view-doc]');
+      if (btn) {
+        var q = state.qualifications.find(function(x) { return x.id == btn.dataset.viewDoc; });
+        if (q) openDocViewer(q);
+      }
     });
   }
 

@@ -10,8 +10,6 @@ from fastapi.responses import JSONResponse
 from app.database import get_db
 from app.services.document_analyzer import DocumentAnalyzer
 from app.api.dependencies import get_current_user
-from app.services.document_analyzer import DocumentAnalyzer
-from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/documents", tags=["文档管理"])
 
@@ -156,6 +154,42 @@ async def upload_document(
             "file_path": str(file_path),
             "original_name": original_name,
         }, status_code=500)
+
+
+@router.post("/analyze-preview", summary="上传并分析（仅预览，不保存资质）")
+async def analyze_preview(
+    file: UploadFile = File(...),
+):
+    """
+    上传文档并分析，返回解析结果（不保存资质记录）。
+    文件保存在临时目录，确认保存时再移到正式目录。
+    """
+    _validate_file(file)
+
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail=f"文件超过 {MAX_FILE_SIZE // 1024 // 1024}MB 限制")
+
+    import uuid
+    ext = (file.filename or "unknown").rsplit(".", 1)[-1].lower()
+    tmp_path = UPLOAD_DIR / "tmp_preview" / f"{uuid.uuid4().hex}.{ext}"
+    tmp_path.parent.mkdir(exist_ok=True)
+    with open(tmp_path, "wb") as f:
+        f.write(content)
+
+    try:
+        result = analyzer.analyze_document(str(tmp_path), use_llm=True)
+        return JSONResponse({
+            "success": result.get("success", False),
+            "error": result.get("error"),
+            "fields": result.get("fields", {}),
+            "file_path": str(tmp_path),
+            "original_name": file.filename or "unknown",
+        })
+    except Exception as e:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/analyze-only", summary="仅分析文档（不上传）")

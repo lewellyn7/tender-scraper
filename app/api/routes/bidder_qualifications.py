@@ -9,8 +9,6 @@ from fastapi.responses import JSONResponse
 from app.database import get_db
 from app.services.qualification_matcher import QualificationMatcher
 from app.api.dependencies import get_current_user
-from app.services.qualification_matcher import QualificationMatcher
-from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/bidder-qualifications", tags=["资质管理"])
 
