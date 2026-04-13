@@ -4,7 +4,7 @@ import asyncio
 from playwright.async_api import async_playwright
 import random, time
 
-BASE = "http://localhost:8889"
+BASE = "http://localhost:8888"
 
 PAGES = [
     ("/", "首页"),

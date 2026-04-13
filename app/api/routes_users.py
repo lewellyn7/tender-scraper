@@ -92,10 +92,19 @@ async def login(
 
     token = create_session(user["user_id"], user["role"])
 
-    return {
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse({
         "token": token,
         "user": {"user_id": user["user_id"], "username": user["username"], "role": user["role"]},
-    }
+    })
+    resp.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=86400,
+    )
+    return resp
 
 
 @router.post("/logout", summary="用户登出", description="清除当前session")
