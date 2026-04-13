@@ -170,6 +170,12 @@
       headers: Object.assign({"Content-Type": "application/json"}, authHeaders()),
       body: JSON.stringify({status: status})
     });
+    // Update local state and re-render
+    var item = state.favorites.find(f => f.project_url === url);
+    if (item) {
+      item.status = status;
+      renderFavorites();
+    }
   }
 
   function openAnnotationModal(item) {

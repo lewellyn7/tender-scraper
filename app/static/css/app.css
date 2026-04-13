@@ -81,7 +81,7 @@
   box-shadow: var(--shadow-card-hover);
   border-color: rgba(59,130,246,.3);
 }
-.anim-card:active { transform: translateY(-1px) scale(.99); }
+.anim-card:active { /* removed click animation - was interfering with button clicks */ }
 
 /* Skeleton loading */
 .skeleton {
