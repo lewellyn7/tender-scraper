@@ -126,6 +126,10 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
                 setTimeout(function() { el.remove(); }, 300);
             }, 3000);
         }
+        function escHtml(s) {
+            if (s == null) return '';
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
         function showMascotToast() {
             showToast('你好！我是 Jarvis！有事随时叫我 🦞', 'info');
         }
@@ -144,6 +148,7 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
                     <!-- Desktop nav links -->
                     <div class="hidden md:flex md:ml-6 md:space-x-0.5">
                         <a href="/data" class="nav-link nav-link--desk">📋<span class="nav-label">采集内容</span></a>
+                        <a href="/tasks" class="nav-link nav-link--desk">📅<span class="nav-label">任务管理</span></a>
                         
                         <a href="/favorites" class="nav-link nav-link--desk">⭐<span class="nav-label">收藏</span></a>
                         <a href="/analytics" class="nav-link nav-link--desk">📈<span class="nav-label">分析</span></a>
@@ -200,6 +205,7 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
         <!-- Mobile bottom sheet nav -->
         <div id="mobileNav" class="md:hidden hidden border-t border-gray-100 dark:border-gray-700 py-3 px-4 space-y-1">
             <a href="/data" class="mobile-nav-item">📋 采集内容</a>
+            <a href="/tasks" class="mobile-nav-item">📅 任务管理</a>
             
             <a href="/favorites" class="mobile-nav-item">⭐ 收藏</a>
             <a href="/analytics" class="mobile-nav-item">📈 分析</a>

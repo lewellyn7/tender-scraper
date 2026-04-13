@@ -424,6 +424,39 @@ class Database(
                 details TEXT DEFAULT '{}',
                 timestamp TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS collection_tasks(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id VARCHAR(100) NOT NULL,
+                name TEXT NOT NULL,
+                source TEXT NOT NULL,
+                status TEXT DEFAULT 'idle',
+                schedule_type TEXT DEFAULT 'manual',
+                schedule_cron TEXT DEFAULT '',
+                keywords TEXT DEFAULT '[]',
+                exclude_keywords TEXT DEFAULT '[]',
+                info_types TEXT DEFAULT '[]',
+                budget_min REAL,
+                priority INTEGER DEFAULT 5,
+                max_concurrency INTEGER DEFAULT 5,
+                request_interval REAL DEFAULT 2.0,
+                timeout_seconds INTEGER DEFAULT 30,
+                items_found INTEGER DEFAULT 0,
+                items_new INTEGER DEFAULT 0,
+                last_run_at TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS task_executions(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                status TEXT DEFAULT 'running',
+                items_found INTEGER DEFAULT 0,
+                items_new INTEGER DEFAULT 0,
+                error_message TEXT DEFAULT '',
+                started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                finished_at TEXT,
+                duration_ms INTEGER DEFAULT 0
+            );
             CREATE TABLE IF NOT EXISTS keywords(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 keyword TEXT NOT NULL UNIQUE,
@@ -461,6 +494,9 @@ class Database(
             "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp);",
             "CREATE INDEX IF NOT EXISTS idx_keywords_category ON keywords(category);",
             "CREATE INDEX IF NOT EXISTS idx_keywords_enabled ON keywords(enabled);",
+            "CREATE INDEX IF NOT EXISTS idx_tasks_user ON collection_tasks(user_id);",
+            "CREATE INDEX IF NOT EXISTS idx_tasks_status ON collection_tasks(status);",
+            "CREATE INDEX IF NOT EXISTS idx_executions_task ON task_executions(task_id);",
         ]
         for idx in indexes:
             c.execute(idx)

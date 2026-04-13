@@ -82,6 +82,15 @@ async def get_data(request: Request):
     return _render(request, "data.html")
 
 
+@router.get("/tasks", response_class=HTMLResponse)
+async def get_tasks_page(request: Request):
+    """任务管理页面"""
+    user = _get_user_info(request)
+    if user.get("role") == "guest":
+        return RedirectResponse(url="/login", status_code=302)
+    return _render(request, "tasks.html")
+
+
 @router.get("/settings", response_class=HTMLResponse)
 async def get_settings_page(request: Request):
     """系统设置页面"""
