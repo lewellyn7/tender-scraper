@@ -1,5 +1,17 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="dark">
+<html lang="zh-CN">
+<head>
+    <!-- Inline theme script — runs BEFORE any paint to prevent flash -->
+    <script>
+        (function() {
+            var saved = localStorage.getItem('theme');
+            var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            var theme = saved || (prefersDark ? 'dark' : 'light');
+            if (theme === 'dark') {
+                document.documentElement.classList.add('dark');
+            }
+        })();
+    </script>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -28,15 +40,8 @@
                 display_name: '{{ user_info.display_name if user_info else "" }}'
             },
             nav: { mobileOpen: false },
-            theme: localStorage.getItem('theme') || 'light'
+            theme: localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
         };
-
-        // Apply saved theme on load
-        if (window.AppState.theme === 'dark') {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
 
         // ── Common Helpers (must load before page scripts) ──────────────────────
         function $(id) { return document.getElementById(id); }
