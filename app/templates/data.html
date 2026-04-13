@@ -4,7 +4,11 @@
 <div id="dataApp" class="space-y-4">
   <!-- 页面标题+说明 -->
   <div class="flex items-center gap-2">
-    <h1 class="text-xl font-bold text-gray-900 dark:text-white">数据管理</h1>
+    <h1 class="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">数据管理 <span class="help-btn" data-tooltip="数据管理页面
+
+展示所有采集到的招标数据。支持表格/卡片两种视图切换，按关键词和类型筛选。
+
+采集系统和自定义爬虫获取的数据会自动出现在此处。">?</span></h1>
     <span class="help-btn" data-tooltip="展示所有采集数据。支持表格/卡片视图切换、关键词搜索、类型筛选。采集结果自动写入此处。">?</span>
   </div>
   <!-- 统计面板 -->
@@ -12,7 +16,7 @@
     <div class="bg-white rounded-xl border border-gray-200 dark:border-gray-700 p-4">
       <p class="text-xs text-gray-500 uppercase font-medium mb-1">全部采集</p>
       <p id="statTotal" class="text-2xl font-bold text-blue-600 dark:text-blue-400">—</p>
-          <span class="help-btn" data-tooltip="系统中采集的项目总数量（含已收藏和未收藏）" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#9ca3af;color:#fff;font-size:9px;font-weight:700;cursor:help">?</span>
+          <span class="help-btn stat-help" data-tooltip="系统中已采集的全部项目数量，包含已收藏和未收藏的项目。">?</span>
     </div>
     <div class="bg-white rounded-xl border border-gray-200 dark:border-gray-700 p-4">
       <p class="text-xs text-gray-500 uppercase font-medium mb-1">今日新增</p>

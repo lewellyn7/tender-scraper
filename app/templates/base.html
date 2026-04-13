@@ -28,46 +28,52 @@
     {% block extra_head %}{% endblock %}
 
 <style>
-/* Tooltip气泡 */
-.tooltip-wrap { position: relative; display: inline-flex; align-items: center; gap: 0.25rem; }
-.tooltip-wrap .help-btn {
+/* Tooltip气泡 - 不遮挡按钮 */
+.help-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; border-radius: 50%;
-  background: #9ca3af; color: #fff; font-size: 10px; font-weight: 700;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #d1d5db; color: #6b7280; font-size: 11px; font-weight: 700;
   cursor: help; line-height: 1; flex-shrink: 0;
-  transition: background 0.2s;
+  transition: background 0.2s, color 0.2s;
+  border: none; padding: 0; font-family: inherit;
 }
-.tooltip-wrap .help-btn:hover { background: #6b7280; }
-[data-tooltip] { position: relative; }
+.help-btn:hover { background: #9ca3af; color: #374151; }
+
+/* 标题中的help按钮使用flex gap推开，不遮挡文字 */
+h1 .help-btn, h2 .help-btn { margin-left: 6px; }
+
+/* Tooltip主体 */
+[data-tooltip] { position: relative; display: inline-flex; align-items: center; }
+/* 箭头 */
+[data-tooltip]::before {
+  content: ''; position: absolute; bottom: calc(100% + 5px); left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: #1f2937;
+  opacity: 0; transition: opacity 0.15s; pointer-events: none;
+}
+/* 气泡内容 */
 [data-tooltip]::after {
   content: attr(data-tooltip);
-  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
-  background: #1f2937; color: #f9fafb; font-size: 12px; font-weight: 400;
-  padding: 6px 10px; border-radius: 6px; white-space: nowrap; max-width: 280px; white-space: normal;
+  position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%);
+  background: #1f2937; color: #f3f4f6; font-size: 13px; font-weight: 400;
+  padding: 10px 14px; border-radius: 8px;
+  white-space: pre-line; max-width: 320px; min-width: 200px;
   pointer-events: none; opacity: 0; visibility: hidden;
-  transition: opacity 0.15s, visibility 0.15s;
-  z-index: 9999; line-height: 1.4;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  transition: opacity 0.15s 0.1s, visibility 0.15s 0.1s;
+  z-index: 9999; line-height: 1.6;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  text-align: left;
 }
-[data-tooltip]:hover::after { opacity: 1; visibility: visible; }
-[data-tooltip-bottom]::after { bottom: auto; top: calc(100% + 6px); }
+[data-tooltip]:hover::after,
+[data-tooltip]:hover::before { opacity: 1; visibility: visible; }
+
+/* 统计数字旁的help按钮更小 */
+.stat-help {
+  width: 14px; height: 14px; font-size: 9px;
+  background: transparent; color: #9ca3af;
+}
+.stat-help:hover { background: #e5e7eb; color: #6b7280; }
 </style>
-<script>
-// Tooltip hover delay
-document.addEventListener('DOMContentLoaded', function() {
-  document.querySelectorAll('[data-tooltip]').forEach(function(el) {
-    el.addEventListener('mouseenter', function() {
-      el._tooltipTimeout = setTimeout(function() {
-        el.setAttribute('data-tooltip-shown', '1');
-      }, 400);
-    });
-    el.addEventListener('mouseleave', function() {
-      clearTimeout(el._tooltipTimeout);
-      el.removeAttribute('data-tooltip-shown');
-    });
-  });
-});
-</script>
 
 </head>
 <body class="bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors duration-200">
