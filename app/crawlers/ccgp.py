@@ -43,12 +43,14 @@ class CCGPCrawlerV3(BaseCrawler):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await asyncio.sleep(2)
 
-            selectors = [
+            # 新版重庆政府采购网使用 [class*=ListItem] 选择器
+            list_item_selectors = [
+                "[class*=ListItem]",
                 ".notice-item", ".list-item", ".item",
                 "ul.list li", "table tr", ".data-list tr",
             ]
             items = []
-            for selector in selectors:
+            for selector in list_item_selectors:
                 items = await page.query_selector_all(selector)
                 if items:
                     logger.debug(f"使用选择器: {selector}, 找到 {len(items)} 项")
@@ -68,16 +70,28 @@ class CCGPCrawlerV3(BaseCrawler):
                         # Mock 对象没有 evaluate 方法
                         pass
                     if not link_elem:
-                        continue
-
-                    href = await link_elem.get_attribute("href")
-                    title = await link_elem.text_content()
-                    if not href or not title:
-                        continue
-
+                        # 新版 ListItem 结构：标题在 .title 中，链接在 .desc a 中
+                        title_elem = await item.query_selector(".title")
+                        if title_elem:
+                            title = (await title_elem.text_content()).strip()
+                        else:
+                            title = (await item.text_content()).strip()[:100]
+                        # 尝试从 .desc a 获取链接
+                        desc_link = await item.query_selector(".desc a, [class*=desc] a")
+                        if desc_link:
+                            href = await desc_link.get_attribute("href")
+                        else:
+                            href = await item.get_attribute("href") if tag == "A" else ""
+                    else:
+                        href = await link_elem.get_attribute("href")
+                        title = await link_elem.text_content()
+                    if not title:
+                        title = (await item.text_content()).strip()[:100]
                     title = title.strip()
-                    if len(title) < 5 or "javascript" in href.lower():
+                    if len(title) < 5:
                         continue
+                    if href and "javascript" in href.lower():
+                        href = None
 
                     try:
                         date_elem = await item.query_selector('.date, .time, [class*="date"], td:nth-child(2)')

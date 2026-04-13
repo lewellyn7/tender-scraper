@@ -324,6 +324,33 @@ class Database(
                 expires_at TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+                        CREATE TABLE IF NOT EXISTS crawler_configs(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                list_selector TEXT DEFAULT "",
+                item_rules TEXT DEFAULT "{}",
+                pagination_type TEXT DEFAULT "none",
+                pagination_selector TEXT DEFAULT "",
+                pagination_param TEXT DEFAULT "",
+                filter_keyword TEXT DEFAULT "",
+                cookies TEXT DEFAULT "",
+                headers TEXT DEFAULT "{}",
+                status TEXT DEFAULT "active",
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS crawl_executions(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_id INTEGER NOT NULL,
+                status TEXT DEFAULT "running",
+                items_found INTEGER DEFAULT 0,
+                items_new INTEGER DEFAULT 0,
+                error_message TEXT DEFAULT "",
+                started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                finished_at TEXT DEFAULT "",
+                FOREIGN KEY (config_id) REFERENCES crawler_configs(id)
+            );
             CREATE TABLE IF NOT EXISTS schema_version(version INTEGER PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS users(
                 user_id TEXT PRIMARY KEY,

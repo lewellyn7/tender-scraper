@@ -13,6 +13,7 @@
       <button type="button" data-tab="duplicates" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">重复检测</button>
       <button type="button" data-tab="users" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 admin-only hidden">👥 用户管理</button>
       <button type="button" data-tab="dbbackup" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 admin-only hidden">💾 数据库备份</button>
+      <button type="button" data-tab="crawler" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">🕷️ 自定义爬虫</button>
       <button type="button" data-tab="account" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">我的账户</button>
     </nav>
   </div>
@@ -238,7 +239,70 @@
   </div>
 
   <!-- Account Tab -->
-  <div id="tab-account" class="tab-content space-y-4 hidden">
+  <div id="tab-crawler" class="tab-content space-y-4 hidden">
+    <div class="flex justify-between items-center">
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">🕷️ 自定义爬虫</h2>
+      <button type="button" id="btn-new-crawler" class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">+ 添加爬虫</button>
+    </div>
+    <div id="crawler-ai-box" class="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+      <div class="flex items-start gap-3">
+        <span class="text-2xl">🤖</span>
+        <div class="flex-1">
+          <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">AI 智能生成爬虫规则</p>
+          <textarea id="crawler-ai-desc" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:border-gray-600" placeholder="描述网站结构，例如：这是一个政府招标网站，列表项在 class=&quot;item&quot; 的div里，每条包含标题、日期、预算，日期在 class=&quot;date&quot;的元素中，有下一页按钮"></textarea>
+          <div class="flex gap-2 mt-2">
+            <button type="button" id="btn-generate-rules" class="px-3 py-1.5 bg-purple-600 text-white rounded text-xs hover:bg-purple-700">✨ AI 生成规则</button>
+            <button type="button" id="btn-save-crawler-ai" class="px-3 py-1.5 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">💾 保存并应用</button>
+          </div>
+          <div id="crawler-ai-result" class="mt-2 hidden">
+            <pre id="crawler-rules-preview" class="text-xs bg-gray-100 dark:bg-gray-900 rounded p-2 overflow-auto max-h-40 border"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="crawler-list" class="space-y-3"></div>
+    <!-- Crawler Edit Modal -->
+    <div id="crawler-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
+      <div id="crawler-modal-content" class="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
+        <h3 id="crawler-modal-title" class="text-lg font-bold mb-4 text-gray-900 dark:text-white">添加爬虫</h3>
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">网站名称</label><input type="text" id="crawler-name" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder="重庆政府采购网"></div>
+            <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">入口URL</label><input type="text" id="crawler-url" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder="https://..."></div>
+          </div>
+          <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">列表选择器 (CSS Selector)</label><input type="text" id="crawler-list-sel" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder=".item 或 tr.list-item"></div>
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">标题选择器</label><input type="text" id="crawler-title-sel" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder=".title"></div>
+            <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">URL选择器</label><input type="text" id="crawler-url-sel" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder="a 或 [href]"></div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">日期选择器</label><input type="text" id="crawler-date-sel" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder=".date"></div>
+            <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">预算选择器</label><input type="text" id="crawler-budget-sel" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder=".budget"></div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">分页类型</label>
+              <select id="crawler-pag-type" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600">
+                <option value="none">无分页</option>
+                <option value="page_param">URL参数分页</option>
+                <option value="next_button">下一页按钮</option>
+              </select>
+            </div>
+            <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">分页参数模板</label><input type="text" id="crawler-pag-param" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder="page={n}"></div>
+          </div>
+          <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">分页按钮选择器</label><input type="text" id="crawler-pag-sel" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder=".next-btn"></div>
+          <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">过滤关键词</label><input type="text" id="crawler-filter" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder="智慧城市 (多个用逗号分隔)"></div>
+          <div><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cookie (需要登录的网站)</label><textarea id="crawler-cookies" rows="2" class="w-full border rounded px-3 py-2 bg-white dark:bg-gray-700 dark:border-gray-600" placeholder="name1=value1; name2=value2"></textarea></div>
+        </div>
+        <div class="flex gap-3 justify-end mt-6">
+          <button type="button" id="btn-close-crawler-modal" class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">取消</button>
+          <button type="button" id="btn-run-crawler" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">▶ 立即采集</button>
+          <button type="button" id="btn-save-crawler" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div id="tab-account" class="tab-content space-y-4 hidden">
     <div class="bg-white dark:bg-gray-800 rounded-lg border p-6">
       <h2 class="text-lg font-semibold mb-4">我的账户</h2>
       <div class="space-y-4 max-w-md">
@@ -1257,5 +1321,172 @@
 
   init();
 })();
+
+
+  // ── Crawler Configs ─────────────────────────────────────────────────
+  var crawlerEditingId = null;
+  var crawlerGeneratedRules = null;
+
+  function renderCrawlerList() {
+    authFetch('/api/crawler-configs').then(function(r) { return r.json(); }).then(function(data) {
+      var el = document.getElementById('crawler-list');
+      if (!data.configs || data.configs.length === 0) {
+        el.innerHTML = '<div class="text-center py-8 text-gray-400">暂无爬虫配置，点击上方按钮添加</div>';
+        return;
+      }
+      el.innerHTML = data.configs.map(function(c) {
+        return '<div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">' +
+          '<div class="flex justify-between items-start mb-3">' +
+            '<div><h4 class="font-medium text-gray-900 dark:text-white">' + escHtml(c.name) + '</h4><p class="text-xs text-gray-500 mt-1">' + escHtml(c.base_url) + '</p></div>' +
+            '<div class="flex gap-2 items-center">' +
+              '<span class="text-xs px-2 py-0.5 rounded ' + (c.status === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-200' : 'bg-gray-100 text-gray-600') + '">' + c.status + '</span>' +
+              '<button type="button" onclick="runCrawler(' + c.id + ')" class="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700">▶ 采集</button>' +
+              '<button type="button" onclick="editCrawler(' + c.id + ')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">编辑</button>' +
+              '<button type="button" onclick="deleteCrawler(' + c.id + ')" class="px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">删除</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="text-xs text-gray-400">创建于 ' + c.created_at + '</div>' +
+        '</div>';
+      }).join('');
+    }).catch(function(e) { console.error(e); });
+  }
+
+  function openCrawlerModal(id) {
+    crawlerEditingId = id;
+    document.getElementById('crawler-modal').classList.remove('hidden');
+    if (id) {
+      document.getElementById('crawler-modal-title').textContent = '编辑爬虫';
+      authFetch('/api/crawler-configs/' + id).then(function(r) { return r.json(); }).then(function(c) {
+        document.getElementById('crawler-name').value = c.name || '';
+        document.getElementById('crawler-url').value = c.base_url || '';
+        document.getElementById('crawler-list-sel').value = c.list_selector || '';
+        document.getElementById('crawler-pag-type').value = c.pagination_type || 'none';
+        document.getElementById('crawler-pag-param').value = c.pagination_param || '';
+        document.getElementById('crawler-pag-sel').value = c.pagination_selector || '';
+        document.getElementById('crawler-filter').value = c.filter_keyword || '';
+        document.getElementById('crawler-cookies').value = c.cookies || '';
+        var rules = typeof c.item_rules === 'string' ? JSON.parse(c.item_rules || '{}') : (c.item_rules || {});
+        document.getElementById('crawler-title-sel').value = rules.title ? rules.title.selector : '';
+        document.getElementById('crawler-url-sel').value = rules.url ? rules.url.selector : '';
+        document.getElementById('crawler-date-sel').value = rules.publish_date ? rules.publish_date.selector : '';
+        document.getElementById('crawler-budget-sel').value = rules.budget ? rules.budget.selector : '';
+      });
+    } else {
+      document.getElementById('crawler-modal-title').textContent = '添加爬虫';
+      ['crawler-name','crawler-url','crawler-list-sel','crawler-title-sel','crawler-url-sel','crawler-date-sel','crawler-budget-sel','crawler-pag-param','crawler-pag-sel','crawler-filter','crawler-cookies'].forEach(function(id) { document.getElementById(id).value = ''; });
+      document.getElementById('crawler-pag-type').value = 'none';
+    }
+  }
+
+  window.editCrawler = function(id) { openCrawlerModal(id); };
+  window.deleteCrawler = function(id) { if (!confirm('确认删除此爬虫配置?')) return; authFetch('/api/crawler-configs/' + id, {method: 'DELETE'}).then(function() { renderCrawlerList(); }); };
+
+  window.runCrawler = function(id) {
+    if (!confirm('确认立即执行采集?')) return;
+    authFetch('/api/crawler-configs/' + id + '/run', {method: 'POST'}).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.success) {
+        alert('采集完成! 本次找到 ' + d.items_found + ' 条，新增 ' + d.items_new + ' 条，已存入数据管理列表');
+        renderCrawlerList();
+      } else {
+        alert('采集失败: ' + d.error);
+      }
+    });
+  };
+
+  document.getElementById('btn-new-crawler').addEventListener('click', function() { openCrawlerModal(null); });
+  document.getElementById('btn-close-crawler-modal').addEventListener('click', function() { document.getElementById('crawler-modal').classList.add('hidden'); });
+
+  document.getElementById('btn-save-crawler').addEventListener('click', function() {
+    var rules = {};
+    var titleSel = document.getElementById('crawler-title-sel').value.trim();
+    var urlSel = document.getElementById('crawler-url-sel').value.trim();
+    var dateSel = document.getElementById('crawler-date-sel').value.trim();
+    var budgetSel = document.getElementById('crawler-budget-sel').value.trim();
+    if (titleSel) rules.title = {selector: titleSel, attr: 'text'};
+    if (urlSel) rules.url = {selector: urlSel, attr: 'href'};
+    if (dateSel) rules.publish_date = {selector: dateSel, attr: 'text'};
+    if (budgetSel) rules.budget = {selector: budgetSel, attr: 'text'};
+
+    var payload = {
+      name: document.getElementById('crawler-name').value.trim(),
+      base_url: document.getElementById('crawler-url').value.trim(),
+      list_selector: document.getElementById('crawler-list-sel').value.trim(),
+      pagination_type: document.getElementById('crawler-pag-type').value,
+      pagination_param: document.getElementById('crawler-pag-param').value.trim(),
+      pagination_selector: document.getElementById('crawler-pag-sel').value.trim(),
+      filter_keyword: document.getElementById('crawler-filter').value.trim(),
+      cookies: document.getElementById('crawler-cookies').value.trim(),
+      item_rules: rules
+    };
+
+    var method = crawlerEditingId ? 'PUT' : 'POST';
+    var url = crawlerEditingId ? '/api/crawler-configs/' + crawlerEditingId : '/api/crawler-configs';
+    authFetch(url, {method: method, body: JSON.stringify(payload)}).then(function() {
+      document.getElementById('crawler-modal').classList.add('hidden');
+      renderCrawlerList();
+    });
+  });
+
+  document.getElementById('btn-run-crawler').addEventListener('click', function() {
+    // 先保存，再执行
+    document.getElementById('btn-save-crawler').click();
+    setTimeout(function() {
+      var id = crawlerEditingId;
+      if (!id) { alert('请先保存爬虫'); return; }
+      if (!confirm('确认立即执行采集?')) return;
+      authFetch('/api/crawler-configs/' + id + '/run', {method: 'POST'}).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) alert('采集完成! 本次找到 ' + d.items_found + ' 条，新增 ' + d.items_new + ' 条');
+        else alert('采集失败: ' + d.error);
+        renderCrawlerList();
+      });
+    }, 500);
+  });
+
+  // AI Generate
+  document.getElementById('btn-generate-rules').addEventListener('click', function() {
+    var desc = document.getElementById('crawler-ai-desc').value.trim();
+    if (!desc) { alert('请先描述网站结构'); return; }
+    authFetch('/api/crawler-configs/generate-rules', {
+      method: 'POST',
+      body: JSON.stringify({description: desc})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.error) { alert('生成失败: ' + d.error); return; }
+      crawlerGeneratedRules = d.rules;
+      document.getElementById('crawler-ai-result').classList.remove('hidden');
+      document.getElementById('crawler-rules-preview').textContent = JSON.stringify(d.rules, null, 2);
+    }).catch(function(e) { alert('生成失败: ' + e); });
+  });
+
+  document.getElementById('btn-save-crawler-ai').addEventListener('click', function() {
+    if (!crawlerGeneratedRules) { alert('请先生成规则'); return; }
+    var r = crawlerGeneratedRules;
+    authFetch('/api/crawler-configs', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: r.name || '未命名爬虫',
+        base_url: r.base_url || '',
+        list_selector: r.list_selector || '',
+        item_rules: r.item_rules || {},
+        pagination_type: r.pagination_type || 'none',
+        pagination_selector: r.pagination_selector || '',
+        pagination_param: r.pagination_param || '',
+        filter_keyword: r.filter_keyword || ''
+      })
+    }).then(function() {
+      document.getElementById('crawler-ai-desc').value = '';
+      document.getElementById('crawler-ai-result').classList.add('hidden');
+      crawlerGeneratedRules = null;
+      renderCrawlerList();
+      alert('爬虫已保存!');
+    });
+  });
+
+  // Load crawler list when tab is shown
+  var crawlerTabObserver = new MutationObserver(function(m) {
+    document.querySelectorAll('[data-tab="crawler"]').forEach(function(btn) {
+      btn.addEventListener('click', renderCrawlerList);
+    });
+  });
+
 </script>
 {% endblock %}

@@ -14,6 +14,7 @@ from .duplicates import router as duplicates_router
 from .exports import router as exports_router
 from .health import router as health_router
 from .favorites import router as favorites_router
+from .crawler_configs import router as crawler_configs_router
 from .logs import router as logs_router
 from .notifications import router as notifications_router
 from .notifications_settings import router as notifications_settings_router
@@ -28,6 +29,7 @@ api_router = APIRouter()
 
 api_router.include_router(projects_router)
 api_router.include_router(favorites_router)
+api_router.include_router(crawler_configs_router)
 api_router.include_router(analytics_router)
 api_router.include_router(stats_router)
 api_router.include_router(logs_router)
