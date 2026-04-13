@@ -488,6 +488,11 @@ _global_llm_service: Optional["LLMService"] = None
 _llm_service_lock = asyncio.Lock()
 
 
+def get_llm_service_sync() -> "LLMService":
+    """同步版本 - 返回已初始化的实例（不触发初始化）"""
+    return _global_llm_service
+
+
 async def get_llm_service() -> "LLMService":
     """获取全局 LLM Service 实例（线程安全）"""
     global _global_llm_service

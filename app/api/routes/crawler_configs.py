@@ -235,8 +235,8 @@ def generate_rules(request: Request, payload: dict = Body(...)):
 
     llm_service = None
     try:
-        from app.services.llm_service import get_llm_service
-        llm_service = get_llm_service()
+        from app.services.llm_service import get_llm_service_sync
+        llm_service = get_llm_service_sync()
     except Exception:
         pass
 

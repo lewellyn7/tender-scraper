@@ -124,8 +124,8 @@ async def nl_query(
     # 3. 尝试 LLM 摘要（异步降级到规则）
     summary = ""
     try:
-        from app.services.llm_service import get_llm_service
-        svc = get_llm_service()
+        from app.services.llm_service import get_llm_service_sync
+        svc = get_llm_service_sync()
         if svc and svc._providers:
             prompt = (
                 f"根据以下招标信息，生成50字以内的中文摘要：\n"
