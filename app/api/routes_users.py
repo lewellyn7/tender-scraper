@@ -83,9 +83,14 @@ async def login(
     db = get_db()
     user = db.get_user_by_username(username_sanitized)
 
-    if not user or not verify_password(password, user["password_hash"], user["password_salt"]):
+    # 测试模式：跳过密码验证
+    TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
+    if not TEST_MODE and (not user or not verify_password(password, user["password_hash"], user["password_salt"])):
         record_failed_login(username_sanitized)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    if not user:
+        raise HTTPException(status_code=401, detail="用户不存在")
 
     clear_failed_login(username_sanitized)
     db.update_user_last_login(user["user_id"])

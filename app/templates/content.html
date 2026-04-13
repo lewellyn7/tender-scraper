@@ -110,6 +110,24 @@
     var paginationEl = document.getElementById('pagination');
 
     // ── Load content ──────────────────────────────────────────────────
+    async function toggleFav(e, url, isFav) {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            if (isFav) {
+                await authFetch("/api/favorites?project_url=" + encodeURIComponent(url), {method: "DELETE"});
+            } else {
+                await authFetch("/api/favorites", {
+                    method: "POST",
+                    body: JSON.stringify({project_url: url, title: "", url: url})
+                });
+            }
+            loadContent();
+        } catch(err) {
+            console.error('收藏操作失败', err);
+        }
+    }
+
     function loadContent() {
         loading = true;
         showSkeleton(true);
@@ -226,7 +244,16 @@
                 '<div class="p-4 sm:p-5 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">' +
                     '<div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">' +
                         '<div class="flex-1 min-w-0">' +
-                            '<h4 class="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 mb-1.5">' + escHtml(item.title) + '</h4>' +
+                            var favBtn = item.is_favorite
+    ? '<button type="button" onclick="toggleFav(event, \'' + item.url + '\', true)" class="text-red-500 hover:text-red-700 shrink-0" title="取消收藏"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>'
+    : '<button type="button" onclick="toggleFav(event, \'' + item.url + '\', false)" class="text-gray-400 hover:text-red-500 shrink-0" title="添加收藏"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>';
+
+        return (
+            '<div class="p-4 sm:p-5 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">' +
+                '<div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">' +
+                    '<div class="flex items-start gap-2 flex-1 min-w-0">' +
+                        favBtn +
+                        '<h4 class="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 mb-1.5 flex-1">' + escHtml(item.title) + '</h4>' +
                             '<div class="flex flex-wrap items-center gap-1.5 text-xs text-gray-500 mb-1.5">' + badges + '</div>' +
                             (metaRow ? '<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">' + metaRow + '</div>' : '') +
                         '</div>' +
