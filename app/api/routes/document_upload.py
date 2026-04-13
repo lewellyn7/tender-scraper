@@ -178,7 +178,7 @@ async def analyze_preview(
         f.write(content)
 
     try:
-        result = analyzer.analyze_document(str(tmp_path), use_llm=True)
+        result = analyzer.analyze_document(Path(str(tmp_path)), use_llm=True)
         return JSONResponse({
             "success": result.get("success", False),
             "error": result.get("error"),
