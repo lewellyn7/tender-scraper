@@ -3,7 +3,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
   <div class="flex justify-between items-center mb-6">
-    <h1 class="text-2xl font-bold text-gray-900 dark:text-white">数据分析</h1>
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">数据分析 <span class="help-btn" data-tooltip="基于收藏项目的统计分析：展示采集趋势、预算分布、来源占比、关键词热度。帮助了解招标动态。">?</span></h1>
     <div class="flex gap-3 items-center">
       <label class="text-sm text-gray-600 dark:text-gray-400">统计周期:</label>
       <select id="daysSelect" class="border rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 dark:border-gray-600">
@@ -53,27 +53,27 @@
   <div id="contentEl" class="space-y-6" style="display:none">
     <!-- Trend Chart -->
     <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">采集趋势</h2>
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">采集趋势 <span class="help-btn" data-tooltip="每日/每周采集数量随时间变化。用于判断高峰期和采集效率。">?</span></h2>
       <div id="trend_chart" class="h-64"></div>
     </div>
 
     <div class="grid md:grid-cols-2 gap-6">
       <!-- Budget Distribution -->
       <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">预算分布</h2>
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">预算分布 <span class="help-btn" data-tooltip="各类别项目预算金额分布区间。便于筛选预算合理的招标机会。">?</span></h2>
         <div id="budget_chart" class="h-64"></div>
       </div>
 
       <!-- Source Distribution -->
       <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">来源分布</h2>
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">来源分布 <span class="help-btn" data-tooltip="数据来自哪些网站（政府采购网/公共资源交易中心等）。了解主要招标渠道。">?</span></h2>
         <div id="source_chart" class="h-64"></div>
       </div>
     </div>
 
     <!-- Keyword Heat -->
     <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">关键词热度 TOP20</h2>
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">关键词热度 TOP20 <span class="help-btn" data-tooltip="收藏标题中出现频率最高的20个关键词。反映当前招标热点领域。">?</span></h2>
       <div id="keywordHeatContainer" class="flex flex-wrap gap-2"></div>
       <p id="keywordHeatEmpty" class="text-gray-400 text-sm" style="display:none">暂无数据</p>
     </div>
