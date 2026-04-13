@@ -73,7 +73,7 @@ async def get_content(request: Request):
     user = _get_user_info(request)
     if user.get("role") == "guest":
         return RedirectResponse(url="/login", status_code=302)
-    return _render(request, "data.html")
+    return _render(request, "content.html")
 
 
 @router.get("/data", response_class=HTMLResponse)

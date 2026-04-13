@@ -1,7 +1,7 @@
 """收藏路由"""
 
 from datetime import datetime
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from app.database import get_db
@@ -52,21 +52,21 @@ def add_favorite(project: dict = Body(...)):
     return JSONResponse({"success": False, "error": "添加失败"}, status_code=500)
 
 
-@router.delete("/{project_url}")
-def remove_favorite(project_url: str):
-    """移除收藏"""
+@router.patch("/status")
+def update_favorite_status(project_url: str = Query(...), status: dict = Body(...)):
+    """更新收藏状态（query参数避免URL编码冲突）"""
     db = get_db()
-    success = db.remove_favorite(project_url)
+    success = db.update_favorite_status(project_url, status.get("status") if isinstance(status, dict) else status)
     if success:
         return JSONResponse({"success": True})
     return JSONResponse({"success": False}, status_code=500)
 
 
-@router.patch("/{project_url}/status")
-def update_favorite_status(project_url: str, status: str = Body(...)):
-    """更新收藏状态"""
+@router.delete("")
+def remove_favorite(project_url: str = Query(...)):
+    """移除收藏（query参数避免URL编码冲突）"""
     db = get_db()
-    success = db.update_favorite_status(project_url, status)
+    success = db.remove_favorite(project_url)
     if success:
         return JSONResponse({"success": True})
     return JSONResponse({"success": False}, status_code=500)
