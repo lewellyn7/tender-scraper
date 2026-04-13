@@ -5,9 +5,31 @@ import time
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, RedirectResponse
 
 from app.utils.security import SECURITY_HEADERS, generate_request_id
+from config.settings import settings
+
+
+class HTTPSForceMiddleware(BaseHTTPMiddleware):
+    """生产环境强制 HTTPS 重定向"""
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        if not settings.FORCE_HTTPS:
+            return await call_next(request)
+
+        # 仅在 HTTP 请求时重定向（跳过 WebSocket、健康检查等）
+        if request.url.scheme == "https":
+            return await call_next(request)
+
+        # 跳过内部路径
+        if request.url.path in ("/health", "/metrics"):
+            return await call_next(request)
+
+        # 构造 HTTPS URL 并重定向
+        https_url = request.url.replace(scheme="https")
+        # 保留原始端口（若使用标准443则不需显式端口）
+        return RedirectResponse(url=str(https_url), status_code=301)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

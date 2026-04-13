@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "重庆市公共资源交易采集系统"
     TIMEZONE: str = "Asia/Shanghai"
 
+    # 环境配置
+    ENV: str = "development"  # development | production
+    FORCE_HTTPS: bool = False  # 仅在 production 时自动为 True
+
     # 目标网站
     TARGET_URL: str = "https://www.cqggzy.com/"
 
@@ -55,3 +59,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# 生产环境自动强制 HTTPS
+if settings.ENV == "production":
+    settings.FORCE_HTTPS = True

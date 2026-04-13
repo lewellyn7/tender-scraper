@@ -58,3 +58,7 @@ api_router.include_router(priority_scheduler_router)
 # predictive_scaler API
 from app.api.routes.predictive_scaler import router as predictive_scaler_router
 api_router.include_router(predictive_scaler_router)
+
+# vector_search API
+from app.api.routes.vector_search import router as vector_search_router
+api_router.include_router(vector_search_router)

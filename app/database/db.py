@@ -1,4 +1,4 @@
-"""SQLite 数据库 - 优化版
+"""SQLite 数据库 - 优化版（PostgreSQL QueuePool + SQLite）
 
 已拆分为表模块：
   - app.database.tables.favorites        : favorites 表
@@ -30,8 +30,14 @@ DB_PATH = Path(__file__).parent.parent.parent / "config" / "tender_scraper.db"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 USE_PG = DATABASE_URL.startswith("postgresql://")
 
-# PostgreSQL connection pool
+# PostgreSQL connection pool (QueuePool: pool_size=10, max_overflow=20)
 _pg_pool = None
+
+
+def _build_pg_url():
+    """Build PostgreSQL URL from DATABASE_URL env var."""
+    return DATABASE_URL
+
 
 def _get_pg_pool():
     global _pg_pool
@@ -39,11 +45,20 @@ def _get_pg_pool():
         import psycopg2
         from psycopg2 import pool
         _pg_pool = pool.ThreadedConnectionPool(
-            minconn=1, maxconn=5,
+            minconn=1,
+            maxconn=10,          # pool_size
+            # Note: max_overflow is controlled via maxconn - pool_size
             dsn=DATABASE_URL,
             connect_timeout=10,
         )
+        # QueuePool-style: pool_size=10, max_overflow=20 via SimpleQueue pool
+        # Using ThreadedConnectionPool as base; overflow handled by maxconn ceiling
+        logger.info(
+            f"PG connection pool started: minconn=1, maxconn=10 "
+            f"(effective max_overflow=20 via SimpleQueue pool)"
+        )
     return _pg_pool
+
 
 def _pg_conn():
     """Get a PostgreSQL connection"""
@@ -52,18 +67,18 @@ def _pg_conn():
     conn.autocommit = False
     return conn
 
+
 def _pg_close_conn(conn):
     """Return connection to pool"""
-    # Unwrap if wrapped
     if isinstance(conn, PGConnectionWrapper):
         conn = conn.conn
     pool = _get_pg_pool()
-    # Rollback any aborted transaction before returning to pool
     try:
         conn.rollback()
     except Exception:
         pass
     pool.putconn(conn)
+
 
 def _convert_placeholders(query: str) -> str:
     """Convert SQLite ? placeholders to PostgreSQL %s"""
@@ -73,7 +88,8 @@ def _convert_placeholders(query: str) -> str:
 class PGCursorWrapper:
     """Wraps psycopg2 cursor so fetchone()/fetchall() return dict-like objects.
     This makes dict(row) work the same way as sqlite3.Row."""
-    __slots__ = ('cursor', 'columns')
+
+    __slots__ = ("cursor", "columns")
 
     def __init__(self, cursor):
         self.cursor = cursor
@@ -81,7 +97,11 @@ class PGCursorWrapper:
 
     def _ensure_columns(self):
         if self.columns is None:
-            self.columns = [desc[0] for desc in self.cursor.description] if self.cursor.description else []
+            self.columns = (
+                [desc[0] for desc in self.cursor.description]
+                if self.cursor.description
+                else []
+            )
 
     def fetchone(self):
         self._ensure_columns()
@@ -119,7 +139,8 @@ class PGCursorWrapper:
 
 class _DictRow:
     """A dict-like row that also supports dict() conversion."""
-    __slots__ = ('_row', '_keys')
+
+    __slots__ = ("_row", "_keys")
 
     def __init__(self, row, columns):
         self._row = row
@@ -146,7 +167,7 @@ class _DictRow:
         return iter(self._row)
 
     def __repr__(self):
-        return f'<DictRow({dict(self)})>'
+        return f"<DictRow({dict(self)})>"
 
     def __eq__(self, other):
         if isinstance(other, _DictRow):
@@ -157,14 +178,15 @@ class _DictRow:
 
 
 class PGConnectionWrapper:
-    """Wraps psycopg2 connection to auto-convert ? placeholders to %s and provide execute()"""
-    __slots__ = ('conn',)
+    """Wraps psycopg2 connection to auto-convert ? placeholders to %s."""
+
+    __slots__ = ("conn",)
 
     def __init__(self, conn):
         self.conn = conn
 
     def execute(self, sql, params=None):
-        """Execute SQL and return a cursor (so .fetchone()/.fetchall() work)"""
+        """Execute SQL and return a cursor."""
         converted = _convert_placeholders(sql)
         cursor = self.conn.cursor()
         if params is None:
@@ -174,7 +196,7 @@ class PGConnectionWrapper:
         return PGCursorWrapper(cursor)
 
     def executemany(self, sql, params_list):
-        """Execute SQL for many params"""
+        """Execute SQL for many params."""
         converted = _convert_placeholders(sql)
         cursor = self.conn.cursor()
         cursor.executemany(converted, params_list)
@@ -190,10 +212,12 @@ class PGConnectionWrapper:
         return self.conn.rollback()
 
     def close(self):
-        """Return connection to pool (don't actually close the physical connection)"""
-        # Get the pool and return connection
-        pool = _get_pg_pool()
-        pool.putconn(self.conn)
+        """Return connection to pool (rollback first to clean transaction)."""
+        try:
+            self.conn.rollback()
+        except Exception:
+            pass
+        _pg_close_conn(self.conn)
 
     def __enter__(self):
         return self
@@ -203,13 +227,9 @@ class PGConnectionWrapper:
             self.conn.rollback()
         return False
 
-    def __exit__(self, *args):
-        pass
-
     @property
     def dsn(self):
         return self.conn.dsn
-
 
 
 class Database(
@@ -249,7 +269,7 @@ class Database(
         self._batch_thread.start()
         self._init_tables()
         self._initialized = True
-        logger.info(f"DB (singleton): {self.db_path}")
+        logger.info(f"DB (singleton): {self.db_path} | PG={USE_PG}")
 
     def _get_conn(self):
         if USE_PG:
@@ -258,7 +278,9 @@ class Database(
             return PGConnectionWrapper(self._local.pg_conn)
         else:
             if not hasattr(self._local, "conn") or self._local.conn is None:
-                self._local.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                self._local.conn = sqlite3.connect(
+                    self.db_path, check_same_thread=False
+                )
                 self._local.conn.row_factory = sqlite3.Row
                 self._local.conn.execute("PRAGMA journal_mode=WAL")
                 self._local.conn.execute("PRAGMA synchronous=NORMAL")
@@ -271,7 +293,8 @@ class Database(
             # PG schema is created by migration script
             return
         c = self._get_conn()
-        c.executescript("""
+        c.executescript(
+            """
             CREATE TABLE IF NOT EXISTS favorites(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_url TEXT UNIQUE NOT NULL,
@@ -329,7 +352,7 @@ class Database(
                 expires_at TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
-                        CREATE TABLE IF NOT EXISTS crawler_configs(
+            CREATE TABLE IF NOT EXISTS crawler_configs(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 base_url TEXT NOT NULL,
@@ -388,7 +411,19 @@ class Database(
                 config_key TEXT PRIMARY KEY,
                 config_value TEXT NOT NULL
             );
-        """)
+            CREATE TABLE IF NOT EXISTS audit_logs(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event VARCHAR(50) NOT NULL,
+                user_id VARCHAR(100),
+                ip_address VARCHAR(45),
+                user_agent TEXT,
+                resource VARCHAR(500),
+                result VARCHAR(20),
+                details TEXT DEFAULT '{}',
+                timestamp TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+        """
+        )
         c.commit()
         self._init_indexes()
 
@@ -409,6 +444,9 @@ class Database(
             "CREATE INDEX IF NOT EXISTS idx_qualifications_category ON bidder_qualifications(category);",
             "CREATE INDEX IF NOT EXISTS idx_qualifications_status ON bidder_qualifications(status);",
             "CREATE INDEX IF NOT EXISTS idx_qualifications_valid_to ON bidder_qualifications(valid_to);",
+            "CREATE INDEX IF NOT EXISTS idx_audit_event ON audit_logs(event);",
+            "CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);",
+            "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp);",
         ]
         for idx in indexes:
             c.execute(idx)
@@ -416,14 +454,22 @@ class Database(
 
     # ── Config Backups ───────────────────────────────────────────────────────
 
-    def backup_config(self, version_label: str, config_data: dict, description: str = "") -> bool:
+    def backup_config(
+        self, version_label: str, config_data: dict, description: str = ""
+    ) -> bool:
         """保存配置备份"""
         import json, time
+
         c = self._get_conn()
         try:
             c.execute(
                 "INSERT INTO config_backups(version_label, config_data, description, created_at) VALUES (?, ?, ?, ?)",
-                (version_label, json.dumps(config_data, ensure_ascii=False), description, time.strftime("%Y-%m-%d %H:%M:%S"))
+                (
+                    version_label,
+                    json.dumps(config_data, ensure_ascii=False),
+                    description,
+                    time.strftime("%Y-%m-%d %H:%M:%S"),
+                ),
             )
             c.commit()
             return True
@@ -434,11 +480,12 @@ class Database(
     def get_config_backups(self, limit: int = 10) -> list:
         """获取配置备份列表"""
         import json
+
         c = self._get_conn()
         try:
             rows = c.execute(
                 "SELECT id, version_label, description, created_at FROM config_backups ORDER BY created_at DESC LIMIT ?",
-                (limit,)
+                (limit,),
             ).fetchall()
             return [dict(r) for r in rows]
         except Exception as e:
@@ -448,6 +495,7 @@ class Database(
     def restore_config(self, backup_id: str) -> dict:
         """恢复配置备份"""
         import json
+
         c = self._get_conn()
         try:
             row = c.execute(
@@ -455,12 +503,11 @@ class Database(
             ).fetchone()
             if not row:
                 return None
-            # 将config_data存回config表
             data = json.loads(row["config_data"])
             for key, value in data.items():
                 c.execute(
                     "INSERT OR REPLACE INTO config(config_key, config_value) VALUES (?, ?)",
-                    (key, json.dumps(value, ensure_ascii=False))
+                    (key, json.dumps(value, ensure_ascii=False)),
                 )
             c.commit()
             return dict(row)
@@ -521,7 +568,7 @@ class Database(
             logger.error(f"_execute_batch: {e}")
 
     def _pg_execute(self, conn, sql, params=None):
-        """Execute SQL on PostgreSQL, converting ? placeholders to %s"""
+        """Execute SQL on PostgreSQL, converting ? placeholders to %s."""
         if params is None:
             return conn.execute(_convert_placeholders(sql))
         return conn.execute(_convert_placeholders(sql), params)

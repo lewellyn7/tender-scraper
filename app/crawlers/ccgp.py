@@ -43,8 +43,11 @@ class CCGPCrawlerV3(BaseCrawler):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await asyncio.sleep(2)
 
-            # 新版重庆政府采购网使用 [class*=ListItem] 选择器
+            # 新版重庆政府采购网使用 .block-item 选择器
             list_item_selectors = [
+                ".block-item",
+                ".item-title",
+                "[class*=TitleCol]",
                 "[class*=ListItem]",
                 ".notice-item", ".list-item", ".item",
                 "ul.list li", "table tr", ".data-list tr",

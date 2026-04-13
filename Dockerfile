@@ -1,15 +1,23 @@
 # ============================================================
 # Stage 1: Builder — 安装依赖（依赖稳定，缓存复用）
+# 支持多架构构建：amd64 / arm64
 # ============================================================
-FROM python:3.12-slim AS builder
+FROM --platform=$BUILDPLATFORM python:3.12-slim AS builder
 
 WORKDIR /app
 
-# 安装编译依赖（仅构建期）
+# 跨架构编译依赖（仅构建期）
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         libpq-dev \
+        gcc-aarch64-linux-gnu \
     && rm -rf /var/lib/apt/lists/*
+
+# 用于 docker setup-buildx 自动适配架构
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+ARG PYTHONUARCH={"amd64":"x86_64","arm64":"aarch64"}[${TARGETPLATFORM:-amd64}]
+ENV PYTHONUARCH=$PYTHONUARCH
 
 # 先复制依赖文件（利用 Docker 缓存层）
 COPY requirements.txt .
@@ -20,7 +28,7 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 # ============================================================
 # Stage 2: Base — 运行时基础环境（系统库 + Playwright）
 # ============================================================
-FROM python:3.12-slim AS base
+FROM --platform=$TARGETPLATFORM python:3.12-slim AS base
 
 WORKDIR /app
 
@@ -62,9 +70,9 @@ RUN pip install --no-cache-dir playwright==1.44.0 \
     && find /root/.cache -type f -name "*.whl" -delete 2>/dev/null || true
 
 # ============================================================
-# Stage 3: Runtime — 生产镜像（最小权限）
+# Stage 3: Runtime — 生产镜像（最小权限，多架构）
 # ============================================================
-FROM base AS runtime
+FROM --platform=$TARGETPLATFORM base AS runtime
 
 # 安全：非 root 用户
 RUN groupadd --gid 1000 appgroup \

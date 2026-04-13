@@ -3,11 +3,21 @@
 <div class="toast-container" id="toastContainer"></div>
 
   <div class="flex justify-between items-center mb-6">
-    <h1 class="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">数据分析 <span class="help-btn" data-tooltip="基于收藏项目的统计分析
+    <div class="flex items-center gap-4">
+      <h1 class="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+        <span id="pageTitle">数据分析</span>
+        <span class="help-btn" data-tooltip="基于收藏项目的统计分析
 
-展示采集趋势、预算分布、来源占比、关键词热度。帮助了解招标市场动态，发现优质采购机会。">?</span></h1>
+展示采集趋势、预算分布、来源占比、关键词热度。帮助了解招标市场动态，发现优质采购机会。">?</span>
+      </h1>
+      <!-- Tab Switcher -->
+      <div class="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-sm">
+        <button type="button" id="tabStats" class="px-4 py-1.5 bg-blue-600 text-white font-medium" onclick="switchTab('stats')">📊 统计</button>
+        <button type="button" id="tabHealth" class="px-4 py-1.5 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700" onclick="switchTab('health')">💚 健康度</button>
+      </div>
+    </div>
     <div class="flex gap-3 items-center">
-      <label class="text-sm text-gray-600 dark:text-gray-400">统计周期:</label>
+      <label class="text-sm text-gray-600 dark:text-gray-400" id="daysLabel">统计周期:</label>
       <select id="daysSelect" class="border rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 dark:border-gray-600">
         <option value="7">近7天</option>
         <option value="14">近14天</option>
@@ -86,6 +96,41 @@
 从收藏项目标题中提取出现频率最高的20个关键词。反映当前招标市场的热点领域和主题趋势。">?</span></h2>
       <div id="keywordHeatContainer" class="flex flex-wrap gap-2"></div>
       <p id="keywordHeatEmpty" class="text-gray-400 text-sm" style="display:none">暂无数据</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ HEALTH DASHBOARD ═══════════════════ -->
+  <div id="healthContent" class="space-y-6" style="display:none">
+    <!-- Overall Score + Metric Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6" id="healthCards">
+      <!-- injected by JS -->
+    </div>
+
+    <!-- Radar + Trend -->
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">健康度雷达图</h2>
+        <div id="healthRadarChart" class="h-64"></div>
+      </div>
+      <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">综合得分趋势</h2>
+        <div class="flex gap-2 mb-4">
+          <button type="button" id="trend7dBtn" class="px-3 py-1 text-xs rounded border border-blue-600 text-blue-600 bg-blue-50 dark:bg-blue-900/20" onclick="loadHealthTrend(7)">7天</button>
+          <button type="button" id="trend30dBtn" class="px-3 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-500" onclick="loadHealthTrend(30)">30天</button>
+        </div>
+        <div id="healthTrendChart" class="h-56"></div>
+      </div>
+    </div>
+
+    <!-- Alert Banner -->
+    <div id="healthAlertBanner" class="hidden anim-card bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-5 py-4">
+      <div class="flex items-start gap-3">
+        <span class="text-2xl">⚠️</span>
+        <div>
+          <p class="font-semibold text-amber-800 dark:text-amber-200 mb-1">健康度告警</p>
+          <ul id="healthAlertList" class="text-sm text-amber-700 dark:text-amber-300 space-y-1"></ul>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -292,10 +337,206 @@
     state.days = this.value;
     loadAnalytics();
   });
-  els.refreshBtn.addEventListener('click', loadAnalytics);
+  els.refreshBtn.addEventListener('click', function() {
+    // Refresh current tab
+    if (typeof window.switchTab === 'function') {
+      var healthContent = document.getElementById('healthContent');
+      if (healthContent && healthContent.style.display !== 'none') {
+        loadHealth();
+        return;
+      }
+    }
+    loadAnalytics();
+  });
 
   // Bootstrap
   document.addEventListener('DOMContentLoaded', loadAnalytics);
+
+  // ── Health Dashboard ──────────────────────────────────────────
+  (function() {
+    var healthState = {
+      data: null,
+      trendDays: 7,
+      charts: {},
+    };
+
+    var METRIC_KEYS = [
+      'crawl_success_rate', 'crawl_avg_latency_ms',
+      'crawl_items_per_hour', 'self_heal_rate', 'ban_escape_rate',
+    ];
+    var METRIC_COLORS = [
+      '#22c55e', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899',
+    ];
+
+    function switchTab(tab) {
+      var isStats = tab === 'stats';
+      document.getElementById('contentEl').style.display = isStats ? '' : 'none';
+      document.getElementById('healthContent').style.display = isStats ? 'none' : '';
+      document.getElementById('tabStats').className = isStats
+        ? 'px-4 py-1.5 bg-blue-600 text-white font-medium'
+        : 'px-4 py-1.5 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700';
+      document.getElementById('tabHealth').className = !isStats
+        ? 'px-4 py-1.5 bg-blue-600 text-white font-medium'
+        : 'px-4 py-1.5 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700';
+      document.getElementById('daysSelect').style.display = isStats ? '' : 'none';
+      document.getElementById('daysLabel').style.display = isStats ? '' : 'none';
+      document.getElementById('pageTitle').textContent = isStats ? '数据分析' : '💚 健康度仪表盘';
+      if (!isStats && !healthState.data) loadHealth();
+    }
+    window.switchTab = switchTab;
+
+    function loadHealth() {
+      authFetch('/api/analytics/health')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          healthState.data = data;
+          renderHealthCards(data.metrics);
+          renderHealthRadar(data.metrics);
+          renderHealthTrend(healthState.trendDays);
+          renderHealthAlerts(data.alerts);
+        })
+        .catch(function(e) { console.error('health load error', e); });
+    }
+
+    function loadHealthTrend(days) {
+      healthState.trendDays = days;
+      document.getElementById('trend7dBtn').className = days === 7
+        ? 'px-3 py-1 text-xs rounded border border-blue-600 text-blue-600 bg-blue-50 dark:bg-blue-900/20'
+        : 'px-3 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-500';
+      document.getElementById('trend30dBtn').className = days === 30
+        ? 'px-3 py-1 text-xs rounded border border-blue-600 text-blue-600 bg-blue-50 dark:bg-blue-900/20'
+        : 'px-3 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-500';
+      renderHealthTrend(days);
+    }
+    window.loadHealthTrend = loadHealthTrend;
+
+    function renderHealthCards(metrics) {
+      var container = document.getElementById('healthCards');
+      var score = healthState.data ? healthState.data.overall_score : 0;
+      var color = score >= 80 ? 'green' : score >= 60 ? 'amber' : 'red';
+      var scoreLabel = score >= 80 ? '优秀' : score >= 60 ? '一般' : '需关注';
+      var scoreColor = score >= 80 ? 'text-green-600 dark:text-green-400' : score >= 60 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400';
+
+      var html = '<div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 col-span-2 md:col-span-3 lg:col-span-1 flex flex-col justify-center">' +
+        '<p class="text-sm text-gray-500 dark:text-gray-400">综合健康度</p>' +
+        '<p class="text-4xl font-bold ' + scoreColor + '">' + score.toFixed(1) + '</p>' +
+        '<p class="text-xs text-gray-400 mt-1">' + scoreLabel + '</p></div>';
+
+      var colorMap = {
+        crawl_success_rate: 'blue', crawl_avg_latency_ms: 'amber',
+        crawl_items_per_hour: 'purple', self_heal_rate: 'green', ban_escape_rate: 'pink',
+      };
+      METRIC_KEYS.forEach(function(key) {
+        var m = metrics[key];
+        if (!m) return;
+        var val = m.value;
+        var displayVal = key.includes('rate') ? (val * 100).toFixed(1) + '%' :
+                         key.includes('latency') ? val.toFixed(0) + 'ms' :
+                         val.toFixed(1);
+        var c = colorMap[key] || 'gray';
+        html += '<div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">' +
+          '<p class="text-sm text-gray-500 dark:text-gray-400">' + m.label + '</p>' +
+          '<p class="text-2xl font-bold text-' + c + '-600 dark:text-' + c + '-400">' + displayVal + '</p>' +
+          '<div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mt-2">' +
+          '<div class="bg-' + c + '-500 h-1.5 rounded-full" style="width:' + Math.min(100, m.score) + '%"></div></div>' +
+          '<p class="text-xs text-gray-400 mt-1">目标: ' + (key.includes('rate') ? (m.target * 100).toFixed(0) + '%' : m.target + m.unit) + '</p></div>';
+      });
+      container.innerHTML = html;
+    }
+
+    function renderHealthRadar(metrics) {
+      var el = document.getElementById('healthRadarChart');
+      if (!el) return;
+      var ctx = el.getContext('2d');
+      if (healthState.charts.radar) healthState.charts.radar.destroy();
+
+      var labels = METRIC_KEYS.map(function(k) { return metrics[k] ? metrics[k].label : k; });
+      var scores = METRIC_KEYS.map(function(k) { return metrics[k] ? metrics[k].score : 0; });
+
+      healthState.charts.radar = new Chart(ctx, {
+        type: 'radar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: '健康度',
+            data: scores,
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59,130,246,0.15)',
+            pointBackgroundColor: METRIC_COLORS,
+            pointRadius: 4,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            r: {
+              beginAtZero: true,
+              max: 100,
+              ticks: { stepSize: 20, display: false },
+              grid: { color: 'rgba(128,128,128,0.15)' },
+            }
+          },
+          plugins: { legend: { display: false } },
+        }
+      });
+    }
+
+    function renderHealthTrend(days) {
+      var el = document.getElementById('healthTrendChart');
+      if (!el || !healthState.data) return;
+      var ctx = el.getContext('2d');
+      if (healthState.charts.trend) healthState.charts.trend.destroy();
+
+      var trends = days === 7 ? (healthState.data.trends_7d || []) : (healthState.data.trends_30d || []);
+      var labels = trends.map(function(t) { return t.date || ''; });
+      var scores = trends.map(function(t) { return t.overall_score || 0; });
+
+      healthState.charts.trend = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: '健康度评分',
+            data: scores,
+            borderColor: '#22c55e',
+            backgroundColor: 'rgba(34,197,94,0.1)',
+            tension: 0.3,
+            fill: true,
+            spanGaps: true,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: false, min: 0, max: 100, ticks: { precision: 0 } },
+            x: { ticks: { maxRotation: 45, minRotation: 45 } },
+          }
+        }
+      });
+    }
+
+    function renderHealthAlerts(alerts) {
+      var banner = document.getElementById('healthAlertBanner');
+      var list = document.getElementById('healthAlertList');
+      if (!alerts || alerts.length === 0) {
+        banner.classList.add('hidden');
+        return;
+      }
+      banner.classList.remove('hidden');
+      list.innerHTML = '';
+      alerts.forEach(function(a) {
+        var li = document.createElement('li');
+        li.textContent = a;
+        list.appendChild(li);
+      });
+    }
+
+    // Expose to window for tab switching
+    window.loadHealth = loadHealth;
+  })();
 })();
 </script>
 {% endblock %}

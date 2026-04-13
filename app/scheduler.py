@@ -21,18 +21,67 @@ logger.add("logs/scheduler.log", rotation="1 day", retention="7 days", level="IN
 
 
 def job_run_collection():
-    """定时采集任务"""
+    """定时采集任务（调度器触发入口）"""
     logger.info(f"[Scheduler] 触发采集任务 @ {datetime.now():%Y-%m-%d %H:%M:%S}")
+
+    # 审计日志：采集开始
     try:
-        # 延迟导入，避免顶层循环依赖
+        from app.security.audit import write_audit_log, EVENT_CRAWL_STARTED
+        write_audit_log(
+            EVENT_CRAWL_STARTED,
+            user_id=None,
+            ip_address=None,
+            resource="scheduler.daily_collection",
+            result="started",
+            details={"triggered_at": datetime.now().isoformat()},
+        )
+    except Exception as e:
+        logger.warning(f"[Scheduler] 审计日志写入失败 (crawl_started): {e}")
+
+    try:
+        import asyncio
         from main import run_collection
-        result = __import__("asyncio").run(run_collection())
+
+        result = asyncio.run(run_collection())
         if result:
-            logger.info(f"[Scheduler] 采集完成: {result.get('filtered', 0)} 条匹配")
+            logger.info(
+                f"[Scheduler] 采集完成: {result.get('filtered', 0)} 条匹配 / "
+                f"{result.get('total', 0)} 条总计"
+            )
+            # 审计日志：采集成功
+            try:
+                from app.security.audit import write_audit_log, EVENT_CRAWL_COMPLETED
+                write_audit_log(
+                    EVENT_CRAWL_COMPLETED,
+                    user_id=None,
+                    ip_address=None,
+                    resource="scheduler.daily_collection",
+                    result="success",
+                    details={
+                        "filtered": result.get("filtered", 0),
+                        "total": result.get("total", 0),
+                        "new_items": result.get("new_items", 0),
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"[Scheduler] 审计日志写入失败 (crawl_completed): {e}")
         else:
             logger.warning("[Scheduler] 采集未返回结果")
     except Exception as e:
         logger.error(f"[Scheduler] 采集任务异常: {e}")
+        # 审计日志：采集失败
+        try:
+            from app.security.audit import write_audit_log, EVENT_CRAWL_FAILED
+            write_audit_log(
+                EVENT_CRAWL_FAILED,
+                user_id=None,
+                ip_address=None,
+                resource="scheduler.daily_collection",
+                result="failure",
+                details={"error": str(e)},
+            )
+        except Exception as audit_err:
+            logger.warning(f"[Scheduler] 审计日志写入失败 (crawl_failed): {audit_err}")
 
 
 def main():
@@ -48,9 +97,10 @@ def main():
     )
 
     logger.info("[Scheduler] 定时采集调度器已启动 (08:00 / 12:00 / 18:00)")
+
     job = scheduler.get_job("daily_collection")
     if job:
-        next_time = getattr(job, "next_run_time", None) or getattr(job, "next_run_time_", None)
+        next_time = getattr(job, "next_run_time", None)
         logger.info(f"[Scheduler] 下次执行: {next_time}")
     else:
         logger.info("[Scheduler] 下次执行: 未找到 daily_collection job")

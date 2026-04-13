@@ -12,6 +12,7 @@ from loguru import logger
 from app.database import get_db
 from app.utils.session import get_user_from_session
 from app.core.crawl_executor import CrawlExecutor, PLAYWRIGHT_AVAILABLE
+from app.security.audit import write_audit_log, EVENT_CONFIG_CHANGE, EVENT_DATA_DELETE
 
 router = APIRouter(prefix="/api/crawler-configs", tags=["自定义爬虫"])
 
@@ -64,6 +65,7 @@ def list_configs(request: Request):
 @router.post("")
 def create_config(request: Request, config: dict = Body(...)):
     """创建爬虫配置"""
+    user_id = get_current_user_id(request)
     db = get_db()
     conn = db._get_conn()
     name = config.get("name", "").strip()
@@ -92,12 +94,23 @@ def create_config(request: Request, config: dict = Body(...)):
     )
     new_id = cur.fetchone()[0]
     conn.commit()
+
+    write_audit_log(
+        EVENT_CONFIG_CHANGE,
+        user_id=user_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        resource=f"crawler_config:{new_id}",
+        result="success",
+        details={"action": "create", "name": name, "base_url": base_url},
+    )
     return JSONResponse({"success": True, "id": new_id})
 
 
 @router.put("/{config_id}")
 def update_config(config_id: int, request: Request, config: dict = Body(...)):
     """更新爬虫配置"""
+    user_id = get_current_user_id(request)
     db = get_db()
     conn = db._get_conn()
     item_rules = json.dumps(config.get("item_rules", {}), ensure_ascii=False)
@@ -120,17 +133,42 @@ def update_config(config_id: int, request: Request, config: dict = Body(...)):
         )
     )
     conn.commit()
+
+    write_audit_log(
+        EVENT_CONFIG_CHANGE,
+        user_id=user_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        resource=f"crawler_config:{config_id}",
+        result="success",
+        details={"action": "update", "name": config.get("name")},
+    )
     return JSONResponse({"success": True})
 
 
 @router.delete("/{config_id}")
 def delete_config(config_id: int, request: Request):
     """删除爬虫配置"""
+    user_id = get_current_user_id(request)
     db = get_db()
     conn = db._get_conn()
+    # 获取配置名用于审计
+    cur = conn.execute("SELECT name FROM crawler_configs WHERE id=?", (config_id,))
+    row = cur.fetchone()
+    config_name = row[0] if row else str(config_id)
     conn.execute("DELETE FROM crawl_executions WHERE config_id=?", (config_id,))
     conn.execute("DELETE FROM crawler_configs WHERE id=?", (config_id,))
     conn.commit()
+
+    write_audit_log(
+        EVENT_CONFIG_CHANGE,
+        user_id=user_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        resource=f"crawler_config:{config_id}",
+        result="success",
+        details={"action": "delete", "name": config_name},
+    )
     return JSONResponse({"success": True})
 
 

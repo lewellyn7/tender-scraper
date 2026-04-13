@@ -1,11 +1,12 @@
 """收藏路由"""
 
 from datetime import datetime
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.database import get_db
 from app.utils.session import get_user_from_session
+from app.security.audit import write_audit_log, EVENT_DATA_DELETE
 
 router = APIRouter(prefix="/api/favorites", tags=["收藏"])
 
@@ -63,10 +64,20 @@ def update_favorite_status(project_url: str = Query(...), status: dict = Body(..
 
 
 @router.delete("")
-def remove_favorite(project_url: str = Query(...)):
+def remove_favorite(request: Request, project_url: str = Query(...)):
     """移除收藏（query参数避免URL编码冲突）"""
+    user_id = get_current_user_id(request)
     db = get_db()
     success = db.remove_favorite(project_url)
+    write_audit_log(
+        EVENT_DATA_DELETE,
+        user_id=user_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        resource=project_url,
+        result="success" if success else "failure",
+        details={"operation": "remove_favorite"},
+    )
     if success:
         return JSONResponse({"success": True})
     return JSONResponse({"success": False}, status_code=500)

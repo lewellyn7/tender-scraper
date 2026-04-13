@@ -116,7 +116,7 @@
               <span class="text-xs px-2 py-0.5 rounded font-medium ${getStatusClass(item.status)}">${getStatusLabel(item.status)}</span>
               ${priorityHigh}${priorityCritical}
             </div>
-            <h3 class="font-medium text-gray-900 dark:text-white text-sm mb-1">${item.title || ''}</h3>
+            <h3 class="font-medium text-gray-900 dark:text-white text-sm mb-1 truncate" title="${item.title || ''}">${item.title || ''}</h3>
             <div class="text-xs text-gray-500 dark:text-gray-400 space-x-3">
               <span>${item.tender_type || item.type || '-'}</span>
               ${budget ? `<span class="text-amber-600 dark:text-amber-400 font-medium">${item.budget}</span>` : ''}
@@ -171,17 +171,23 @@
     renderFavorites();
   }
 
-  async function updateFavStatus(url, status) {
-    await fetch("/api/favorites/status?project_url=" + encodeURIComponent(url), {
-      method: "PATCH",
-      headers: Object.assign({"Content-Type": "application/json"}, authHeaders()),
-      body: JSON.stringify({status: status})
-    });
-    // Update local state and re-render
-    var item = state.favorites.find(f => f.project_url === url);
-    if (item) {
-      item.status = status;
+  async function updateFavStatus(url, status, btn) {
+    if (btn) { btn.disabled = true; btn.classList.add('opacity-50'); }
+    try {
+      await fetch("/api/favorites/status?project_url=" + encodeURIComponent(url), {
+        method: "PATCH",
+        headers: Object.assign({"Content-Type": "application/json"}, authHeaders()),
+        body: JSON.stringify({status: status})
+      });
+      // Update local state and re-render
+      var item = state.favorites.find(f => f.project_url === url);
+      if (item) { item.status = status; }
       renderFavorites();
+      showToast('状态已更新', 'success');
+    } catch (e) {
+      showToast('更新失败', 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.classList.remove('opacity-50'); }
     }
   }
 
@@ -246,7 +252,7 @@
     if (e.target.matches('select[data-status]')) {
       const url = e.target.getAttribute('data-status');
       const status = e.target.value;
-      updateFavStatus(url, status);
+      updateFavStatus(url, status, e.target);
     }
   });
 

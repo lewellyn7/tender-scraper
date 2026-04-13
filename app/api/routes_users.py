@@ -4,7 +4,9 @@ import os
 import secrets
 import sys
 
-from fastapi import APIRouter, Body, Header, HTTPException, Query
+from app.security.audit import write_audit_log, EVENT_LOGIN_SUCCESS, EVENT_LOGIN_FAILURE, EVENT_LOGOUT, EVENT_PASSWORD_CHANGED
+
+from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
 
 # 这是必要的，因为 app 模块在父目录中
 sys_path = os.path.dirname(
@@ -71,13 +73,18 @@ async def register(
 @router.post("/login", summary="用户登录", description="验证用户名密码")
 @rate_limit(max_requests=100, window=60)  # 100次/分钟，防止暴力破解同时允许正常测试
 async def login(
+    request: Request,
     username: str = Body(...),
     password: str = Body(...),
 ):
     """用户登录"""
     username_sanitized = sanitize_input(username, 32)
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent", None)
 
     if check_lockout(username_sanitized):
+        write_audit_log(EVENT_LOGIN_FAILURE, user_id=username_sanitized, ip_address=client_ip,
+                        user_agent=user_agent, result="lockout")
         raise HTTPException(status_code=423, detail="账户已被锁定，请30分钟后再试")
 
     db = get_db()
@@ -87,15 +94,22 @@ async def login(
     TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
     if not TEST_MODE and (not user or not verify_password(password, user["password_hash"], user["password_salt"])):
         record_failed_login(username_sanitized)
+        write_audit_log(EVENT_LOGIN_FAILURE, user_id=username_sanitized, ip_address=client_ip,
+                        user_agent=user_agent, result="invalid_password")
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     if not user:
+        write_audit_log(EVENT_LOGIN_FAILURE, user_id=username_sanitized, ip_address=client_ip,
+                        user_agent=user_agent, result="user_not_found")
         raise HTTPException(status_code=401, detail="用户不存在")
 
     clear_failed_login(username_sanitized)
     db.update_user_last_login(user["user_id"])
 
     token = create_session(user["user_id"], user["role"])
+    write_audit_log(EVENT_LOGIN_SUCCESS, user_id=user["user_id"], ip_address=client_ip,
+                    user_agent=user_agent, result="success",
+                    details={"username": user["username"], "role": user["role"]})
 
     from fastapi.responses import JSONResponse
     resp = JSONResponse({
@@ -113,10 +127,22 @@ async def login(
 
 
 @router.post("/logout", summary="用户登出", description="清除当前session")
-async def logout(x_session_token: str = Header(None, alias="X-Session-Token")):
+async def logout(
+    request: Request,
+    x_session_token: str = Header(None, alias="X-Session-Token"),
+):
     """用户登出"""
+    user = None
     if x_session_token:
+        user = get_user_from_session(x_session_token)
         delete_session(x_session_token)
+    write_audit_log(
+        EVENT_LOGOUT,
+        user_id=user["user_id"] if user else None,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        result="success",
+    )
     return {"status": "ok"}
 
 
@@ -135,6 +161,7 @@ async def get_me(x_session_token: str = Header(None, alias="X-Session-Token")):
 
 @router.post("/change-password", summary="修改密码", description="修改当前用户的密码")
 async def change_password(
+    request: Request,
     old_password: str = Body(...),
     new_password: str = Body(...),
     x_session_token: str = Header(None, alias="X-Session-Token"),
@@ -154,11 +181,19 @@ async def change_password(
     db_user = db.get_user_by_id(user["user_id"])
 
     if not verify_password(old_password, db_user["password_hash"], db_user["password_salt"]):
+        write_audit_log(EVENT_PASSWORD_CHANGED, user_id=user["user_id"],
+                        ip_address=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent"),
+                        result="failure", details={"reason": "invalid_old_password"})
         raise HTTPException(status_code=401, detail="原密码错误")
 
     new_hash, new_salt = hash_password(new_password)
     db.update_user_password(user["user_id"], new_hash, new_salt)
 
+    write_audit_log(EVENT_PASSWORD_CHANGED, user_id=user["user_id"],
+                    ip_address=request.client.host if request.client else None,
+                    user_agent=request.headers.get("user-agent"),
+                    result="success")
     return {"status": "ok"}
 
 

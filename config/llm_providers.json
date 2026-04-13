@@ -1,0 +1,10 @@
+[{
+  "name": "minimax-M2.7",
+  "provider_type": "minimax",
+  "model": "MiniMax-M2.7",
+  "api_key": "",
+  "base_url": "",
+  "max_retries": 3,
+  "timeout": 60,
+  "enabled": true
+}]

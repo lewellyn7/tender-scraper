@@ -68,6 +68,7 @@ services:
       - TZ=Asia/Shanghai
       - HOST=0.0.0.0
       - PORT=8000
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - DB_HOST=postgres
       - DB_PORT=5432
       - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}
@@ -80,13 +81,20 @@ services:
     volumes:
       - ./output:/app/output
       - scraper-data:/app/data
+      - ./logs:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+        labels: "service,app"
     healthcheck:
-      # 注意：容器内部端口是 8000，不是 8888
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5)"]
+      test: ["CMD-SHELL", "python -c \"import httpx; r=httpx.get('http://localhost:8000/health', timeout=5); assert r.status_code==200, f'status={r.status_code}'\" 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
       start_period: 90s
+      summary: "Web API health check — 容器内部访问 8000"
     networks:
       - tender-net
     depends_on:
@@ -166,6 +174,7 @@ services:
       - TZ=Asia/Shanghai
       - HOST=0.0.0.0
       - PORT=8000
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - DB_HOST=postgres
       - DB_PORT=5432
       - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}
@@ -178,6 +187,13 @@ services:
     volumes:
       - ./output:/app/output
       - scraper-data:/app/data
+      - ./logs:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+        labels: "service,app"
     networks:
       - tender-net
     depends_on:
