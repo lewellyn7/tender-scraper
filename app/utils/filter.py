@@ -1,5 +1,6 @@
 """数据过滤与关键词匹配模块 - 增强版 V2"""
 
+import difflib
 from typing import Any, Dict, List
 
 from loguru import logger
@@ -11,6 +12,35 @@ class TenderFilter:
     def __init__(self, keywords: List[str], exclude_keywords: List[str] = None):
         self.keywords = keywords
         self.exclude_keywords = exclude_keywords or []
+        self._fuzzy_threshold = 0.8
+
+    def check_keywords(self, title: str) -> List[str]:
+        """检查标题匹配的关键词列表（支持模糊匹配）"""
+        title_lower = title.lower()
+        matched = []
+        for kw in self.keywords:
+            kw_lower = kw.lower()
+            # 精确匹配优先
+            if kw_lower in title_lower:
+                matched.append(kw)
+            else:
+                # 模糊匹配
+                ratio = difflib.SequenceMatcher(None, kw_lower, title_lower).ratio()
+                if ratio >= self._fuzzy_threshold:
+                    matched.append(kw)
+        return matched
+
+    def fuzzy_match(self, keyword: str, text: str, threshold: float = 0.8) -> tuple:
+        """
+        模糊匹配单关键词
+        返回: (是否匹配, 相似度)
+        """
+        text_lower = text.lower()
+        kw_lower = keyword.lower()
+        if kw_lower in text_lower:
+            return True, 1.0
+        ratio = difflib.SequenceMatcher(None, kw_lower, text_lower).ratio()
+        return ratio >= threshold, ratio
 
     def filter_by_keywords(self, items: List[Dict]) -> List[Dict]:
         """根据关键词过滤项目（字典列表）"""
@@ -23,11 +53,6 @@ class TenderFilter:
                 filtered.append(item)
         logger.info(f"📊 过滤完成：{len(items)} -> {len(filtered)} 条")
         return filtered
-
-    def check_keywords(self, title: str) -> List[str]:
-        """检查标题匹配的关键词列表"""
-        title_lower = title.lower()
-        return [kw for kw in self.keywords if kw.lower() in title_lower]
 
     def _matches_keywords(self, text: str) -> bool:
         return bool(self.check_keywords(text))

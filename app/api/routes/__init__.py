@@ -61,4 +61,6 @@ api_router.include_router(predictive_scaler_router)
 
 # vector_search API
 from app.api.routes.vector_search import router as vector_search_router
+from app.api.routes.keywords import router as keywords_router
 api_router.include_router(vector_search_router)
+api_router.include_router(keywords_router)

@@ -24,6 +24,7 @@ from app.database.tables import (
     ModalsMixin,
     QualificationsMixin,
     UsersMixin,
+    KeywordsMixin,
 )
 
 DB_PATH = Path(__file__).parent.parent.parent / "config" / "tender_scraper.db"
@@ -238,6 +239,7 @@ class Database(
     QualificationsMixin,
     UsersMixin,
     ModalsMixin,
+    KeywordsMixin,
 ):
     """SQLite 数据库单例（混合了所有表操作Mixin）"""
 
@@ -422,6 +424,16 @@ class Database(
                 details TEXT DEFAULT '{}',
                 timestamp TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS keywords(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                keyword TEXT NOT NULL UNIQUE,
+                category TEXT DEFAULT 'include',
+                match_mode TEXT DEFAULT 'exact',
+                threshold REAL DEFAULT 0.8,
+                enabled INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
         """
         )
         c.commit()
@@ -447,6 +459,8 @@ class Database(
             "CREATE INDEX IF NOT EXISTS idx_audit_event ON audit_logs(event);",
             "CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);",
             "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp);",
+            "CREATE INDEX IF NOT EXISTS idx_keywords_category ON keywords(category);",
+            "CREATE INDEX IF NOT EXISTS idx_keywords_enabled ON keywords(enabled);",
         ]
         for idx in indexes:
             c.execute(idx)

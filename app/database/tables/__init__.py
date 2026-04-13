@@ -4,7 +4,8 @@
 - annotations.py     : annotations 表 CRUD
 - qualifications.py  : bidder_qualifications 表 CRUD
 - users.py           : users 表 CRUD
-- modals.py          : filter_presets / scrape_logs / duplicate_records / data_cache / backup / stats / schema
+- modals.py          : filter_presets / scrape_logs / duplicates / cache / backup / stats / schema
+- keywords.py         : keywords 表 CRUD（包含/排除关键词，精确/模糊匹配）
 """
 
 from app.database.tables.annotations import AnnotationsMixin
@@ -12,6 +13,7 @@ from app.database.tables.favorites import FavoritesMixin
 from app.database.tables.modals import ModalsMixin
 from app.database.tables.qualifications import QualificationsMixin
 from app.database.tables.users import UsersMixin
+from app.database.tables.keywords import KeywordsMixin
 
 __all__ = [
     "FavoritesMixin",
@@ -19,4 +21,5 @@ __all__ = [
     "QualificationsMixin",
     "UsersMixin",
     "ModalsMixin",
+    "KeywordsMixin",
 ]
