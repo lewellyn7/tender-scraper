@@ -64,7 +64,7 @@
       const qs = params.toString();
       const res = await authFetch('/api/projects' + (qs ? '?' + qs : ''));
       const data = await res.json();
-      state.projects = data.data || [];
+      state.projects = data.projects || data.data || [];
       renderTable();
     } catch (e) {
       console.error('加载数据失败:', e);
