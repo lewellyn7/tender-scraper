@@ -84,37 +84,20 @@
             <div class="flex justify-between h-16">
                 <!-- Logo -->
                 <div class="flex items-center min-w-0">
-                    <a href="/" class="flex items-center gap-2 flex-shrink-0">
+                    <a href="/data" class="flex items-center gap-2 flex-shrink-0">
                         <span class="text-2xl">📊</span>
                         <span class="hidden sm:block text-xl font-bold text-gray-900 dark:text-white tracking-tight">招投标采集</span>
                     </a>
                     <!-- Desktop nav links -->
                     <div class="hidden md:flex md:ml-6 md:space-x-0.5">
-                        <a href="/" class="nav-link nav-link--desk" data-show-role="not-guest">
-                            <span class="mr-1">🏠</span>仪表盘
-                        </a>
-                        <a href="/content" class="nav-link nav-link--desk">📋<span class="nav-label">采集内容</span></a>
-                        <a href="/data" class="nav-link nav-link--desk">💾<span class="nav-label">数据管理</span></a>
-                        <a href="/favorites" class="nav-link nav-link--desk"
-                           data-show-role="viewer,operator,admin">
-                            ⭐<span class="nav-label">收藏</span>
-                        </a>
-                        <a href="/analytics" class="nav-link nav-link--desk"
-                           data-show-role="viewer,operator,admin">
-                            📈<span class="nav-label">分析</span>
-                        </a>
-                        <a href="/nl-query" class="nav-link nav-link--desk"
-                           data-show-role="viewer,operator,admin">
-                            🔍<span class="nav-label">智能查询</span>
-                        </a>
-                        <a href="/logs" class="nav-link nav-link--desk"
-                           data-show-role="operator,admin">
-                            📋<span class="nav-label">日志</span>
-                        </a>
-                        <a href="/qualifications" class="nav-link nav-link--desk"
-                           data-show-role="not-guest">
-                            📜<span class="nav-label">资质</span>
-                        </a>
+                        <a href="/data" class="nav-link nav-link--desk">📋<span class="nav-label">采集内容</span></a>
+                        <a href="/content" class="nav-link nav-link--desk">💾<span class="nav-label">数据管理</span></a>
+                        <a href="/favorites" class="nav-link nav-link--desk">⭐<span class="nav-label">收藏</span></a>
+                        <a href="/analytics" class="nav-link nav-link--desk">📈<span class="nav-label">分析</span></a>
+                        <a href="/nl-query" class="nav-link nav-link--desk">🔍<span class="nav-label">智能查询</span></a>
+                        <a href="/qualifications" class="nav-link nav-link--desk">📜<span class="nav-label">资质管理</span></a>
+                        <a href="/logs" class="nav-link nav-link--desk">📋<span class="nav-label">日志</span></a>
+                        <a href="/documents/upload" class="nav-link nav-link--desk">📎<span class="nav-label">文档上传</span></a>
                         <a href="/settings" class="nav-link nav-link--desk">⚙️<span class="nav-label">设置</span></a>
                     </div>
                 </div>
@@ -163,17 +146,14 @@
 
         <!-- Mobile bottom sheet nav -->
         <div id="mobileNav" class="md:hidden hidden border-t border-gray-100 dark:border-gray-700 py-3 px-4 space-y-1">
-            <a href="/" class="mobile-nav-item" data-show-role="not-guest">🏠 仪表盘</a>
-            <a href="/content" class="mobile-nav-item">📋 采集内容</a>
-            <a href="/data" class="mobile-nav-item">💾 数据管理</a>
-            <a href="/favorites" class="mobile-nav-item"
-               data-show-role="viewer,operator,admin">⭐ 收藏</a>
-            <a href="/analytics" class="mobile-nav-item"
-               data-show-role="viewer,operator,admin">📈 分析</a>
-            <a href="/logs" class="mobile-nav-item"
-               data-show-role="operator,admin">📋 日志</a>
-            <a href="/qualifications" class="mobile-nav-item"
-               data-show-role="not-guest">📜 资质管理</a>
+            <a href="/data" class="mobile-nav-item">📋 采集内容</a>
+            <a href="/content" class="mobile-nav-item">💾 数据管理</a>
+            <a href="/favorites" class="mobile-nav-item">⭐ 收藏</a>
+            <a href="/analytics" class="mobile-nav-item">📈 分析</a>
+            <a href="/nl-query" class="mobile-nav-item">🔍 智能查询</a>
+            <a href="/qualifications" class="mobile-nav-item">📜 资质管理</a>
+            <a href="/logs" class="mobile-nav-item">📋 日志</a>
+            <a href="/documents/upload" class="mobile-nav-item">📎 文档上传</a>
             <a href="/settings" class="mobile-nav-item">⚙️ 设置</a>
         </div>
     </nav>
@@ -289,18 +269,6 @@
                     window.AppState.user.display_name || window.AppState.user.username;
                 document.getElementById('userRoleBadge').textContent = role;
             }
-
-            // Desktop & mobile nav links with data-show-role
-            document.querySelectorAll('[data-show-role]').forEach(function(el) {
-                const allowed = el.getAttribute('data-show-role').split(',');
-                let show = false;
-                if (allowed.includes('not-guest')) {
-                    show = !isGuest;
-                } else {
-                    show = allowed.includes(role);
-                }
-                el.style.display = show ? '' : 'none';
-            });
         }
 
         // ── Active nav highlighting ────────────────────────────────────

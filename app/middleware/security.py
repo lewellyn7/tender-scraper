@@ -69,29 +69,45 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """简单速率限制中间件（已修复内存泄漏）"""
+    """简单速率限制中间件（已修复内存泄漏）
+    
+    - 未登录用户: 30次/分钟（访客限制）
+    - 已登录用户: 300次/分钟
+    """
 
-    def __init__(self, app, max_per_minute: int = 100):
+    def __init__(self, app, max_per_minute_guest: int = 30, max_per_minute_user: int = 300):
         super().__init__(app)
-        self.max_per_minute = max_per_minute
+        self.max_per_minute_guest = max_per_minute_guest
+        self.max_per_minute_user = max_per_minute_user
         self._requests = {}
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        # 获取客户端 IP
+    def _get_user_identifier(self, request: Request) -> str:
+        """获取用户标识：优先用 session token，否则用 IP"""
+        token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
+        if token:
+            return f"token:{token[:16]}"
         client_ip = request.client.host if request.client else "unknown"
+        return f"ip:{client_ip}"
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        identifier = self._get_user_identifier(request)
         current_minute = int(time.time() / 60)
-        key = f"{client_ip}:{current_minute}"
+        key = f"{identifier}:{current_minute}"
 
         # 清理旧记录 (每次请求主动清理，避免内存泄漏)
         cutoff_minute = current_minute - 1  # 保留最近1分钟的记录
         self._requests = {
-            k: v for k, v in self._requests.items() if int(k.split(":")[1]) >= cutoff_minute
+            k: v for k, v in self._requests.items() if int(k.split(":")[-1]) >= cutoff_minute
         }
+
+        # 区分登录状态
+        is_guest = not (request.cookies.get("session_token") or request.headers.get("X-Session-Token"))
+        limit = self.max_per_minute_guest if is_guest else self.max_per_minute_user
 
         # 检查限制
         if key in self._requests:
             count = self._requests[key]
-            if count >= self.max_per_minute:
+            if count >= limit:
                 return JSONResponse(status_code=429, content={"error": "请求过于频繁，请稍后再试"})
             self._requests[key] = count + 1
         else:
