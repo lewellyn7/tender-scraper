@@ -1,37 +1,74 @@
 {% extends "base.html" %}
 {% block title %}数据管理 - 招投标采集系统{% endblock %}
 {% block content %}
-<div id="dataApp">
-  <!-- 筛选工具栏 -->
-  <div class="bg-white rounded-lg shadow mb-6 p-4">
-    <div class="flex flex-wrap items-center gap-4">
-      <div class="flex-1 min-w-[200px]">
-        <label class="block text-sm font-medium text-gray-700 mb-1">关键词搜索</label>
-        <input type="text" id="keywordInput" placeholder="输入标题关键词..." class="w-full px-3 py-2 border border-gray-300 rounded-md">
-      </div>
-      <div class="w-40">
-        <label class="block text-sm font-medium text-gray-700 mb-1">分类</label>
-        <select id="categorySelect" class="w-full px-3 py-2 border border-gray-300 rounded-md">
-          <option value="">全部</option>
-          <option value="政府采购">政府采购</option>
-          <option value="工程建设">工程建设</option>
-        </select>
-      </div>
-      <div class="flex items-end">
-        <button type="button" id="exportBtn" class="px-4 py-2 bg-green-600 text-white rounded-md">导出 Excel</button>
-      </div>
+<div id="dataApp" class="space-y-4">
+  <!-- 统计面板 -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="bg-white rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+      <p class="text-xs text-gray-500 uppercase font-medium mb-1">全部采集</p>
+      <p id="statTotal" class="text-2xl font-bold text-blue-600 dark:text-blue-400">—</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+      <p class="text-xs text-gray-500 uppercase font-medium mb-1">今日新增</p>
+      <p id="statFiltered" class="text-2xl font-bold text-green-600 dark:text-green-400">—</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+      <p class="text-xs text-gray-500 uppercase font-medium mb-1">成功率</p>
+      <p id="statRate" class="text-2xl font-bold text-yellow-600 dark:text-yellow-400">—</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+      <p class="text-xs text-gray-500 uppercase font-medium mb-1">最近采集</p>
+      <p id="statLastRun" class="text-sm font-bold text-gray-700 dark:text-gray-200">—</p>
     </div>
   </div>
 
-  <!-- 数据表格 -->
-  <div class="bg-white rounded-lg shadow overflow-hidden">
+  <!-- 工具栏 -->
+  <div class="bg-white rounded-lg shadow p-4">
+    <div class="flex flex-wrap items-end gap-3">
+      <!-- 视图切换 -->
+      <div class="flex rounded-md overflow-hidden border border-gray-300">
+        <button type="button" id="view-table" class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white" onclick="switchView('table')">表格</button>
+        <button type="button" id="view-card" class="px-3 py-1.5 text-sm font-medium bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300" onclick="switchView('card')">卡片</button>
+      </div>
+      <!-- 关键词搜索 -->
+      <div class="flex-1 min-w-[200px]">
+        <input type="text" id="searchKeyword" placeholder="搜索标题..." class="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600">
+      </div>
+      <!-- 类型筛选 -->
+      <div class="w-36">
+        <select id="filterType" class="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600">
+          <option value="">全类型</option>
+          <option value="政府采购">政府采购</option>
+          <option value="工程建设">工程建设</option>
+          <option value="产权交易">产权交易</option>
+          <option value="土地交易">土地交易</option>
+        </select>
+      </div>
+      <!-- 导出 -->
+      <button type="button" id="exportBtn" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">导出 Excel</button>
+    </div>
+  </div>
+
+  <!-- 骨架屏 -->
+  <div id="skeletonList" class="hidden space-y-3">
+    <div class="bg-white rounded-lg h-20 animate-pulse"></div>
+    <div class="bg-white rounded-lg h-20 animate-pulse"></div>
+    <div class="bg-white rounded-lg h-20 animate-pulse"></div>
+  </div>
+
+  <!-- 卡片视图 -->
+  <div id="cardsList" class="space-y-3 hidden"></div>
+
+  <!-- 表格视图 -->
+  <div id="tableView" class="bg-white rounded-lg shadow overflow-hidden">
     <div class="overflow-x-auto">
       <table class="min-w-full divide-y divide-gray-200">
         <thead class="bg-gray-50">
           <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">收藏</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">标题</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">分类</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">发布日期</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">类型</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">日期</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">关键词</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
           </tr>
@@ -41,72 +78,247 @@
       </table>
     </div>
   </div>
+
+  <!-- 空状态 -->
+  <div id="emptyState" class="hidden flex flex-col items-center justify-center py-16 text-gray-400">
+    <svg class="w-16 h-16 mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
+    <p class="text-lg font-medium">暂无数据</p>
+    <p class="text-sm mt-1">调整筛选条件或等待采集任务执行</p>
+  </div>
+
+  <!-- 分页 -->
+  <div id="pagination" class="hidden flex flex-wrap justify-between items-center gap-3 px-4 py-3 bg-white rounded-lg shadow">
+    <p id="paginationInfo" class="text-xs text-gray-500"></p>
+    <div class="flex items-center gap-2">
+      <button type="button" id="prevPage" class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 disabled:opacity-50" disabled>上一页</button>
+      <span id="pageIndicator" class="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400"></span>
+      <button type="button" id="nextPage" class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 disabled:opacity-50" disabled>下一页</button>
+    </div>
+  </div>
 </div>
 
 <script>
 (function() {
-  const state = {
-    projects: [],
-    filters: { keyword: '', category: '' }
-  };
+  var currentView = 'card';
+  var currentPage = 1;
+  var pageSize = 20;
+  var totalItems = 0;
+  var totalPages = 0;
+  var allItems = [];
+  var filteredItems = [];
 
-  const tableBodyEl = document.getElementById('projectsTableBody');
-  const keywordInputEl = document.getElementById('keywordInput');
-  const categorySelectEl = document.getElementById('categorySelect');
-  const exportBtnEl = document.getElementById('exportBtn');
+  // DOM refs
+  var skeletonEl = document.getElementById('skeletonList');
+  var cardsEl = document.getElementById('cardsList');
+  var tableEl = document.getElementById('tableView');
+  var tableBodyEl = document.getElementById('projectsTableBody');
+  var emptyEl = document.getElementById('emptyState');
+  var paginationEl = document.getElementById('pagination');
 
-  async function loadData() {
-    const params = new URLSearchParams();
-    if (state.filters.keyword) params.set('keyword', state.filters.keyword);
-    if (state.filters.category) params.set('category', state.filters.category);
-    
-    try {
-      const qs = params.toString();
-      const res = await authFetch('/api/projects' + (qs ? '?' + qs : ''));
-      const data = await res.json();
-      state.projects = data.projects || data.data || [];
-      renderTable();
-    } catch (e) {
-      console.error('加载数据失败:', e);
-      if (typeof showToast === 'function') showToast('加载失败', 'error');
+  function showSkeleton(show) {
+    if (show) {
+      skeletonEl.classList.remove('hidden');
+      cardsEl.classList.add('hidden');
+      tableEl.classList.add('hidden');
+      emptyEl.classList.add('hidden');
+      paginationEl.classList.add('hidden');
+    } else {
+      skeletonEl.classList.add('hidden');
     }
+  }
+
+  function escHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');
+  }
+
+  function switchView(view) {
+    currentView = view;
+    document.getElementById('view-table').className = 'px-3 py-1.5 text-sm font-medium ' + (view === 'table' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300');
+    document.getElementById('view-card').className = 'px-3 py-1.5 text-sm font-medium ' + (view === 'card' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300');
+    localStorage.setItem('dataView', view);
+    render();
+  }
+
+  function getStatusClass(status) {
+    var map = {
+      pending: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
+      tracking: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200',
+      archived: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200'
+    };
+    return map[status] || map.pending;
+  }
+
+  function renderCards() {
+    if (filteredItems.length === 0) {
+      cardsEl.classList.add('hidden');
+      emptyEl.classList.remove('hidden');
+      paginationEl.classList.add('hidden');
+      return;
+    }
+    emptyEl.classList.add('hidden');
+    cardsEl.classList.remove('hidden');
+
+    var pageItems = filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+    cardsEl.innerHTML = pageItems.map(function(item) {
+      var badges = '';
+      var typeBadge = item.type || item.tender_type || '-';
+      badges += '<span class="px-2 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 rounded font-medium text-xs">' + escHtml(typeBadge) + '</span>';
+      if (item.keywords_matched) {
+        badges += '<span class="px-2 py-0.5 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 rounded text-xs">匹配: ' + escHtml(item.keywords_matched) + '</span>';
+      }
+      if (item.publish_date) {
+        badges += '<span class="text-gray-400 text-xs">' + escHtml(item.publish_date) + '</span>';
+      }
+
+      var metaRow = '';
+      if (item.budget) metaRow += '<span class="text-orange-600 font-medium text-xs">预算: ' + escHtml(item.budget) + '</span>';
+      if (item.contact_name) metaRow += '<span class="text-gray-500 text-xs">联系人: ' + escHtml(item.contact_name) + '</span>';
+
+      var favBtn = item.is_favorite
+        ? '<button type="button" onclick="toggleFav(event, \'' + escHtml(item.url) + '\', true)" class="text-red-500 hover:text-red-700 shrink-0" title="取消收藏"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>'
+        : '<button type="button" onclick="toggleFav(event, \'' + escHtml(item.url) + '\', false)" class="text-gray-400 hover:text-red-500 shrink-0" title="添加收藏"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>';
+
+      return (
+        '<div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition">' +
+          '<div class="flex items-start gap-3">' +
+            favBtn +
+            '<div class="flex-1 min-w-0">' +
+              '<h4 class="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 mb-1">' + escHtml(item.title) + '</h4>' +
+              '<div class="flex flex-wrap items-center gap-1.5 text-xs text-gray-500 mb-1">' + badges + '</div>' +
+              (metaRow ? '<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">' + metaRow + '</div>' : '') +
+            '</div>' +
+            '<div class="flex flex-col gap-1 items-end shrink-0">' +
+              '<a href="' + escHtml(item.url) + '" target="_blank" class="text-blue-500 hover:text-blue-700 text-xs" title="查看原文">' +
+                '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>' +
+              '</a>' +
+            '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
   }
 
   function renderTable() {
-    if (state.projects.length === 0) {
-      tableBodyEl.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">暂无数据</td></tr>';
+    if (filteredItems.length === 0) {
+      tableBodyEl.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">暂无数据</td></tr>';
       return;
     }
-    
-    tableBodyEl.innerHTML = state.projects.map(item => `
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 text-sm font-medium text-gray-900">${item.title || ''}</td>
-        <td class="px-4 py-3 text-sm text-gray-500">${item.category || item.tender_type || '-'}</td>
-        <td class="px-4 py-3 text-sm text-gray-500">${item.publish_date || '-'}</td>
-        <td class="px-4 py-3 text-sm text-gray-500">${item.keywords_matched || '-'}</td>
-        <td class="px-4 py-3 text-sm">
-          <a href="${item.url}" target="_blank" class="text-blue-600 hover:text-blue-800">原文</a>
-        </td>
-      </tr>
-    `).join('');
+    var pageItems = filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+    tableBodyEl.innerHTML = pageItems.map(function(item) {
+      var favBtn = item.is_favorite
+        ? '<button type="button" onclick="toggleFav(event, \'' + escHtml(item.url) + '\', true)" class="text-red-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>'
+        : '<button type="button" onclick="toggleFav(event, \'' + escHtml(item.url) + '\', false)" class="text-gray-400 hover:text-red-500"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>';
+      return '<tr class="hover:bg-gray-50">' +
+        '<td class="px-4 py-3">' + favBtn + '</td>' +
+        '<td class="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs truncate" title="' + escHtml(item.title) + '">' + escHtml(item.title) + '</td>' +
+        '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(item.category || item.tender_type || '-') + '</td>' +
+        '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(item.publish_date || '-') + '</td>' +
+        '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(item.keywords_matched || '-') + '</td>' +
+        '<td class="px-4 py-3"><a href="' + escHtml(item.url) + '" target="_blank" class="text-blue-600 hover:text-blue-800 text-sm">原文</a></td>' +
+      '</tr>';
+    }).join('');
   }
 
-  // Event listeners
-  keywordInputEl.addEventListener('input', () => {
-    state.filters.keyword = keywordInputEl.value;
-    loadData();
-  });
+  function renderPagination() {
+    if (totalItems === 0) { paginationEl.classList.add('hidden'); return; }
+    paginationEl.classList.remove('hidden');
+    var start = (currentPage - 1) * pageSize + 1;
+    var end = Math.min(currentPage * pageSize, totalItems);
+    document.getElementById('paginationInfo').textContent = '显示 ' + start + '-' + end + ' / 共 ' + totalItems + ' 条';
+    document.getElementById('pageIndicator').textContent = currentPage + ' / ' + totalPages;
+    document.getElementById('prevPage').disabled = currentPage <= 1;
+    document.getElementById('nextPage').disabled = currentPage >= totalPages;
+  }
 
-  categorySelectEl.addEventListener('change', () => {
-    state.filters.category = categorySelectEl.value;
-    loadData();
-  });
+  function render() {
+    if (currentView === 'card') {
+      cardsEl.classList.remove('hidden');
+      tableEl.classList.add('hidden');
+      renderCards();
+    } else {
+      cardsEl.classList.add('hidden');
+      tableEl.classList.remove('hidden');
+      renderTable();
+    }
+    renderPagination();
+  }
 
-  exportBtnEl.addEventListener('click', () => {
-    window.location.href = '/api/export';
-  });
+  function applyFilters() {
+    var kw = document.getElementById('searchKeyword').value.toLowerCase().trim();
+    var type = document.getElementById('filterType').value;
+    filteredItems = allItems.filter(function(item) {
+      if (kw && !(item.title || '').toLowerCase().includes(kw) && !(item.keywords_matched || '').toLowerCase().includes(kw)) return false;
+      if (type && (item.category || item.tender_type || '') !== type) return false;
+      return true;
+    });
+    totalItems = filteredItems.length;
+    totalPages = Math.ceil(totalItems / pageSize) || 1;
+    currentPage = 1;
+    render();
+  }
 
-  // Init
+  async function loadData() {
+    showSkeleton(true);
+    try {
+      var qs = '?limit=500';
+      var res = await authFetch('/api/projects' + qs);
+      var data = await res.json();
+      allItems = data.projects || data.data || [];
+
+      var statsRes = await authFetch('/api/stats');
+      var stats = statsRes.ok ? await statsRes.json() : null;
+      if (stats) {
+        document.getElementById('statTotal').textContent = stats.total || allItems.length;
+        document.getElementById('statFiltered').textContent = stats.filtered || '0';
+        document.getElementById('statRate').textContent = stats.success_rate || '—';
+        document.getElementById('statLastRun').textContent = stats.last_run || '—';
+      } else {
+        document.getElementById('statTotal').textContent = allItems.length;
+        document.getElementById('statFiltered').textContent = '0';
+      }
+    } catch(e) {
+      console.error('加载失败:', e);
+    }
+    showSkeleton(false);
+    applyFilters();
+  }
+
+  window.toggleFav = async function(e, url, isFav) {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      if (isFav) {
+        await authFetch("/api/favorites?project_url=" + encodeURIComponent(url), {method: "DELETE"});
+      } else {
+        await authFetch("/api/favorites", {
+          method: "POST",
+          body: JSON.stringify({project_url: url, title: "", url: url})
+        });
+      }
+      // Update local state
+      var item = allItems.find(function(f) { return f.url === url; });
+      if (item) item.is_favorite = !isFav;
+      item = filteredItems.find(function(f) { return f.url === url; });
+      if (item) item.is_favorite = !isFav;
+      render();
+    } catch(err) { console.error('收藏操作失败', err); }
+  };
+
+  window.switchView = switchView;
+
+  document.getElementById('searchKeyword').addEventListener('input', applyFilters);
+  document.getElementById('filterType').addEventListener('change', applyFilters);
+  document.getElementById('exportBtn').addEventListener('click', function() { window.location.href = '/api/export'; });
+  document.getElementById('prevPage').addEventListener('click', function() { if (currentPage > 1) { currentPage--; render(); } });
+  document.getElementById('nextPage').addEventListener('click', function() { if (currentPage < totalPages) { currentPage++; render(); } });
+
+  // Restore view preference
+  var savedView = localStorage.getItem('dataView');
+  if (savedView) { currentView = savedView; }
+  document.getElementById('view-table').className = 'px-3 py-1.5 text-sm font-medium ' + (currentView === 'table' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300');
+  document.getElementById('view-card').className = 'px-3 py-1.5 text-sm font-medium ' + (currentView === 'card' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300');
+
   loadData();
 })();
 </script>
