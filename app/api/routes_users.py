@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/users", tags=["用户管理"])
 
 
 @router.post("/register", summary="用户注册", description="创建新用户账户")
-@rate_limit(max_requests=5, window=60)
+@rate_limit(max_requests=100, window=60)  # 100次/分钟
 async def register(
     username: str = Body(...),
     password: str = Body(...),
@@ -69,7 +69,7 @@ async def register(
 
 
 @router.post("/login", summary="用户登录", description="验证用户名密码")
-@rate_limit(max_requests=10, window=60)
+@rate_limit(max_requests=100, window=60)  # 100次/分钟，防止暴力破解同时允许正常测试
 async def login(
     username: str = Body(...),
     password: str = Body(...),

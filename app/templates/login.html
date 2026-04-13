@@ -179,12 +179,7 @@ function showError(id, msg) {
 }
 
 
-// ── Enter key ────────────────────────────────────────────────
-// Auto-redirect if already logged in
-if (getToken()) {
-  var redirect = new URLSearchParams(location.search).get('redirect') || '/';
-  location.href = redirect;
-}
+// Enter key handlers only
 
 $('login-password').addEventListener('keyup', function(e) {
   if (e.key === 'Enter') doLogin();

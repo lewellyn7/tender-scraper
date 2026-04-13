@@ -55,7 +55,7 @@ async def global_exception_handler(request, exc):
         )
 
 # 添加安全中间件
-app.add_middleware(RateLimitMiddleware, max_per_minute_guest=200, max_per_minute_user=600)
+app.add_middleware(RateLimitMiddleware, max_per_minute_guest=500, max_per_minute_user=1000)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(PrometheusMiddleware)

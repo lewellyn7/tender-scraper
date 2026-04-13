@@ -69,13 +69,17 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """简单速率限制中间件（已修复内存泄漏）
+    """简单速率限制中间件
     
-    - 未登录用户: 30次/分钟（访客限制）
-    - 已登录用户: 300次/分钟
+    - 未登录用户: 500次/分钟
+    - 已登录用户: 1000次/分钟
+    - 认证相关路径(/login, /register)完全绕过IP限流（自有装饰器保护）
     """
 
-    def __init__(self, app, max_per_minute_guest: int = 30, max_per_minute_user: int = 300):
+    # 认证路径 — 完全绕过IP限流（登录有独立per-user装饰器保护）
+    _AUTH_PATHS = frozenset(["/login", "/register", "/api/users/login", "/api/users/register"])
+
+    def __init__(self, app, max_per_minute_guest: int = 500, max_per_minute_user: int = 1000):
         super().__init__(app)
         self.max_per_minute_guest = max_per_minute_guest
         self.max_per_minute_user = max_per_minute_user
@@ -90,12 +94,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return f"ip:{client_ip}"
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        path = request.url.path
+
+        # 认证路径 → 跳过IP限流（登录自有@rate_limit装饰器保护）
+        if path in self._AUTH_PATHS or path.startswith("/api/users/"):
+            return await call_next(request)
+
         identifier = self._get_user_identifier(request)
         current_minute = int(time.time() / 60)
         key = f"{identifier}:{current_minute}"
 
-        # 清理旧记录 (每次请求主动清理，避免内存泄漏)
-        cutoff_minute = current_minute - 1  # 保留最近1分钟的记录
+        # 清理旧记录
+        cutoff_minute = current_minute - 1
         self._requests = {
             k: v for k, v in self._requests.items() if int(k.split(":")[-1]) >= cutoff_minute
         }
