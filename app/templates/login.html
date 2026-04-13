@@ -107,7 +107,7 @@ async function doLogin() {
       localStorage.setItem('user_name', d.user?.username || username);
       showError('login-error', '');
       // Redirect to dashboard or intended page
-      var target = new URLSearchParams(location.search).get('redirect') || '/';
+      var target = new URLSearchParams(location.search).get('redirect') || '/data';
       // Small delay to show success state before redirect
       setTimeout(function() { location.href = target; }, 100);
     } else {
