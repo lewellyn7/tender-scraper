@@ -198,6 +198,11 @@ class PGConnectionWrapper:
     def __enter__(self):
         return self
 
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            self.conn.rollback()
+        return False
+
     def __exit__(self, *args):
         pass
 

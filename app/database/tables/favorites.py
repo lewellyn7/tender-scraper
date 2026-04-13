@@ -35,9 +35,13 @@ class FavoritesMixin:
         try:
             with self._get_conn() as conn:
                 conn.execute(
-                    """INSERT OR REPLACE INTO favorites
+                    """INSERT INTO favorites
                    (project_url, title, source_url, tender_type, budget, publish_date, updated_at)
-                   VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
+                   VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                   ON CONFLICT (project_url) DO UPDATE SET
+                   title=EXCLUDED.title, source_url=EXCLUDED.source_url,
+                   tender_type=EXCLUDED.tender_type, budget=EXCLUDED.budget,
+                   publish_date=EXCLUDED.publish_date, updated_at=CURRENT_TIMESTAMP""",
                     (
                         project.get("url", ""),
                         project.get("title", ""),
@@ -139,9 +143,10 @@ class FavoritesMixin:
             conn.execute("BEGIN")
             for p in projects:
                 conn.execute(
-                    """INSERT OR IGNORE INTO favorites
+                    """INSERT INTO favorites
                                (project_url, title, source_url, tender_type, budget, publish_date, updated_at)
-                               VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
+                               VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                               ON CONFLICT (project_url) DO NOTHING""",
                     (
                         p.get("url", ""),
                         p.get("title", ""),

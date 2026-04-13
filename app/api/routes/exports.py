@@ -47,12 +47,13 @@ def export_excel(
             worksheet.write(0, col, header)
 
         for row_idx, row in enumerate(rows, 1):
-            worksheet.write(row_idx, 0, row.get("title", ""))
-            worksheet.write(row_idx, 1, row.get("tender_type", ""))
-            worksheet.write(row_idx, 2, row.get("budget", ""))
-            worksheet.write(row_idx, 3, row.get("publish_date", ""))
-            worksheet.write(row_idx, 4, row.get("project_url", ""))
-            worksheet.write(row_idx, 5, row.get("status", ""))
+            r = dict(row) if not hasattr(row, 'get') else row
+            worksheet.write(row_idx, 0, r.get("title", ""))
+            worksheet.write(row_idx, 1, r.get("tender_type", ""))
+            worksheet.write(row_idx, 2, r.get("budget", ""))
+            worksheet.write(row_idx, 3, r.get("publish_date", ""))
+            worksheet.write(row_idx, 4, r.get("project_url", ""))
+            worksheet.write(row_idx, 5, r.get("status", ""))
 
         workbook.close()
         output.seek(0)
@@ -82,20 +83,20 @@ def export_csv(keyword: str = Query(""), category: str = Query(""), user_id: str
 
     where = " AND ".join(conditions)
     rows = conn.execute(f"SELECT * FROM favorites WHERE {where} LIMIT 10000", params).fetchall()
-
     output = io.StringIO()
     writer = csv.DictWriter(
         output, fieldnames=["title", "tender_type", "budget", "publish_date", "project_url"]
     )
     writer.writeheader()
     for row in rows:
+        r = dict(row) if not hasattr(row, 'get') else row
         writer.writerow(
             {
-                "title": row.get("title", ""),
-                "tender_type": row.get("tender_type", ""),
-                "budget": row.get("budget", ""),
-                "publish_date": row.get("publish_date", ""),
-                "project_url": row.get("project_url", ""),
+                "title": r.get("title", ""),
+                "tender_type": r.get("tender_type", ""),
+                "budget": r.get("budget", ""),
+                "publish_date": r.get("publish_date", ""),
+                "project_url": r.get("project_url", ""),
             }
         )
 

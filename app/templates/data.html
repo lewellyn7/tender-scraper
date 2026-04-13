@@ -309,7 +309,7 @@
 
   document.getElementById('searchKeyword').addEventListener('input', applyFilters);
   document.getElementById('filterType').addEventListener('change', applyFilters);
-  document.getElementById('exportBtn').addEventListener('click', function() { window.location.href = '/api/export'; });
+  document.getElementById('exportBtn').addEventListener('click', function() { window.location.href = '/api/export/csv'; });
   document.getElementById('prevPage').addEventListener('click', function() { if (currentPage > 1) { currentPage--; render(); } });
   document.getElementById('nextPage').addEventListener('click', function() { if (currentPage < totalPages) { currentPage++; render(); } });
 

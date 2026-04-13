@@ -74,11 +74,12 @@ def _build_result_item(row: Dict[str, Any], query: str, intent: str) -> Dict[str
     
     # 来源判断
     source_name = "未知来源"
-    if "ccgp" in source_url.lower():
+    _src = source_url or ""
+    if "ccgp" in _src.lower():
         source_name = "政府采购网"
-    elif "ggzy" in source_url.lower() or "cqggzy" in source_url.lower():
+    elif "ggzy" in _src.lower() or "cqggzy" in _src.lower():
         source_name = "公共资源交易中心"
-    elif "bidding" in source_url.lower():
+    elif "bidding" in _src.lower():
         source_name = "招标投标平台"
     
     return {
