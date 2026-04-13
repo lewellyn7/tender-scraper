@@ -891,7 +891,7 @@
       group.forEach(function(item, ii) {
         var labelClass = ii === 0 ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200';
         var label = ii === 0 ? '原始' : '重复';
-        var similarity = ii > 0 ? '<span class="text-xs text-gray-500 font-mono">' + (item.similarity * 100).toFixed(0) + '%</span>' : '';
+        var similarity = ii > 0 ? '<span class="text-xs text-gray-500 font-mono">' + (item.sim * 100).toFixed(0) + '%</span>' : '';
         var indent = ii > 0 ? 'ml-4 pl-4 border-l-2 border-gray-300 dark:border-gray-600' : '';
         html += '<div class="flex items-center gap-3 text-sm ' + indent + '">' +
           '<span class="text-xs px-2 py-0.5 rounded ' + labelClass + '">' + label + '</span>' +
