@@ -57,23 +57,38 @@ SITES: List[Dict] = [
         "status": "active",  # ✅ 可用
         "method": "playwright",  # Playwright 渲染
         "auth": "cookie",  # 需要先获取 Cookie
-        "entry_url": "https://www.cqggzy.com/",
+        "entry_url": "https://www.cqggzy.com/xxhz/transaction_detail.html",
         "list_urls": [
-            "https://www.cqggzy.com/",
+            # 工程招投标
+            "https://www.cqggzy.com/xxhz/zbgg_list.html",      # 招标公告
+            "https://www.cqggzy.com/xxhz/zbsx_list.html",      # 招标计划
+            "https://www.cqggzy.com/xxhz/zbgg_list.html",      # 中标结果公示
+            "https://www.cqggzy.com/xxhz/zzgg_list.html",      # 终止公告
+            # 政府采购
+            "https://www.cqggzy.com/xxhz/cggg_list.html",      # 采购公告
+            "https://www.cqggzy.com/xxhz/cgjg_list.html",      # 采购结果公告
+            "https://www.cqggzy.com/xxhz/dybg_list.html",      # 答疑变更
         ],
         "selectors": {
             "list_item": "a[href]",
-            "title_kws": ["招标", "公告", "采购", "工程", "结果", "成交", "投标", "中标", "需求", "竞争"],
-            "url_kws": ["zbxx", "zbcg", "xxgg", "jgj", "cjgg", "cggg", "zhaobiao"],
+            "title_kws": ["招标", "公告", "采购", "工程", "结果", "成交", "投标", "中标", "需求", "竞争", "计划", "变更", "答疑"],
+            "url_kws": ["zbxx", "zbcg", "xxgg", "jgj", "cjgg", "cggg", "zhaobiao", "cgjy", "dybg", "zzgg"],
             "exclude_kws": ["#", "javascript", "void", "cookie"],
         },
-        "pagination": "none",
+        "pagination": "page_param",
+        "pagination_param": "?pageNum={n}",
         "scroll_trigger": True,
         "wait_time": 5,
         "tender_type_rules": [
-            ("中标结果", ["结果", "成交", "中标"]),
-            ("政府采购", ["采购", "需求"]),
-            ("招标公告", ["招标", "公告", "工程"]),
+            # 工程招投标
+            ("招标计划", ["计划", "需求预告"]),
+            ("招标公告", ["招标", "公告", "工程", "投标"]),
+            ("中标结果公示", ["中标", "结果公示", "成交", "结果"]),
+            ("终止公告", ["终止", "废标", "流标"]),
+            # 政府采购
+            ("采购公告", ["采购公告", "采购", "需求"]),
+            ("采购结果公告", ["采购结果", "成交", "结果公告"]),
+            ("答疑变更", ["答疑", "变更", "澄清"]),
         ],
         "cookies_file": "/tmp/cookies_ggzy.json",
     },

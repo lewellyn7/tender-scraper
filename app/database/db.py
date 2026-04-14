@@ -367,6 +367,8 @@ class Database(
                 cookies TEXT DEFAULT "",
                 headers TEXT DEFAULT "{}",
                 status TEXT DEFAULT "active",
+                business_type TEXT DEFAULT "",
+                info_type TEXT DEFAULT "",
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );

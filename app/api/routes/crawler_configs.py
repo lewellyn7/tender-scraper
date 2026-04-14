@@ -77,8 +77,9 @@ def create_config(request: Request, config: dict = Body(...)):
     cur = conn.execute(
         """INSERT INTO crawler_configs
            (name, base_url, list_selector, item_rules, pagination_type,
-            pagination_selector, pagination_param, filter_keyword, cookies, headers, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+            pagination_selector, pagination_param, filter_keyword, cookies, headers,
+            status, business_type, info_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
            RETURNING id""",
         (
             name, base_url,
@@ -89,7 +90,9 @@ def create_config(request: Request, config: dict = Body(...)):
             config.get("pagination_param", ""),
             config.get("filter_keyword", ""),
             config.get("cookies", ""),
-            json.dumps(config.get("headers", {}), ensure_ascii=False)
+            json.dumps(config.get("headers", {}), ensure_ascii=False),
+            config.get("business_type", ""),
+            config.get("info_type", "")
         )
     )
     new_id = cur.fetchone()[0]
@@ -118,6 +121,7 @@ def update_config(config_id: int, request: Request, config: dict = Body(...)):
         """UPDATE crawler_configs SET
            name=?, base_url=?, list_selector=?, item_rules=?, pagination_type=?,
            pagination_selector=?, pagination_param=?, filter_keyword=?, cookies=?, headers=?,
+           business_type=?, info_type=?,
            updated_at=CURRENT_TIMESTAMP
            WHERE id=?""",
         (
@@ -128,6 +132,11 @@ def update_config(config_id: int, request: Request, config: dict = Body(...)):
             config.get("pagination_param", ""),
             config.get("filter_keyword", ""),
             config.get("cookies", ""),
+            config.get("business_type", ""),
+            config.get("info_type", ""),
+            config_id
+        )
+    )
             json.dumps(config.get("headers", {}), ensure_ascii=False),
             config_id
         )

@@ -62,7 +62,42 @@ class CrawlExecutor:
         # 补全 URL
         if "url" not in item or not item["url"]:
             item["url"] = ""
+        # 自动识别 info_type 和 business_type
+        item["info_type"] = self._detect_info_type(self.config.get("base_url", ""))
+        item["business_type"] = self._detect_business_type(self.config.get("base_url", ""))
         return item
+
+    def _detect_info_type(self, url: str) -> str:
+        """根据URL检测信息类型"""
+        url_lower = url.lower()
+        if "zbgg" in url_lower or "zbgg_list" in url_lower:
+            return "招标公告"
+        elif "zbsx" in url_lower or "zbjh" in url_lower:
+            return "招标计划"
+        elif "zbgs" in url_lower or "zbbg" in url_lower:
+            return "中标结果公示"
+        elif "zzgg" in url_lower or "zbzz" in url_lower:
+            return "终止公告"
+        elif "cggg" in url_lower or "cggg_list" in url_lower:
+            return "采购公告"
+        elif "cgjg" in url_lower or "cgjy" in url_lower:
+            return "采购结果公告"
+        elif "dybg" in url_lower or "bid_change" in url_lower:
+            return "答疑变更"
+        elif "zbxx" in url_lower:
+            return "招标公告"
+        elif "cggg" in url_lower:
+            return "采购公告"
+        return "招标公告"  # 默认
+
+    def _detect_business_type(self, url: str) -> str:
+        """根据URL检测业务类型"""
+        url_lower = url.lower()
+        if any(x in url_lower for x in ["zbgg", "zbsx", "zbgs", "zzgg", "zbxx", "zbcg", "jgj"]):
+            return "工程招投标"
+        elif any(x in url_lower for x in ["cggg", "cgjg", "cgjy", "dybg", "cgxx"]):
+            return "政府采购"
+        return "工程招投标"  # 默认
 
     def apply_filters(self, items: list) -> list:
         """应用关键词过滤"""
