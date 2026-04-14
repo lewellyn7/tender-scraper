@@ -138,11 +138,8 @@ async def get_qualifications_page(request: Request):
 
 @router.get("/documents/upload", response_class=HTMLResponse)
 async def get_document_upload_page(request: Request):
-    """资质文档上传分析页面"""
-    user = _get_user_info(request)
-    if user.get("role") == "guest":
-        return RedirectResponse(url="/login", status_code=302)
-    return _render(request, "document_upload.html")
+    """文档上传已合并到资质管理 — 重定向"""
+    return RedirectResponse(url="/qualifications", status_code=302)
 
 
 @router.get("/nl-query", response_class=HTMLResponse)

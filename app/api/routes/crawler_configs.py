@@ -137,10 +137,6 @@ def update_config(config_id: int, request: Request, config: dict = Body(...)):
             config_id
         )
     )
-            json.dumps(config.get("headers", {}), ensure_ascii=False),
-            config_id
-        )
-    )
     conn.commit()
 
     write_audit_log(
