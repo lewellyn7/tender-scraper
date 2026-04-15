@@ -54,6 +54,38 @@
     </div>
 </div>
 
+<!-- 站点健康状态栏 -->
+<div id="healthBar" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+    <div class="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
+        <div id="health-cqggzy" class="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0"></div>
+        <div class="min-w-0">
+            <p class="text-xs text-gray-500 truncate">重庆公共资源</p>
+            <p class="text-sm font-medium text-gray-900 dark:text-white truncate" id="health-cqggzy-label">检测中...</p>
+        </div>
+    </div>
+    <div class="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
+        <div id="health-ccgp" class="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0"></div>
+        <div class="min-w-0">
+            <p class="text-xs text-gray-500 truncate">全国政府采购</p>
+            <p class="text-sm font-medium text-gray-900 dark:text-white truncate" id="health-ccgp-label">检测中...</p>
+        </div>
+    </div>
+    <div class="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
+        <div id="health-db" class="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0"></div>
+        <div class="min-w-0">
+            <p class="text-xs text-gray-500 truncate">数据库</p>
+            <p class="text-sm font-medium text-gray-900 dark:text-white truncate" id="health-db-label">检测中...</p>
+        </div>
+    </div>
+    <div class="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
+        <div id="health-redis" class="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0"></div>
+        <div class="min-w-0">
+            <p class="text-xs text-gray-500 truncate">缓存</p>
+            <p class="text-sm font-medium text-gray-900 dark:text-white truncate" id="health-redis-label">检测中...</p>
+        </div>
+    </div>
+</div>
+
 <!-- 筛选栏 -->
 <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm mb-6 p-4 border border-gray-100 dark:border-gray-700">
     <div class="flex flex-wrap items-center gap-3">
@@ -484,6 +516,47 @@
     document.getElementById('preset3days').addEventListener('click', function() { setDateRange(3); });
     document.getElementById('preset7days').addEventListener('click', function() { setDateRange(7); });
     document.getElementById('preset30days').addEventListener('click', function() { setDateRange(30); });
+
+
+    // ── Source Health Status Bar ──────────────────────────────────────
+    function updateHealthIndicator(id, status, label) {
+        var dot = document.getElementById('health-' + id);
+        var lbl = document.getElementById('health-' + id + '-label');
+        if (!dot || !lbl) return;
+        dot.className = 'w-2.5 h-2.5 rounded-full flex-shrink-0';
+        if (status === 'healthy') {
+            dot.classList.add('bg-green-500');
+            lbl.textContent = label || '正常';
+        } else if (status === 'unhealthy') {
+            dot.classList.add('bg-red-500');
+            lbl.textContent = label || '异常';
+        } else {
+            dot.classList.add('bg-yellow-500');
+            lbl.textContent = label || '缓慢';
+        }
+    }
+
+    async function checkHealth() {
+        try {
+            var r = await fetch('/health/extended');
+            if (!r.ok) throw new Error('health check failed');
+            var d = await r.json();
+            var comps = d.components || {};
+            updateHealthIndicator('cqggzy', comps.cqggzy ? comps.cqggzy.status : 'unknown', comps.cqggzy ? '正常' : '未知');
+            updateHealthIndicator('ccgp', comps.ccgp ? comps.ccgp.status : 'unknown', comps.ccgp ? '正常' : '未知');
+            updateHealthIndicator('db', comps.database ? comps.database.status : 'unknown', comps.database ? '正常' : '未知');
+            updateHealthIndicator('redis', comps.redis ? comps.redis.status : 'unknown', comps.redis ? '正常' : '未知');
+        } catch(e) {
+            updateHealthIndicator('cqggzy', 'unknown', '检测失败');
+            updateHealthIndicator('ccgp', 'unknown', '检测失败');
+            updateHealthIndicator('db', 'unknown', '检测失败');
+            updateHealthIndicator('redis', 'unknown', '检测失败');
+        }
+    }
+
+    // Check health on load and every 60 seconds
+    checkHealth();
+    setInterval(checkHealth, 60000);
 
     // ── Start ─────────────────────────────────────────────────────────
     initData();
