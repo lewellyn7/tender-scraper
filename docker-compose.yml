@@ -94,7 +94,6 @@ services:
       timeout: 10s
       retries: 5
       start_period: 90s
-      summary: "Web API health check — 容器内部访问 8000"
     networks:
       - tender-net
     depends_on:
