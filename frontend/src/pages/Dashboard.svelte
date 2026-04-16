@@ -7,11 +7,16 @@
 
   onMount(async () => {
     try {
-      const res = await fetch('/api/stats/dashboard')
+      // /api/stats returns {total, today, matched, ...}
+      const res = await fetch('/api/stats')
       if (res.ok) {
         const data = await res.json()
-        stats = data.stats || stats
-        projects = data.recent || []
+        stats = {
+          total: data.total || 0,
+          today: data.today || data.new_today || 0,
+          favorites: data.favorites || 0,
+          running: data.running || 0
+        }
       }
     } catch (e) {
       console.warn('Dashboard API not available:', e)

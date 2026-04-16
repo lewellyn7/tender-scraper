@@ -10,7 +10,8 @@
       const res = await fetch('/api/projects?limit=50')
       if (res.ok) {
         const data = await res.json()
-        items = data.projects || data.items || []
+        // API returns projects directly or wrapped
+        items = data.projects || data.items || data || []
       }
     } catch (e) {
       console.warn('Projects API:', e)

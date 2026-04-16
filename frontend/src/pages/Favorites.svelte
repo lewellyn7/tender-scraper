@@ -9,7 +9,8 @@
       const res = await fetch('/api/favorites')
       if (res.ok) {
         const data = await res.json()
-        items = data.items || data || []
+        // API returns {favorites: [...]} or directly an array
+        items = Array.isArray(data) ? data : (data.items || data.favorites || [])
       }
     } catch (e) {
       console.warn('Favorites API:', e)
