@@ -30,6 +30,7 @@ from app.middleware.security import (
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
 )
+from fastapi.middleware.cors import CORSMiddleware
 
 # 日志配置
 logger.remove()
@@ -62,6 +63,18 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(PrometheusMiddleware)
 app.add_middleware(CSRFProtectionMiddleware)  # H-2 fix: now validates session+token for mutation ops
+# CORS: 允许前端开发服务器访问 API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",  # 前端开发服务器
+        "http://localhost:5174",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 注册路由
 app.include_router(api_router)
