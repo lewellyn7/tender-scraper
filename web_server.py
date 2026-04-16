@@ -21,8 +21,8 @@ from app.api.metrics import router as metrics_router
 from app.api.routes import api_router
 from app.api.routes.document_upload import router as document_upload_router
 from app.api.routes.pages import router as pages_router
-# CSRF disabled: API uses X-Session-Token header auth (no cookie-based sessions)
-# from app.middleware.csrf import CSRFProtectionMiddleware
+# CSRFProtectionMiddleware: re-enabled after H-2 fix
+from app.middleware.csrf import CSRFProtectionMiddleware
 from app.api.metrics import PrometheusMiddleware
 from app.middleware.security import (
     HTTPSForceMiddleware,
@@ -61,7 +61,7 @@ app.add_middleware(HTTPSForceMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(PrometheusMiddleware)
-# app.add_middleware(CSRFProtectionMiddleware)  # disabled - breaks POST endpoints
+app.add_middleware(CSRFProtectionMiddleware)  # H-2 fix: now validates session+token for mutation ops
 
 # 注册路由
 app.include_router(api_router)
