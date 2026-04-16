@@ -11,6 +11,8 @@ CONFIG_FILE = Path(__file__).parent.parent.parent / "config" / "notifications.js
 
 
 class NotificationConfig:
+    """通知配置 — 支持 config/notifications.json + 环境变量回退"""
+
     def __init__(self):
         self.enabled = False
         self.bot_token = ""
@@ -21,6 +23,7 @@ class NotificationConfig:
         self._load()
 
     def _load(self):
+        # 优先从 config 文件加载
         if CONFIG_FILE.exists():
             try:
                 data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
@@ -32,6 +35,17 @@ class NotificationConfig:
                 self.notify_on_count = data.get("notify_on_count", 1)
             except Exception:
                 pass
+
+        # 环境变量回退（.env 配置优先于空值）
+        import os
+        env_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        env_chat = os.getenv("TELEGRAM_CHAT_ID", "")
+        if env_token and not self.bot_token:
+            self.bot_token = env_token
+        if env_chat and not self.chat_id:
+            self.chat_id = env_chat
+        if env_token or env_chat:
+            self.enabled = True
 
     def _save(self):
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
