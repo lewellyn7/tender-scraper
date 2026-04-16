@@ -135,83 +135,112 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
         }
     </script>
 
-    <!-- ========== NAVBAR ========== -->
-    <nav class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
+    <!-- ========== TOP NAVBAR (Linear-style) ========== -->
+    <nav class="bg-white dark:bg-[#0f1011] border-b border-gray-200 dark:border-white/5 sticky top-0 z-40">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between h-16">
+            <div class="flex items-center h-12 gap-1">
                 <!-- Logo -->
-                <div class="flex items-center min-w-0">
-                    <a href="/data" class="flex items-center gap-2 flex-shrink-0">
-                        <span class="text-2xl">📊</span>
-                        <span class="hidden sm:block text-xl font-bold text-gray-900 dark:text-white tracking-tight">招投标采集</span>
-                    </a>
-                    <!-- Desktop nav links -->
-                    <div class="hidden md:flex md:ml-6 md:space-x-0.5">
-                        <a href="/data" class="nav-link nav-link--desk">📋<span class="nav-label">采集内容</span></a>
-                        <a href="/tasks" class="nav-link nav-link--desk">📅<span class="nav-label">任务管理</span></a>
-                        <a href="/favorites" class="nav-link nav-link--desk">⭐<span class="nav-label">收藏</span></a>
-                        <a href="/analytics" class="nav-link nav-link--desk">📈<span class="nav-label">分析</span></a>
-                        <a href="/nl-query" class="nav-link nav-link--desk">🔍<span class="nav-label">智能查询</span></a>
-                        <a href="/qualifications" class="nav-link nav-link--desk">📜<span class="nav-label">资质管理</span></a>
-                        <a href="/logs" class="nav-link nav-link--desk">📑<span class="nav-label">日志</span></a>
-                        <a href="/settings" class="nav-link nav-link--desk">⚙️<span class="nav-label">设置</span></a>
-                    </div>
+                <a href="/" class="flex items-center gap-2 pr-4 border-r border-gray-200 dark:border-white/10 mr-2 flex-shrink-0">
+                    <span class="text-lg">📊</span>
+                    <span class="text-sm font-semibold text-gray-900 dark:text-white tracking-tight hidden sm:block">采集系统</span>
+                </a>
+                <!-- Primary nav -->
+                <div class="hidden md:flex items-center gap-0.5">
+                    <a href="/" class="nav-item">Dashboard</a>
+                    <a href="/data" class="nav-item">采集内容</a>
+                    <a href="/favorites" class="nav-item">收藏<span class="ml-1.5 text-xs text-gray-400">253</span></a>
+                    <a href="/analytics" class="nav-item">分析</a>
+                    <a href="/tasks" class="nav-item">任务</a>
                 </div>
-
+                <!-- Separator -->
+                <div class="hidden md:block w-px h-5 bg-gray-200 dark:bg-white/10 mx-1"></div>
+                <!-- Secondary nav -->
+                <div class="hidden md:flex items-center gap-0.5">
+                    <a href="/logs" class="nav-item-secondary">日志</a>
+                    <a href="/settings" class="nav-item-secondary">设置</a>
+                </div>
+                <!-- Spacer -->
+                <div class="flex-1"></div>
                 <!-- Right cluster -->
-                <div class="flex items-center gap-2 sm:gap-3">
-                    <!-- User badge (logged in) -->
-                    <div id="userBadge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/30 rounded-full">
-                        <span id="userDisplayName" class="text-xs font-medium text-blue-600 dark:text-blue-400 truncate max-w-[80px]"></span>
-                        <span id="userRoleBadge" class="text-xs px-1.5 py-0.5 bg-blue-200 dark:bg-blue-800 rounded text-blue-700 dark:text-blue-300"></span>
+                <div class="flex items-center gap-2">
+                    <!-- Cmd+K hint -->
+                    <button onclick="document.getElementById('cmd-palette').classList.remove('hidden')"
+                            class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 rounded-md transition-colors duration-100 border border-gray-200 dark:border-white/10">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        <span>⌘K</span>
+                    </button>
+                    <!-- User badge -->
+                    <div id="userBadge" class="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-white/5 cursor-pointer transition-colors duration-100">
+                        <div class="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-xs font-medium text-white" id="userAvatar">?</div>
+                        <span id="userDisplayName" class="text-xs text-gray-600 dark:text-gray-400 hidden md:block"></span>
                     </div>
-                    <!-- Login link (guest) -->
-                    <a id="loginLink" href="/login"
-                       class="hidden sm:inline-flex text-sm text-blue-600 hover:text-blue-500 font-medium">
-                        登录 / 注册
-                    </a>
+                    <!-- Login link -->
+                    <a id="loginLink" href="/login" class="text-xs text-blue-600 hover:text-blue-500 font-medium hidden sm:inline">登录</a>
                     <!-- Theme toggle -->
-                    <button id="themeToggle"
-                            class="p-2 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
-                            title="切换主题" aria-label="切换明暗主题">
-                        <!-- Sun (shown in dark mode) -->
-                        <svg id="iconSun" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-                        </svg>
-                        <!-- Moon (shown in light mode) -->
-                        <svg id="iconMoon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-                        </svg>
+                    <button id="themeToggle" class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors duration-100" title="切换主题">
+                        <svg id="iconSun" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                        <svg id="iconMoon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
                     </button>
                     <!-- Mobile hamburger -->
-                    <button id="mobileMenuToggle"
-                            class="md:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition"
-                            aria-label="打开菜单">
-                        <svg id="iconHamburger" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-                        </svg>
-                        <svg id="iconClose" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
+                    <button id="mobileMenuToggle" class="md:hidden p-1.5 rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors duration-100" aria-label="打开菜单">
+                        <svg id="iconHamburger" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                        <svg id="iconClose" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                 </div>
             </div>
         </div>
-
-        <!-- Mobile bottom sheet nav -->
-        <div id="mobileNav" class="md:hidden hidden border-t border-gray-100 dark:border-gray-700 py-3 px-4 space-y-1">
-            <a href="/data" class="mobile-nav-item">📋 采集内容</a>
-            <a href="/tasks" class="mobile-nav-item">📅 任务管理</a>
-            <a href="/favorites" class="mobile-nav-item">⭐ 收藏</a>
-            <a href="/analytics" class="mobile-nav-item">📈 分析</a>
-            <a href="/nl-query" class="mobile-nav-item">🔍 智能查询</a>
-            <a href="/qualifications" class="mobile-nav-item">📜 资质管理</a>
-            <a href="/logs" class="mobile-nav-item">📑 日志</a>
-            <a href="/settings" class="mobile-nav-item">⚙️ 设置</a>
+        <!-- Mobile nav -->
+        <div id="mobileNav" class="md:hidden hidden border-t border-gray-100 dark:border-white/5 py-2 px-4 space-y-0.5">
+            <a href="/" class="mobile-nav-item">Dashboard</a>
+            <a href="/data" class="mobile-nav-item">采集内容</a>
+            <a href="/favorites" class="mobile-nav-item">收藏 (253)</a>
+            <a href="/analytics" class="mobile-nav-item">分析</a>
+            <a href="/tasks" class="mobile-nav-item">任务</a>
+            <a href="/logs" class="mobile-nav-item">日志</a>
+            <a href="/settings" class="mobile-nav-item">设置</a>
         </div>
     </nav>
+
+    <style>
+    /* Nav item: compact pill style, active left-border highlight */
+    .nav-item {
+        padding: 0.25rem 0.625rem;
+        font-size: 0.8125rem;
+        font-weight: 400;
+        color: #6b7280;
+        border-radius: 0.375rem;
+        transition: background 100ms ease-out, color 100ms ease-out;
+    }
+    .nav-item:hover {
+        background: rgba(255,255,255,0.05);
+        color: #f9fafb;
+    }
+    .dark .nav-item:hover { background: rgba(255,255,255,0.05); color: #f9fafb; }
+    .light .nav-item:hover { background: #f3f4f6; color: #1f2937; }
+
+    .nav-item-secondary {
+        padding: 0.25rem 0.625rem;
+        font-size: 0.8125rem;
+        font-weight: 400;
+        color: #4b5563;
+        border-radius: 0.375rem;
+        transition: background 100ms ease-out, color 100ms ease-out;
+    }
+    .nav-item-secondary:hover {
+        background: rgba(255,255,255,0.05);
+        color: #9ca3af;
+    }
+
+    .mobile-nav-item {
+        display: block;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        color: #6b7280;
+        border-radius: 0.375rem;
+        transition: background 100ms ease-out;
+    }
+    .mobile-nav-item:hover { background: rgba(255,255,255,0.05); }
+    </style>
 
     <!-- ========== MAIN CONTENT ========== -->
     <main class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">

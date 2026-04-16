@@ -41,30 +41,30 @@
     </div>
   </div>
 
-  <!-- Summary Cards -->
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-    <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-      <p class="text-sm text-gray-500 dark:text-gray-400">采集项目</p>
-      <p class="text-2xl font-bold text-blue-600 dark:text-blue-400" id="statTotal">0</p>
+  <!-- Summary Cards (ClickHouse 风格) -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">采集项目</div>
+      <p class="text-5xl font-bold tracking-tight text-blue-600 dark:text-blue-400" id="statTotal">0</p>
     </div>
-    <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-      <p class="text-sm text-gray-500 dark:text-gray-400">政府项目</p>
-      <p class="text-2xl font-bold text-green-600 dark:text-green-400" id="govCount">0</p>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">政府项目</div>
+      <p class="text-5xl font-bold tracking-tight text-green-600 dark:text-green-400" id="govCount">0</p>
     </div>
-    <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-      <p class="text-sm text-gray-500 dark:text-gray-400">工程项目</p>
-      <p class="text-2xl font-bold text-purple-600 dark:text-purple-400" id="engCount">0</p>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">工程项目</div>
+      <p class="text-5xl font-bold tracking-tight text-purple-600 dark:text-purple-400" id="engCount">0</p>
     </div>
-    <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-      <p class="text-sm text-gray-500 dark:text-gray-400">有预算项目</p>
-      <p class="text-2xl font-bold text-amber-600 dark:text-amber-400" id="budgetCount">0</p>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">有预算项目</div>
+      <p class="text-5xl font-bold tracking-tight text-amber-600 dark:text-amber-400" id="budgetCount">0</p>
     </div>
   </div>
 
   <div id="loadingEl" class="text-center py-12 text-gray-500">加载中...</div>
   <div id="contentEl" class="space-y-6" style="display:none">
     <!-- Trend Chart -->
-    <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">采集趋势 <span class="help-btn" data-tooltip="每日采集数量随时间变化
 
 展示过去一段时间内每天新增的招标项目数量。用于判断市场活跃周期和评估采集效率。">?</span></h2>
@@ -73,7 +73,7 @@
 
     <div class="grid md:grid-cols-2 gap-6">
       <!-- Budget Distribution -->
-      <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+      <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
         <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">预算分布 <span class="help-btn" data-tooltip="项目预算金额分布
 
 按金额区间统计招标项目数量。便于快速筛选预算合理的机会，避免投入过高或过低的项目。">?</span></h2>
@@ -81,7 +81,7 @@
       </div>
 
       <!-- Source Distribution -->
-      <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+      <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
         <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">来源分布 <span class="help-btn" data-tooltip="招标信息来源分布
 
 统计收藏项目来自哪些网站（如政府采购网、公共资源交易中心等）。了解主要招标渠道分布。">?</span></h2>
@@ -90,7 +90,7 @@
     </div>
 
     <!-- Keyword Heat -->
-    <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">关键词热度 TOP20 <span class="help-btn" data-tooltip="标题关键词热度排行
 
 从收藏项目标题中提取出现频率最高的20个关键词。反映当前招标市场的热点领域和主题趋势。">?</span></h2>
@@ -108,11 +108,11 @@
 
     <!-- Radar + Trend -->
     <div class="grid md:grid-cols-2 gap-6">
-      <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+      <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
         <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">健康度雷达图</h2>
         <div id="healthRadarChart" class="h-64"></div>
       </div>
-      <div class="anim-card bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+      <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
         <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">综合得分趋势</h2>
         <div class="flex gap-2 mb-4">
           <button type="button" id="trend7dBtn" class="px-3 py-1 text-xs rounded border border-blue-600 text-blue-600 bg-blue-50 dark:bg-blue-900/20" onclick="loadHealthTrend(7)">7天</button>
