@@ -152,7 +152,10 @@ services:
     image: gcr.io/cadvisor/cadvisor:v0.51.0
     container_name: tender-scraper-cadvisor
     restart: unless-stopped
-    privileged: true
+    # SECURITY: privileged mode enables container escape risk.
+    # For production, either remove this service or use rootless alternative.
+    # If metrics are needed, consider Prometheus node_exporter instead.
+    privileged: false
     ports:
       - "9080:8080"
     volumes:
