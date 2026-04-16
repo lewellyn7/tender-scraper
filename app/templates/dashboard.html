@@ -11,45 +11,38 @@
     <div class="skeleton h-20 rounded-xl"></div>
 </div>
 
-<!-- 统计卡片 -->
+<!-- 统计卡片（ClickHouse 风格 — 数字即主角） -->
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-    <div class="anim-card bg-white overflow-hidden rounded-xl shadow-md p-5 border border-gray-100 dark:border-gray-700">
-        <div class="flex items-center">
-            <div class="flex-shrink-0 bg-green-500 rounded-md p-3">
-                <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-            </div>
-            <div class="ml-4">
-                <p class="text-sm font-medium text-gray-500">关键词匹配</p>
-                <p id="statFiltered" class="text-2xl font-semibold text-gray-900">0</p>
-            </div>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100 cursor-pointer">
+        <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">关键词匹配</div>
+        <p id="statFiltered" class="text-5xl font-bold tracking-tight text-gray-900 dark:text-white">0</p>
+        <div class="mt-2 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0"></span>
+            <span class="text-xs text-gray-400">匹配项目</span>
         </div>
     </div>
-    <div class="anim-card bg-white overflow-hidden rounded-xl shadow-md p-5 border border-gray-100 dark:border-gray-700">
-        <div class="flex items-center">
-            <div class="flex-shrink-0 bg-purple-500 rounded-md p-3">
-                <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-7 0H4m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-                </svg>
-            </div>
-            <div class="ml-4">
-                <p class="text-sm font-medium text-gray-500">来源站点</p>
-                <p id="statSourceCount" class="text-2xl font-semibold text-gray-900">0</p>
-            </div>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100 cursor-pointer">
+        <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">来源站点</div>
+        <p id="statSourceCount" class="text-5xl font-bold tracking-tight text-gray-900 dark:text-white">0</p>
+        <div class="mt-2 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0"></span>
+            <span class="text-xs text-gray-400">活跃采集源</span>
         </div>
     </div>
-    <div class="anim-card bg-white overflow-hidden rounded-xl shadow-md p-5 border border-gray-100 dark:border-gray-700">
-        <div class="flex items-center">
-            <div class="flex-shrink-0 bg-orange-500 rounded-md p-3">
-                <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-            </div>
-            <div class="ml-4">
-                <p class="text-sm font-medium text-gray-500">最后运行</p>
-                <p id="statLastRun" class="text-sm font-semibold text-gray-700 dark:text-gray-200">-</p>
-            </div>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100 cursor-pointer">
+        <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">最后运行</div>
+        <p id="statLastRun" class="text-xl font-semibold text-gray-700 dark:text-gray-200 mt-1">-</p>
+        <div class="mt-2 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0"></span>
+            <span class="text-xs text-gray-400">采集调度</span>
+        </div>
+    </div>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100 cursor-pointer">
+        <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">收藏项目</div>
+        <p id="statFavorites" class="text-5xl font-bold tracking-tight text-gray-900 dark:text-white">-</p>
+        <div class="mt-2 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-purple-400 flex-shrink-0"></span>
+            <span class="text-xs text-gray-400">已收藏</span>
         </div>
     </div>
 </div>
@@ -57,28 +50,28 @@
 <!-- 站点健康状态栏 -->
 <div id="healthBar" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
     <div class="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
-        <div id="health-cqggzy" class="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0"></div>
+        <div id="health-cqggzy" class="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0"></div>
         <div class="min-w-0">
             <p class="text-xs text-gray-500 truncate">重庆公共资源</p>
             <p class="text-sm font-medium text-gray-900 dark:text-white truncate" id="health-cqggzy-label">检测中...</p>
         </div>
     </div>
     <div class="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
-        <div id="health-ccgp" class="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0"></div>
+        <div id="health-ccgp" class="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0"></div>
         <div class="min-w-0">
             <p class="text-xs text-gray-500 truncate">全国政府采购</p>
             <p class="text-sm font-medium text-gray-900 dark:text-white truncate" id="health-ccgp-label">检测中...</p>
         </div>
     </div>
     <div class="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
-        <div id="health-db" class="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0"></div>
+        <div id="health-db" class="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0"></div>
         <div class="min-w-0">
             <p class="text-xs text-gray-500 truncate">数据库</p>
             <p class="text-sm font-medium text-gray-900 dark:text-white truncate" id="health-db-label">检测中...</p>
         </div>
     </div>
     <div class="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
-        <div id="health-redis" class="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0"></div>
+        <div id="health-redis" class="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0"></div>
         <div class="min-w-0">
             <p class="text-xs text-gray-500 truncate">缓存</p>
             <p class="text-sm font-medium text-gray-900 dark:text-white truncate" id="health-redis-label">检测中...</p>
@@ -523,7 +516,7 @@
         var dot = document.getElementById('health-' + id);
         var lbl = document.getElementById('health-' + id + '-label');
         if (!dot || !lbl) return;
-        dot.className = 'w-2.5 h-2.5 rounded-full flex-shrink-0';
+        dot.className = 'w-2 h-2 rounded-full flex-shrink-0';
         if (status === 'healthy') {
             dot.classList.add('bg-green-500');
             lbl.textContent = label || '正常';

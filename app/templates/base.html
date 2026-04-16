@@ -381,5 +381,157 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
         })();
 
     </script>
+
+    <!-- ========== Command Palette (Linear Cmd+K) ========== -->
+    <div id="cmd-palette" class="fixed inset-0 z-[9999] hidden" role="dialog" aria-modal="true">
+      <!-- Backdrop -->
+      <div id="cmd-backdrop" class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+      <!-- Dialog -->
+      <div class="absolute top-[20vh] left-1/2 -translate-x-1/2 w-full max-w-xl z-10">
+        <div class="bg-[#191a1b] border border-white/15 rounded-xl shadow-2xl overflow-hidden"
+             style="animation: cmdOpen 150ms ease-out">
+          <!-- Search input -->
+          <div class="flex items-center border-b border-white/5">
+            <svg class="w-4 h-4 ml-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input id="cmd-input" type="text" placeholder="Search or type a command..."
+              class="w-full bg-transparent px-4 py-3.5 text-base text-white placeholder-gray-500 outline-none border-none">
+            <kbd class="mr-4 px-1.5 py-0.5 text-xs text-gray-500 bg-white/10 rounded">Esc</kbd>
+          </div>
+          <!-- Results -->
+          <div id="cmd-results" class="max-h-80 overflow-y-auto py-2">
+            <!-- Populated by JS -->
+          </div>
+          <!-- Footer shortcuts -->
+          <div class="px-4 py-2.5 border-t border-white/5 flex items-center gap-4 text-xs text-gray-500">
+            <span><kbd class="px-1.5 py-0.5 bg-white/10 rounded text-gray-400">↑↓</kbd> 导航</span>
+            <span><kbd class="px-1.5 py-0.5 bg-white/10 rounded text-gray-400">↵</kbd> 确认</span>
+            <span><kbd class="px-1.5 py-0.5 bg-white/10 rounded text-gray-400">Esc</kbd> 关闭</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <style>
+    @keyframes cmdOpen {
+      from { opacity: 0; transform: translate-x(-50%) scale(0.96); }
+      to   { opacity: 1; transform: translate-x(-50%) scale(1); }
+    }
+    #cmd-palette:not(.hidden) { display: flex; }
+    </style>
+
+    <script>
+    (function() {
+      var palette = document.getElementById('cmd-palette');
+      var input   = document.getElementById('cmd-input');
+      var results = document.getElementById('cmd-results');
+
+      var commands = [
+        { group: 'Recent', items: [
+          { label: 'Dashboard',    href: '/',                    icon: '◈' },
+          { label: '采集内容',     href: '/data',                icon: '◈' },
+          { label: '收藏夹',       href: '/favorites',            icon: '◈' },
+        ]},
+        { group: 'Pages', items: [
+          { label: '仪表盘',       href: '/',                    icon: '◈' },
+          { label: '数据管理',     href: '/data',                icon: '◈' },
+          { label: '收藏夹',       href: '/favorites',            icon: '◈' },
+          { label: '数据分析',     href: '/analytics',           icon: '◈' },
+          { label: '任务管理',     href: '/tasks',               icon: '◈' },
+          { label: '设置',         href: '/settings',            icon: '◈' },
+          { label: '日志',         href: '/logs',                icon: '◈' },
+        ]},
+        { group: 'Actions', items: [
+          { label: '触发采集',     href: '/api/collect',          icon: '▸', action: 'collect' },
+          { label: '刷新页面',     href: '#',                    icon: '↻', action: 'refresh' },
+          { label: '快捷键帮助',   href: '#',                    icon: '?',  action: 'shortcuts' },
+        ]},
+      ];
+
+      var selectedIdx = -1;
+
+      function render(q) {
+        q = q.toLowerCase();
+        var html = '';
+        var globalIdx = 0;
+        commands.forEach(function(g) {
+          var matched = g.items.filter(function(i) {
+            return !q || i.label.toLowerCase().includes(q);
+          });
+          if (!matched.length) return;
+          html += '<div class="px-3 py-1.5 text-xs font-medium text-gray-500 uppercase tracking-wider">' + g.group + '</div>';
+          matched.forEach(function(item) {
+            var active = globalIdx === selectedIdx ? ' bg-white/8' : '';
+            html += '<a href="' + item.href + '" class="cmd-item flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:bg-white/5 cursor-pointer' + active + '"' +
+                    (item.action ? ' data-action="' + item.action + '"' : '') + '>' +
+                    '<span class="text-gray-500 w-4 text-center flex-shrink-0">' + item.icon + '</span>' +
+                    '<span class="flex-1">' + item.label + '</span>' +
+                    '<span class="text-xs text-gray-600">' + (item.href.startsWith('/') && item.href !== '#' ? item.href : '') + '</span>' +
+                    '</a>';
+            globalIdx++;
+          });
+        });
+        if (!html) {
+          html = '<div class="px-4 py-8 text-center text-sm text-gray-500">No results for "' + escHtml(q) + '"</div>';
+        }
+        results.innerHTML = html;
+        selectedIdx = -1;
+      }
+
+      function open() {
+        palette.classList.remove('hidden');
+        input.value = '';
+        render('');
+        input.focus();
+      }
+
+      function close() {
+        palette.classList.add('hidden');
+        input.value = '';
+      }
+
+      function navigate(dir) {
+        var items = results.querySelectorAll('.cmd-item');
+        if (!items.length) return;
+        if (selectedIdx >= 0) items[selectedIdx].classList.remove('bg-white/8');
+        selectedIdx = Math.max(0, Math.min(items.length - 1, selectedIdx + dir));
+        items[selectedIdx].classList.add('bg-white/8');
+        items[selectedIdx].scrollIntoView({ block: 'nearest' });
+      }
+
+      function execute() {
+        var active = results.querySelector('.bg-white\/8');
+        if (!active) {
+          var first = results.querySelector('.cmd-item');
+          if (first) active = first;
+        }
+        if (active) {
+          var action = active.dataset.action;
+          if (action === 'refresh') { window.location.reload(); return; }
+          if (action === 'collect')  { window.location.href = '/api/collect'; return; }
+          if (action === 'shortcuts') { alert('⌘K: 命令面板\nG D: Dashboard\nC: 采集\n/: 搜索\n?: 帮助'); return; }
+          window.location.href = active.href;
+        }
+        close();
+      }
+
+      // Keyboard
+      document.addEventListener('keydown', function(e) {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); open(); }
+        if (e.key === 'Escape') { close(); }
+        if (e.key === 'ArrowDown') { e.preventDefault(); navigate(1); }
+        if (e.key === 'ArrowUp')   { e.preventDefault(); navigate(-1); }
+        if (e.key === 'Enter')     { e.preventDefault(); execute(); }
+      });
+
+      // Backdrop click
+      document.getElementById('cmd-backdrop').addEventListener('click', close);
+
+      // Search input
+      input.addEventListener('input', function(e) { render(e.target.value); });
+
+      // Init
+      render('');
+    })();
+    </script>
 </body>
 </html>
