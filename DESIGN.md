@@ -1,7 +1,7 @@
 # DESIGN.md — 招投标采集系统
 
 > AI Agent 设计系统文档。告诉 AI「这个项目长什么样，应该怎么写 UI」。
-> 设计理念融合 Linear（暗色数据台）+ ClickHouse（性能密度）。
+> 设计理念融合 **Linear**（暗色命令台 + 微交互）+ **ClickHouse**（数据密度 + 性能优先）。
 
 ---
 
@@ -327,6 +327,66 @@ class="bg-white/10 border border-white/15 rounded-lg p-4
 
 ---
 
+## 6.1 Interactions & Motion（Linear 微交互）
+
+### 动效哲学
+**微妙克制** — 动效是反馈，不是装饰。所有动画服务于状态切换的清晰感知。
+
+### 核心原则
+- **Fast by default**: 默认 `150ms`，hover/focus `100ms`，modal `200ms`
+- **Ease-out dominant**: 进入动画用 `ease-out`，离开用 `ease-in`
+- **Scale minimal**: modal/dropdown 进入 `scale(0.96)→scale(1)`，非大幅弹跳
+- **No bounce**: 禁止弹簧/弹性动画，保持 Linear 的专业克制感
+
+### 时长层级
+
+| 场景 | 时长 | 缓动 |
+|------|------|------|
+| Hover/Focus 状态 | 100ms | ease-out |
+| 颜色/透明度切换 | 150ms | ease-out |
+| Dropdown/Popover 展开 | 150ms | ease-out |
+| Modal/Dialog 打开 | 200ms | ease-out (scale 0.96→1) |
+| Sidebar 折叠/展开 | 200ms | ease-in-out |
+| Toast 滑入 | 250ms | ease-out (translateY) |
+| 页面切换 | 0ms | 无动画（防止阅读中断） |
+
+### CSS 示例
+
+```html
+<!-- Hover: 背景亮度 + 边框增强 -->
+<button class="transition-colors duration-100 hover:bg-white/10">
+
+<!-- Dropdown: scale + opacity -->
+<div class="origin-top-right transition-all duration-150 ease-out
+            scale-95 opacity-0 scale-100 opacity-100">
+
+<!-- Modal: scale + backdrop -->
+<div class="transition-all duration-200 ease-out scale-96 → scale-100">
+<div class="transition-opacity duration-200 bg-black/80 → bg-black/60">
+
+<!-- Toast: translateY 滑入 -->
+<div class="transition-all duration-250 ease-out translate-y-2 → translate-y-0">
+```
+
+### 可点击元素状态
+
+| State | 反馈 |
+|-------|------|
+| Hover | `bg-white/5 → bg-white/10`，100ms |
+| Active/Pressed | `scale(0.98)`，50ms |
+| Focus | `ring-2 ring-blue-500/50`，即时 |
+| Disabled | `opacity-40`，禁止 cursor |
+| Loading | 替换文字为 spinner，禁用交互 |
+
+### 禁止
+- ❌ 页面切换过渡动画（阅读打断）
+- ❌ 卡片 hover 大幅上浮 + 阴影（眩晕感）
+- ❌ 加载时骨架屏闪烁动画
+- ❌ Bounce / spring / elastic 缓动
+- ❌ 超过 250ms 的任何进入动画
+
+---
+
 ## 7. Layout Principles
 
 ### 页面结构
@@ -370,7 +430,291 @@ class="bg-white/10 border border-white/15 rounded-lg p-4
 
 ---
 
-## 8. Do's and Don'ts
+## 6.2 Command Palette（Linear Cmd+K 模式）
+
+### 触发与布局
+```html
+<!-- 遮罩 -->
+<div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50">
+  <!-- 输入框 -->
+  <div class="absolute top-[20vh] left-1/2 -translate-x-1/2 w-full max-w-xl
+              bg-[#191a1b] border border-white/15 rounded-xl shadow-2xl overflow-hidden">
+    <input type="text" placeholder="Search or type a command..."
+      class="w-full bg-transparent px-4 py-3.5 text-base text-white
+             placeholder-gray-500 outline-none border-b border-white/5">
+    <!-- 结果列表 -->
+    <div class="max-h-80 overflow-y-auto py-2">
+      <!-- Group: Recent -->
+      <div class="px-3 py-1.5 text-xs font-medium text-gray-500 uppercase tracking-wider">Recent</div>
+      <div class="px-3 py-2 text-sm text-gray-200 hover:bg-white/5 cursor-pointer">
+        Dashboard
+      </div>
+      <!-- Group: Actions -->
+      <div class="px-3 py-1.5 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</div>
+      <div class="px-3 py-2 text-sm text-gray-200 hover:bg-white/5 cursor-pointer flex items-center gap-2">
+        <span class="text-gray-400">⌘</span> 触发采集
+      </div>
+    </div>
+    <!-- 底部快捷键提示 -->
+    <div class="px-4 py-2 border-t border-white/5 flex items-center gap-4 text-xs text-gray-500">
+      <span><kbd class="px-1.5 py-0.5 bg-white/10 rounded text-gray-400">↑↓</kbd> 导航</span>
+      <span><kbd class="px-1.5 py-0.5 bg-white/10 rounded text-gray-400">↵</kbd> 确认</span>
+      <span><kbd class="px-1.5 py-0.5 bg-white/10 rounded text-gray-400">Esc</kbd> 关闭</span>
+    </div>
+  </div>
+</div>
+```
+
+### 交互规范
+- **↑↓ 键**: 列表内上下导航
+- **Enter**: 确认选择
+- **Escape**: 关闭
+- **输入过滤**: 实时搜索，200ms 防抖
+- **空状态**: 显示"No results for 'xxx'"
+
+### 数据模型（Entity System — Linear Issue 模式）
+
+Linear 以 Issue 为核心抽象。参照本项目，数据实体抽象：
+
+| Entity | Linear 对应 | 本项目实体 |
+|--------|------------|-----------|
+| Issue | 招标/采集项目 | `TenderInfo` |
+| Project | 采集任务集 | `CollectionTask` |
+| Team | 站点/采集源 | `CrawlerSource` (ccgp/cqggzy) |
+| Cycle | 采集周期 | `ScheduleRun` |
+| View | 视图预设 | `Preset` |
+
+### Entity 卡片（ClickHouse 表格行升级版）
+
+```html
+<!-- Entity 行：紧凑，信息密度高 -->
+<div class="group flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-colors duration-100">
+  <!-- 状态指示点 -->
+  <span class="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0"></span>
+  <!-- 标题 + 标签 -->
+  <div class="flex-1 min-w-0">
+    <div class="text-sm font-medium text-gray-200 truncate">某单位智慧城市建设项目采购公告</div>
+    <div class="flex items-center gap-2 mt-0.5">
+      <span class="text-xs text-gray-500">ccgp-chongqing.gov.cn</span>
+      <span class="px-1.5 py-0.5 text-xs rounded bg-blue-500/20 text-blue-400">采购公告</span>
+    </div>
+  </div>
+  <!-- 元数据 -->
+  <div class="text-right flex-shrink-0">
+    <div class="text-xs text-gray-400">2026-04-15</div>
+    <div class="text-xs text-gray-500">预算: ¥520万</div>
+  </div>
+  <!-- 快捷操作（hover 显示） -->
+  <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-100 flex items-center gap-1">
+    <button class="p-1.5 rounded hover:bg-white/10 text-gray-400 hover:text-white">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/></svg>
+    </button>
+  </div>
+</div>
+```
+
+---
+
+## 6.3 Sidebar Navigation（Linear 多级导航）
+
+### 结构规范
+
+```html
+<aside class="w-56 bg-[#0f1011] border-r border-white/5 flex flex-col h-full">
+  <!-- Logo / Branding -->
+  <div class="px-4 py-4 border-b border-white/5">
+    <span class="text-base font-semibold tracking-tight text-white">Tender Scraper</span>
+  </div>
+  
+  <!-- Primary Nav -->
+  <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+    <!-- Nav Item -->
+    <a href="/" class="group flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm
+                   text-gray-400 hover:text-white hover:bg-white/5 transition-colors duration-100">
+      <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+      Dashboard
+    </a>
+    
+    <!-- 激活态 Nav Item -->
+    <a href="/data" class="group flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm
+                   bg-white/8 text-white font-medium">
+      <svg class="w-4 h-4 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7z"/></svg>
+      采集内容
+    </a>
+    
+    <!-- Separator -->
+    <div class="h-px bg-white/5 my-2"></div>
+    
+    <!-- Section Label -->
+    <div class="px-2.5 py-1.5 text-xs font-medium text-gray-600 uppercase tracking-wider">数据</div>
+    
+    <a href="/favorites" class="group flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm
+                   text-gray-400 hover:text-white hover:bg-white/5 transition-colors duration-100">
+      收藏夹
+      <span class="ml-auto text-xs text-gray-600 group-hover:text-gray-400">253</span>
+    </a>
+    
+    <a href="/analytics" class="group flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm
+                   text-gray-400 hover:text-white hover:bg-white/5 transition-colors duration-100">
+      数据分析
+    </a>
+    
+    <!-- Collapsible Group -->
+    <button class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm
+                   text-gray-500 hover:text-gray-300 transition-colors duration-100"
+            onclick="toggleSection('settings')">
+      <svg class="w-3.5 h-3.5 transition-transform duration-200" id="settings-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <span class="text-xs uppercase tracking-wider font-medium">设置</span>
+    </button>
+    <div id="settings-section" class="ml-4 space-y-0.5 hidden">
+      <a href="/settings" class="block px-2.5 py-1.5 rounded text-xs text-gray-500 hover:text-gray-300">通用设置</a>
+      <a href="/settings/sources" class="block px-2.5 py-1.5 rounded text-xs text-gray-500 hover:text-gray-300">采集源</a>
+    </div>
+  </nav>
+  
+  <!-- Bottom: Status / User -->
+  <div class="px-3 py-3 border-t border-white/5">
+    <div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 cursor-pointer transition-colors duration-100">
+      <div class="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-medium text-white">L</div>
+      <div class="flex-1 min-w-0">
+        <div class="text-xs font-medium text-gray-300 truncate">lewellyn</div>
+        <div class="text-xs text-gray-600">Admin</div>
+      </div>
+    </div>
+  </div>
+</aside>
+```
+
+### 关键规范
+- **宽度**: 固定 `14rem` (224px)，不可拖拽调整
+- **Hover**: `bg-white/5`，100ms
+- **激活**: `bg-white/8` + `text-white` + 左 border-left 高亮
+- **分组标题**: `text-xs uppercase tracking-wider text-gray-600`，不可点击
+- **Badge**: 显示计数（右对齐，hover 时变色）
+
+---
+
+## 6.4 Data Visualization（ClickHouse 密度优先）
+
+### Bar Chart（ClickHouse 风格 — 数字即主角）
+
+```html
+<!-- ClickHouse metric bar: 标签 + 数字 + 进度条 -->
+<div class="space-y-4">
+  <!-- 单项 bar -->
+  <div>
+    <div class="flex items-center justify-between mb-1.5">
+      <span class="text-xs text-gray-400">采购公告</span>
+      <span class="text-sm font-semibold text-white">1,284</span>
+    </div>
+    <div class="h-1.5 bg-white/5 rounded-full overflow-hidden">
+      <div class="h-full bg-blue-500/70 rounded-full" style="width: 72%"></div>
+    </div>
+  </div>
+  <!-- 多项对比 bar（同类数据等宽对比） -->
+  <div class="space-y-3">
+    <div class="flex items-center gap-3">
+      <span class="w-20 text-xs text-gray-400 truncate">采购意向</span>
+      <div class="flex-1 h-5 bg-white/5 rounded relative overflow-hidden">
+        <div class="h-full bg-emerald-500/60 rounded-r" style="width: 45%"></div>
+        <span class="absolute inset-0 flex items-center justify-end pr-2 text-xs font-medium text-white/80">45%</span>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+### Stat Card（ClickHouse 超大数字）
+
+```html
+<div class="bg-white/5 border border-white/10 rounded-lg p-5">
+  <div class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">采集项目总数</div>
+  <div class="text-5xl font-bold tracking-tight text-white">2,847</div>
+  <div class="flex items-center gap-1.5 mt-2">
+    <span class="text-xs text-emerald-400">↑ 12.3%</span>
+    <span class="text-xs text-gray-500">较上周</span>
+  </div>
+</div>
+```
+
+### Sparkline（迷你趋势线）
+
+```html
+<!-- SVG inline sparkline，宽度 80px -->
+<svg class="w-20 h-6" viewBox="0 0 80 24" fill="none">
+  <polyline points="0,20 10,16 20,18 30,10 40,12 50,6 60,8 70,4 80,2"
+            stroke="#10b981" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+```
+
+### 趋势指示
+
+| 趋势 | 颜色 | 示例 |
+|------|------|------|
+| 正向增长 | `text-emerald-400` | `↑ 12.3%` |
+| 负向下降 | `text-red-400` | `↓ 3.1%` |
+| 持平 | `text-gray-400` | `→ 0%` |
+| 警告 | `text-amber-400` | `⚠ 即将过期` |
+
+---
+
+## 6.5 Keyboard Shortcuts（效率优先）
+
+### 全局快捷键
+
+| 快捷键 | 功能 | 触发场景 |
+|--------|------|---------|
+| `⌘ K` / `Ctrl K` | 打开命令面板 | 全局 |
+| `G then D` | 跳转 Dashboard | 全局 |
+| `G then A` | 跳转 Analytics | 全局 |
+| `C` | 快速触发采集 | Dashboard |
+| `R` | 刷新当前数据 | 全局 |
+| `/` | 聚焦搜索框 | 数据列表页 |
+| `Esc` | 关闭模态/面板 | 全局 |
+| `?` | 显示快捷键列表 | 全局 |
+
+### 列表操作
+
+| 快捷键 | 功能 |
+|--------|------|
+| `J` / `↓` | 下移选中项 |
+| `K` / `↑` | 上移选中项 |
+| `O` / `Enter` | 打开选中详情 |
+| `F` | 收藏/取消收藏 |
+| `D` | 打开详情页 |
+| `N` | 新建采集任务 |
+
+### 命令面板操作
+
+```javascript
+// 键盘监听逻辑示例
+document.addEventListener('keydown', (e) => {
+  // Cmd+K / Ctrl+K → 打开命令面板
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    toggleCommandPalette(true);
+  }
+  // Esc → 关闭
+  if (e.key === 'Escape') {
+    toggleCommandPalette(false);
+    closeAllModals();
+  }
+  // G + D → Dashboard
+  if (e.key === 'd' && _lastKey === 'g') {
+    window.location.href = '/';
+  }
+  // / → 聚焦搜索
+  if (e.key === '/' && !isInputFocused()) {
+    e.preventDefault();
+    document.querySelector('[data-search-input]')?.focus();
+  }
+});
+```
+
+### 快捷键提示规则
+- **所有可点击元素**：hover 时显示 `title="... (快捷键: K)"`
+- **模态框**：底部显示快捷键列表（与 Command Palette 保持一致）
+- **帮助面板**：按 `?` 显示全量快捷键覆盖图
 
 ### ✅ DO
 
@@ -382,6 +726,10 @@ class="bg-white/10 border border-white/15 rounded-lg p-4
 6. **空状态要提示**: 表格为空时显示空状态文案
 7. **Loading 要明显**: 骨架屏优于空白，spinner 优于无反馈
 8. **操作要确认**: 删除等危险操作必须二次确认
+9. **动效克制**: Hover 100ms，Modal 200ms，scale 幅度 ≤ 0.04
+10. **键盘优先**: 常用操作提供快捷键（Cmd+K, G+D, C 等）
+11. **Entity 行**: 列表优先使用 Entity 卡片模式（非纯表格）
+12. **数据可视化**: 趋势数字 + Bar chart 结合，ClickHouse 密度优先
 
 ### ❌ DON'T
 
@@ -392,6 +740,10 @@ class="bg-white/10 border border-white/15 rounded-lg p-4
 5. **不要宽间距**: 页面内容至少 `px-4`，卡片内至少 `p-4`
 6. **不要无 Hover**: 所有可点击元素必须有 hover 态
 7. **不要无滚动**: 表格外层包 `overflow-x-auto`
+8. **不要页面切换动画**: 阅读时禁止过渡动画打断
+9. **不要 Bounce/Spring 缓动**: 只用 ease-out / ease-in
+10. **不要超过 250ms 的进入动画**
+11. **不要隐藏快捷键**: 所有关键操作 hover 时显示快捷键提示
 
 ---
 
@@ -453,16 +805,29 @@ class="bg-white/10 border border-white/15 rounded-lg p-4
 | 路由 | 页面 | 核心组件 |
 |------|------|---------|
 | `/` | Dashboard | 统计卡片 + 快捷入口 |
-| `/data` | 采集内容 | 数据表格 + 筛选 |
-| `/favorites` | 收藏 | 收藏列表 |
-| `/analytics` | 数据分析 | 图表 + 趋势 |
-| `/nl-query` | 智能查询 | 搜索框 + 结果 |
+| `/data` | 采集内容 | Entity 列表 + 筛选 + 批量操作 |
+| `/favorites` | 收藏 | Entity 列表 + 快速操作 |
+| `/analytics` | 数据分析 | Bar Chart + Stat Display + Trend |
+| `/nl-query` | 智能查询 | Command Palette + 结果 |
 | `/qualifications` | 资质管理 | 表格 + 上传弹窗 |
-| `/logs` | 日志 | 日志列表 |
-| `/settings` | 设置 | 表单 |
-| `/tasks` | 任务管理 | 统计 + 列表 + 向导 |
+| `/logs` | 日志 | 紧凑列表 + 时间戳 |
+| `/settings` | 设置 | 表单 + 分组设置 |
+| `/tasks` | 任务管理 | Entity 卡片 + Schedule Cycle |
 | `/documents/upload` | → 重定向 /qualifications | — |
+| `/cmd` | 命令面板 | Cmd+K 浮层 + 快捷命令 |
 
 ---
 
-*Last updated: 2026-04-16 — 融合 Linear + ClickHouse 设计理念*
+## 附录：设计变更日志
+
+| 日期 | 变更 |
+|------|------|
+| 2026-04-16 | 新增 6.1 动效与微交互规范（Linear 克制原则） |
+| 2026-04-16 | 新增 6.2 Command Palette + Entity Model（Linear Issue 模式） |
+| 2026-04-16 | 新增 6.3 Sidebar Navigation（多级可折叠结构） |
+| 2026-04-16 | 新增 6.4 Data Visualization（ClickHouse 密度优先 Bar Chart） |
+| 2026-04-16 | 新增 6.5 Keyboard Shortcuts（全局 + 列表操作） |
+
+---
+
+*Last updated: 2026-04-16 — Linear(微交互+命令面板) + ClickHouse(数据密度) 深度融合*
