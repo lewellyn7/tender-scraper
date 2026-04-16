@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte'
+  import { getUser } from './api.js'
   import Navbar from './components/Navbar.svelte'
   import Dashboard from './pages/Dashboard.svelte'
   import DataPage from './pages/Data.svelte'
@@ -26,12 +27,9 @@
       route = getRoute()
     })
 
-    // Load user info
+    // Load user info via API
     try {
-      const res = await fetch('/api/user/me')
-      if (res.ok) {
-        user = await res.json()
-      }
+      user = await getUser()
     } catch (e) {
       console.warn('Not logged in')
     }
