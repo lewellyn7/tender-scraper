@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import uvicorn
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import routes_n8n, routes_users
@@ -88,6 +88,19 @@ app.include_router(metrics_router)
 STATIC_DIR = Path(__file__).parent / "app" / "static"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# ── SPA 单页应用（前后端分离）───────────────────────────────
+SPA_DIR = Path(__file__).parent / "app" / "templates" / "spa"
+
+@app.get("/spa")
+async def serve_spa():
+    """SPA 入口页 — 前端独立构建产物"""
+    return FileResponse(str(SPA_DIR / "index.html"))
+
+@app.get("/spa/assets/{path:path}")
+async def serve_spa_assets(path: str):
+    """SPA 静态资源（JS/CSS/图片）"""
+    return FileResponse(str(SPA_DIR / "assets" / path))
 
 # ── 健康检查 & 指标端点 ──────────────────────────────────
 @app.get("/health")

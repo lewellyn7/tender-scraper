@@ -45,7 +45,7 @@
 </script>
 
 {#if open}
-  <div class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" onclick|self={() => open = false}>
+  <div class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" on:click|self={() => open = false} role="dialog" aria-modal="true">
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
     <div class="relative w-full max-w-lg bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden" style="animation: slideDown 150ms ease-out">
       <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-white/5">
