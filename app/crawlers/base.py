@@ -7,12 +7,14 @@
 """
 
 import asyncio
+import os
 import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import List, Optional, Set, Tuple
 from urllib.parse import urljoin
 
+import redis as redis_lib
 from loguru import logger
 
 from app.core.browser import StealthBrowser
@@ -24,16 +26,51 @@ class BaseCrawler(ABC):
 
     BASE_URL: str = ""
 
-    def __init__(self, browser: StealthBrowser):
+    def __init__(self, browser: StealthBrowser, redis_client=None):
         self.browser = browser
         self.version = "tender-scraper v3.2"
         self._visited_urls: Set[str] = set()
         self._visited_lock = asyncio.Lock()
+        # Redis-backed URL dedup (multi-instance safe)
+        self._redis_client = redis_client
+        self._redis_key: str = ""
+
+    def _get_redis_key(self, source: str) -> str:
+        return f"scraper:visited:{source}"
+
+    def _init_redis(self, source: str):
+        """Lazily init Redis client and key."""
+        if self._redis_client is None:
+            try:
+                redis_url = os.getenv("REDIS_URL", "redis://:@redis:6379/0")
+                self._redis_client = redis_lib.from_url(redis_url, decode_responses=True, socket_timeout=2)
+                self._redis_client.ping()
+            except Exception:
+                self._redis_client = None
+        self._redis_key = self._get_redis_key(source)
 
     # ─── URL 去重 ────────────────────────────────────────────────
 
-    async def _mark_visited(self, url: str) -> bool:
-        """标记 URL 为已访问，返回是否是新 URL（线程安全）"""
+    async def _mark_visited(self, url: str, source: str = "") -> bool:
+        """标记 URL 为已访问，返回是否是新 URL（线程安全）
+
+        - 有 Redis client 时使用 Redis Set SADD（多实例安全）
+        - 无 Redis client 时回退到内存 Set（单机兼容）
+        """
+        # Lazy init Redis on first call — use class name as source if not provided
+        if self._redis_client is not None and not self._redis_key:
+            self._init_redis(source or self.__class__.__name__)
+
+        if self._redis_client is not None and self._redis_key:
+            # Redis path: SADD returns 1 if added (new), 0 if existed
+            try:
+                added = self._redis_client.sadd(self._redis_key, url)
+                return bool(added)
+            except Exception:
+                # Redis failed, fall back to memory
+                pass
+
+        # Memory fallback
         async with self._visited_lock:
             if url in self._visited_urls:
                 return False

@@ -103,7 +103,7 @@ class CCGPCrawlerV3(BaseCrawler):
                         date_text = ""
 
                     full_url = urljoin(self.BASE_URL, href)
-                    if not await self._mark_visited(full_url):
+                    if not await self._mark_visited(full_url, source="ccgp-chongqing"):
                         continue
 
                     tender = TenderInfo(
@@ -133,7 +133,7 @@ class CCGPCrawlerV3(BaseCrawler):
 
     async def fetch_detail(self, tender: TenderInfo) -> TenderInfo:
         """采集详情页"""
-        if not await self._mark_visited(tender.url):
+        if not await self._mark_visited(tender.url, source="ccgp-chongqing"):
             logger.info(f"⏭️ URL已采集，跳过：{tender.url}")
             return tender
         return await self._fetch_detail_page(tender)

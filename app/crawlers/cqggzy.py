@@ -75,7 +75,7 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     date_text = await date_elem.text_content() if date_elem else ""
                     full_url = href if href.startswith("http") else f"{self.BASE_URL}{href}"
 
-                    if not await self._mark_visited(full_url):
+                    if not await self._mark_visited(full_url, source="cqggzy"):
                         continue
 
                     tender = TenderInfo(
@@ -105,7 +105,7 @@ class CQGGZYCrawlerV2(BaseCrawler):
 
     async def fetch_detail(self, tender: TenderInfo) -> TenderInfo:
         """采集详情页"""
-        if not await self._mark_visited(tender.url):
+        if not await self._mark_visited(tender.url, source="cqggzy"):
             logger.info(f"⏭️ URL已采集，跳过：{tender.url}")
             return tender
         return await self._fetch_detail_page(tender)
