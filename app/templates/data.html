@@ -1,34 +1,32 @@
 {% extends "base.html" %}
-{% block title %}数据管理 - 招投标采集系统{% endblock %}
+{% block title %}采集内容 - 招投标采集系统{% endblock %}
 {% block content %}
 <div id="dataApp" class="space-y-4">
   <!-- 页面标题+说明 -->
   <div class="flex items-center gap-2">
-    <h1 class="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">数据管理 <span class="help-btn" data-tooltip="数据管理页面
+    <h1 class="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">采集内容 <span class="help-btn" data-tooltip="采集内容页面
 
 展示所有采集到的招标数据。支持表格/卡片两种视图切换，按关键词和类型筛选。
 
 采集系统和自定义爬虫获取的数据会自动出现在此处。">?</span></h1>
-    <span class="help-btn" data-tooltip="展示所有采集数据。支持表格/卡片视图切换、关键词搜索、类型筛选。采集结果自动写入此处。">?</span>
   </div>
-  <!-- 统计面板 -->
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-    <div class="bg-white rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-      <p class="text-xs text-gray-500 uppercase font-medium mb-1">全部采集</p>
-      <p id="statTotal" class="text-2xl font-bold text-blue-600 dark:text-blue-400">—</p>
-          <span class="help-btn stat-help" data-tooltip="系统中已采集的全部项目数量，包含已收藏和未收藏的项目。">?</span>
+  <!-- 统计面板（ClickHouse 风格） -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4">
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">全部采集</div>
+      <p id="statTotal" class="text-5xl font-bold tracking-tight text-blue-600 dark:text-blue-400">—</p>
     </div>
-    <div class="bg-white rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-      <p class="text-xs text-gray-500 uppercase font-medium mb-1">今日新增</p>
-      <p id="statFiltered" class="text-2xl font-bold text-green-600 dark:text-green-400">—</p>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4">
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">今日新增</div>
+      <p id="statFiltered" class="text-5xl font-bold tracking-tight text-green-600 dark:text-green-400">—</p>
     </div>
-    <div class="bg-white rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-      <p class="text-xs text-gray-500 uppercase font-medium mb-1">成功率</p>
-      <p id="statRate" class="text-2xl font-bold text-yellow-600 dark:text-yellow-400">—</p>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4">
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">成功率</div>
+      <p id="statRate" class="text-5xl font-bold tracking-tight text-yellow-600 dark:text-yellow-400">—</p>
     </div>
-    <div class="bg-white rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-      <p class="text-xs text-gray-500 uppercase font-medium mb-1">最近采集</p>
-      <p id="statLastRun" class="text-sm font-bold text-gray-700 dark:text-gray-200">—</p>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4">
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">最近采集</div>
+      <p id="statLastRun" class="text-lg font-semibold text-gray-700 dark:text-gray-200">—</p>
     </div>
   </div>
 
@@ -54,7 +52,13 @@
           <option value="土地交易">土地交易</option>
         </select>
       </div>
-      <!-- 导出 -->
+      <!-- 日期筛选 -->
+<div class="flex items-center gap-2">
+<input type="date" id="filterDateStart" placeholder="开始日期" class="px-3 py-2 border border-gray-300 rounded-md text-sm dark:bg-gray-700 dark:border-gray-600">
+<span class="text-gray-500">-</span>
+<input type="date" id="filterDateEnd" placeholder="结束日期" class="px-3 py-2 border border-gray-300 rounded-md text-sm dark:bg-gray-700 dark:border-gray-600">
+</div>
+<!-- 导出 -->
       <button type="button" id="exportBtn" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">导出 Excel</button>
     </div>
   </div>
@@ -67,7 +71,7 @@
   </div>
 
   <!-- 卡片视图 -->
-  <div id="cardsList" class="space-y-3 hidden"></div>
+  <div id="cardsList" class="space-y-2 hidden"></div>
 
   <!-- 表格视图 -->
   <div id="tableView" class="bg-white rounded-lg shadow overflow-hidden">
@@ -190,19 +194,18 @@
         : '<button type="button" onclick="toggleFav(event, \'' + escHtml(item.url) + '\', false)" class="text-gray-400 hover:text-red-500 shrink-0" title="添加收藏"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>';
 
       return (
-        '<div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition">' +
-          '<div class="flex items-start gap-3">' +
+        '<div class="group flex items-center gap-3 px-4 py-3 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100 cursor-pointer">' +
+          '<span class="w-2 h-2 rounded-full flex-shrink-0 ' + (item.tender_type === '政府采购' ? 'bg-blue-400' : 'bg-emerald-400') + '"></span>' +
+          '<div class="flex-1 min-w-0">' +
+            '<div class="text-sm font-medium text-gray-900 dark:text-white truncate mb-0.5">' + escHtml(item.title) + '</div>' +
+            '<div class="flex items-center gap-2 text-xs text-gray-500">' + badges + '<span>' + (item.publish_date || '').slice(0,10) + '</span></div>' +
+          '</div>' +
+          '<div class="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-100">' +
+            (item.budget ? '<span class="text-xs text-orange-600 font-medium">' + escHtml(item.budget) + '</span>' : '') +
             favBtn +
-            '<div class="flex-1 min-w-0">' +
-              '<h4 class="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 mb-1">' + escHtml(item.title) + '</h4>' +
-              '<div class="flex flex-wrap items-center gap-1.5 text-xs text-gray-500 mb-1">' + badges + '</div>' +
-              (metaRow ? '<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">' + metaRow + '</div>' : '') +
-            '</div>' +
-            '<div class="flex flex-col gap-1 items-end shrink-0">' +
-              '<a href="' + escHtml(item.url) + '" target="_blank" class="text-blue-500 hover:text-blue-700 text-xs" title="查看原文">' +
-                '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>' +
-              '</a>' +
-            '</div>' +
+            '<a href="' + escHtml(item.url) + '" target="_blank" class="text-gray-400 hover:text-blue-500 p-1" title="查看原文">' +
+              '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>' +
+            '</a>' +
           '</div>' +
         '</div>'
       );
@@ -330,6 +333,17 @@
   document.getElementById('view-card').className = 'px-3 py-1.5 text-sm font-medium ' + (currentView === 'card' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300');
 
   loadData();
+
+  // Keyboard shortcuts (DESIGN.md 6.5)
+  document.addEventListener('keydown', function(e) {
+    // '/' focuses search when not in input
+    if (e.key === '/' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
+      e.preventDefault();
+      document.getElementById('searchKeyword').focus();
+    }
+    // 'G then D' → Dashboard
+    // 'C' → collect (navigate to /api/collect)
+  });
 })();
 </script>
 {% endblock %}
