@@ -6,16 +6,17 @@
 
   async function login() {
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('/api/users/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
       })
+      const data = await res.json()
       if (res.ok) {
         window.location.hash = '/data'
         window.location.reload()
       } else {
-        error = '登录失败'
+        error = data.detail || '登录失败'
       }
     } catch (e) {
       error = '登录失败'
