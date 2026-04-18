@@ -52,13 +52,28 @@
           <option value="土地交易">土地交易</option>
         </select>
       </div>
+      <!-- 信息类型筛选 -->
+      <div class="w-36">
+        <select id="filterInfoType" class="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600">
+          <option value="">全部公示</option>
+          <option value="采购公告">采购公告</option>
+          <option value="更正公告">更正公告</option>
+          <option value="结果公告">结果公告</option>
+          <option value="废标公告">废标公告</option>
+          <option value="合同公告">合同公告</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
       <!-- 日期筛选 -->
 <div class="flex items-center gap-2">
 <input type="date" id="filterDateStart" placeholder="开始日期" class="px-3 py-2 border border-gray-300 rounded-md text-sm dark:bg-gray-700 dark:border-gray-600">
 <span class="text-gray-500">-</span>
 <input type="date" id="filterDateEnd" placeholder="结束日期" class="px-3 py-2 border border-gray-300 rounded-md text-sm dark:bg-gray-700 dark:border-gray-600">
 </div>
-<!-- 导出 -->
+<!-- 关键词标签云 -->
+  <div id="keywordCloud" class="flex flex-wrap gap-2 mt-3 px-1"></div>
+
+  <!-- 导出 -->
       <button type="button" id="exportBtn" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">导出 Excel</button>
     </div>
   </div>
@@ -76,12 +91,13 @@
   <!-- 表格视图 -->
   <div id="tableView" class="bg-white rounded-lg shadow overflow-hidden">
     <div class="overflow-x-auto">
-      <table class="min-w-full divide-y divide-gray-200">
+      <table class="min-w-full divide-y divide-gray-200 table-fixed">
         <thead class="bg-gray-50">
           <tr>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">收藏</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">标题</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">类型</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">公示</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">日期</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">关键词</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
@@ -120,6 +136,7 @@
   var totalPages = 0;
   var allItems = [];
   var filteredItems = [];
+  var selectedKeyword = '';
 
   // DOM refs
   var skeletonEl = document.getElementById('skeletonList');
@@ -176,8 +193,10 @@
     var pageItems = filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize);
     cardsEl.innerHTML = pageItems.map(function(item) {
       var badges = '';
+      var infoType = getInfoType(item.url) || item.info_type || '-';
       var typeBadge = item.type || item.tender_type || '-';
       badges += '<span class="px-2 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 rounded font-medium text-xs">' + escHtml(typeBadge) + '</span>';
+      if (infoType && infoType !== '-') badges += '<span class="px-2 py-0.5 bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 rounded text-xs">' + escHtml(infoType) + '</span>';
       if (item.keywords_matched) {
         badges += '<span class="px-2 py-0.5 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 rounded text-xs">匹配: ' + escHtml(item.keywords_matched) + '</span>';
       }
@@ -214,7 +233,7 @@
 
   function renderTable() {
     if (filteredItems.length === 0) {
-      tableBodyEl.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">暂无数据</td></tr>';
+      tableBodyEl.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">暂无数据</td></tr>';
       return;
     }
     var pageItems = filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -222,10 +241,13 @@
       var favBtn = item.is_favorite
         ? '<button type="button" onclick="toggleFav(event, \'' + escHtml(item.url) + '\', true)" class="text-red-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>'
         : '<button type="button" onclick="toggleFav(event, \'' + escHtml(item.url) + '\', false)" class="text-gray-400 hover:text-red-500"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>';
+      var infoType = getInfoType(item.url) || '-';
+      var infoBadge = infoType !== '-' ? '<span class="px-1.5 py-0.5 text-xs rounded bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">' + escHtml(infoType) + '</span>' : '-';
       return '<tr class="hover:bg-gray-50">' +
         '<td class="px-4 py-3">' + favBtn + '</td>' +
-        '<td class="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs truncate" title="' + escHtml(item.title) + '">' + escHtml(item.title) + '</td>' +
+        '<td class="px-4 py-3 text-sm font-medium text-gray-900 truncate" title="' + escHtml(item.title) + '">' + escHtml(item.title) + '</td>' +
         '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(item.category || item.tender_type || '-') + '</td>' +
+        '<td class="px-4 py-3">' + infoBadge + '</td>' +
         '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(item.publish_date || '-') + '</td>' +
         '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(item.keywords_matched || '-') + '</td>' +
         '<td class="px-4 py-3"><a href="' + escHtml(item.url) + '" target="_blank" class="text-blue-600 hover:text-blue-800 text-sm">原文</a></td>' +
@@ -257,12 +279,53 @@
     renderPagination();
   }
 
+  function renderKeywordCloud() {
+    var kwMap = {};
+    allItems.forEach(function(item) {
+      var kw = item.keywords_matched || '';
+      if (!kw) return;
+      kw.split(/[,，]/).forEach(function(k) {
+        k = k.trim();
+        if (k) kwMap[k] = (kwMap[k] || 0) + 1;
+      });
+    });
+    var tags = Object.keys(kwMap).sort(function(a, b) { return kwMap[b] - kwMap[a]; }).slice(0, 20);
+    var cloud = document.getElementById('keywordCloud');
+    if (!tags.length) { cloud.innerHTML = ''; return; }
+    cloud.innerHTML = '<span class="text-xs text-gray-400 self-center">关键词：</span>' +
+      tags.map(function(k) {
+        var active = selectedKeyword === k ? ' bg-blue-600 text-white' : ' bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-blue-100';
+        return '<button type="button" class="kw-tag px-2.5 py-1 text-xs rounded-full transition ' + active + '" data-kw="' + escAttr(k) + '">' + escHtml(k) + ' <span class="opacity-60">' + kwMap[k] + '</span></button>';
+      }).join('');
+    cloud.querySelectorAll('.kw-tag').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var k = this.dataset.kw;
+        selectedKeyword = selectedKeyword === k ? '' : k;
+        renderKeywordCloud();
+        applyFilters();
+      });
+    });
+  }
+
+  function getInfoType(url) {
+    if (!url) return '其他';
+    if (url.includes('014005001')) return '采购公告';
+    if (url.includes('014005002')) return '更正公告';
+    if (url.includes('014005003')) return '废标公告';
+    if (url.includes('014005004')) return '结果公告';
+    if (url.includes('014005005')) return '合同公告';
+    return '其他';
+  }
+
   function applyFilters() {
     var kw = document.getElementById('searchKeyword').value.toLowerCase().trim();
     var type = document.getElementById('filterType').value;
+    var infoType = document.getElementById('filterInfoType').value;
     filteredItems = allItems.filter(function(item) {
       if (kw && !(item.title || '').toLowerCase().includes(kw) && !(item.keywords_matched || '').toLowerCase().includes(kw)) return false;
       if (type && (item.category || item.tender_type || '') !== type) return false;
+      if (infoType && getInfoType(item.url) !== infoType) return false;
+      if (selectedKeyword && !(item.keywords_matched || '').includes(selectedKeyword)) return false;
       return true;
     });
     totalItems = filteredItems.length;
@@ -274,7 +337,7 @@
   async function loadData() {
     showSkeleton(true);
     try {
-      var qs = '?limit=500';
+      var qs = '?page_size=500';
       var res = await authFetch('/api/projects' + qs);
       var data = await res.json();
       allItems = data.projects || data.data || [];
@@ -294,6 +357,7 @@
       console.error('加载失败:', e);
     }
     showSkeleton(false);
+    renderKeywordCloud();
     applyFilters();
   }
 
@@ -322,6 +386,7 @@
 
   document.getElementById('searchKeyword').addEventListener('input', applyFilters);
   document.getElementById('filterType').addEventListener('change', applyFilters);
+  document.getElementById('filterInfoType').addEventListener('change', applyFilters);
   document.getElementById('exportBtn').addEventListener('click', function() { window.location.href = '/api/export/csv'; });
   document.getElementById('prevPage').addEventListener('click', function() { if (currentPage > 1) { currentPage--; render(); } });
   document.getElementById('nextPage').addEventListener('click', function() { if (currentPage < totalPages) { currentPage++; render(); } });

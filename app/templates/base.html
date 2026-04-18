@@ -96,9 +96,18 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
         function escapeHtml(str) {
             return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return null;
+        }
         function authHeaders() {
             var t = localStorage.getItem('session_token');
-            return t ? {'X-Session-Token': t} : {};
+            var headers = t ? {'X-Session-Token': t} : {};
+            var csrf = getCookie('csrf_token');
+            if (csrf) headers['X-CSRF-Token'] = csrf;
+            return headers;
         }
         function authFetch(u, o) {
             return fetch(u, Object.assign({headers: Object.assign({'Content-Type': 'application/json'}, authHeaders())}, o || {}));
@@ -130,9 +139,6 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
             if (s == null) return '';
             return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
-        function showMascotToast() {
-            showToast('你好！我是 Jarvis！有事随时叫我 🦞', 'info');
-        }
     </script>
 
     <!-- ========== TOP NAVBAR (Linear-style) ========== -->
@@ -148,9 +154,10 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
                 <div class="hidden md:flex items-center gap-0.5">
                     <a href="/" class="nav-item">Dashboard</a>
                     <a href="/data" class="nav-item">采集内容</a>
-                    <a href="/favorites" class="nav-item">收藏<span class="ml-1.5 text-xs text-gray-400">253</span></a>
+                    <a href="/favorites" class="nav-item">收藏<span class="ml-1.5 text-xs text-gray-400"></span></a>
                     <a href="/analytics" class="nav-item">分析</a>
                     <a href="/tasks" class="nav-item">任务</a>
+                    <a href="/qualifications" class="nav-item">资质</a>
                 </div>
                 <!-- Separator -->
                 <div class="hidden md:block w-px h-5 bg-gray-200 dark:bg-white/10 mx-1"></div>
@@ -193,9 +200,10 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
         <div id="mobileNav" class="md:hidden hidden border-t border-gray-100 dark:border-white/5 py-2 px-4 space-y-0.5">
             <a href="/" class="mobile-nav-item">Dashboard</a>
             <a href="/data" class="mobile-nav-item">采集内容</a>
-            <a href="/favorites" class="mobile-nav-item">收藏 (253)</a>
+            <a href="/favorites" class="mobile-nav-item">收藏</a>
             <a href="/analytics" class="mobile-nav-item">分析</a>
             <a href="/tasks" class="mobile-nav-item">任务</a>
+            <a href="/qualifications" class="mobile-nav-item">资质</a>
             <a href="/logs" class="mobile-nav-item">日志</a>
             <a href="/settings" class="mobile-nav-item">设置</a>
         </div>
@@ -256,45 +264,6 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/>
         </svg>
     </button>
-
-    <!-- ========== LIGHTWEIGHT SVG MASCOT (replaces 500KB Three.js) ========== -->
-    <div id="mascot-container">
-        <svg id="mascot-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 150" width="100" height="125">
-            <!-- Ears -->
-            <ellipse cx="42" cy="28" rx="11" ry="30" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"
-                     transform="rotate(-8 42 28)"/>
-            <ellipse cx="42" cy="30" rx="6" ry="20" fill="#fce7f3" transform="rotate(-8 42 30)"/>
-            <ellipse cx="78" cy="28" rx="11" ry="30" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"
-                     transform="rotate(8 78 28)"/>
-            <ellipse cx="78" cy="30" rx="6" ry="20" fill="#fce7f3" transform="rotate(8 78 30)"/>
-            <!-- Body -->
-            <ellipse cx="60" cy="105" rx="38" ry="42" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
-            <!-- Head -->
-            <ellipse cx="60" cy="68" rx="30" ry="28" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
-            <!-- Eyes -->
-            <ellipse cx="48" cy="65" rx="6" ry="7" fill="#1e293b"/>
-            <ellipse cx="72" cy="65" rx="6" ry="7" fill="#1e293b"/>
-            <circle cx="50" cy="63" r="2.5" fill="#fff"/>
-            <circle cx="74" cy="63" r="2.5" fill="#fff"/>
-            <!-- Nose -->
-            <ellipse cx="60" cy="75" rx="5" ry="3.5" fill="#f9a8d4"/>
-            <!-- Mouth -->
-            <path d="M52 80 Q60 87 68 80" stroke="#f472b6" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-            <!-- Whiskers -->
-            <line x1="15" y1="72" x2="43" y2="74" stroke="#d1d5db" stroke-width="1" stroke-linecap="round"/>
-            <line x1="15" y1="78" x2="43" y2="78" stroke="#d1d5db" stroke-width="1" stroke-linecap="round"/>
-            <line x1="77" y1="74" x2="105" y2="72" stroke="#d1d5db" stroke-width="1" stroke-linecap="round"/>
-            <line x1="77" y1="78" x2="105" y2="78" stroke="#d1d5db" stroke-width="1" stroke-linecap="round"/>
-            <!-- Front paws -->
-            <ellipse cx="35" cy="120" rx="13" ry="9" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
-            <ellipse cx="85" cy="120" rx="13" ry="9" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
-            <!-- Feet -->
-            <ellipse cx="40" cy="138" rx="17" ry="9" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
-            <ellipse cx="80" cy="138" rx="17" ry="9" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
-            <!-- Tail -->
-            <circle cx="98" cy="108" r="12" fill="#fff" stroke="#e5e7eb" stroke-width="1.5"/>
-        </svg>
-    </div>
 
     <!-- ========== SCRIPTS ========== -->
     <script>
@@ -398,40 +367,29 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
             });
         })();
 
-        // ── Mascot bounce on click ─────────────────────────────────────
-        (function() {
-            const container = document.getElementById('mascot-container');
-            const svg = document.getElementById('mascot-svg');
-            container.addEventListener('click', function() {
-                svg.classList.add('rabbit-bounce');
-                showMascotToast();
-                setTimeout(function() { svg.classList.remove('rabbit-bounce'); }, 750);
-            });
-        })();
-
     </script>
 
     <!-- ========== Command Palette (Linear Cmd+K) ========== -->
     <div id="cmd-palette" class="fixed inset-0 z-[9999] hidden" role="dialog" aria-modal="true">
-      <!-- Backdrop -->
-      <div id="cmd-backdrop" class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
-      <!-- Dialog -->
-      <div class="absolute top-[20vh] left-1/2 -translate-x-1/2 w-full max-w-xl z-10">
-        <div class="bg-[#191a1b] border border-white/15 rounded-xl shadow-2xl overflow-hidden"
+      <!-- Backdrop (above sticky nav z-40, below dialog) -->
+      <div id="cmd-backdrop" class="absolute inset-0 bg-black/60 backdrop-blur-sm z-[45]"></div>
+      <!-- Dialog (highest z) -->
+      <div class="absolute top-[15vh] left-1/2 -translate-x-1/2 w-full max-w-xl z-[9999]">
+        <div class="bg-[#1a1a1f] border border-white/10 rounded-2xl shadow-2xl overflow-hidden ring-1 ring-white/5"
              style="animation: cmdOpen 150ms ease-out">
           <!-- Search input -->
-          <div class="flex items-center border-b border-white/5">
+          <div class="flex items-center border-b border-white/8">
             <svg class="w-4 h-4 ml-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-            <input id="cmd-input" type="text" placeholder="Search or type a command..."
-              class="w-full bg-transparent px-4 py-3.5 text-base text-white placeholder-gray-500 outline-none border-none">
-            <kbd class="mr-4 px-1.5 py-0.5 text-xs text-gray-500 bg-white/10 rounded">Esc</kbd>
+            <input id="cmd-input" type="text" placeholder="搜索页面、触发采集..."
+              class="w-full bg-transparent px-4 py-4 text-base text-white placeholder-gray-500 outline-none border-none">
+            <kbd class="mr-4 px-2 py-1 text-xs text-gray-400 bg-white/10 rounded">Esc</kbd>
           </div>
           <!-- Results -->
-          <div id="cmd-results" class="max-h-80 overflow-y-auto py-2">
+          <div id="cmd-results" class="max-h-80 overflow-y-auto py-2 scrollbar-thin scrollbar-thumb-white/10">
             <!-- Populated by JS -->
           </div>
           <!-- Footer shortcuts -->
-          <div class="px-4 py-2.5 border-t border-white/5 flex items-center gap-4 text-xs text-gray-500">
+          <div class="px-4 py-2.5 border-t border-white/8 flex items-center gap-4 text-xs text-gray-500">
             <span><kbd class="px-1.5 py-0.5 bg-white/10 rounded text-gray-400">↑↓</kbd> 导航</span>
             <span><kbd class="px-1.5 py-0.5 bg-white/10 rounded text-gray-400">↵</kbd> 确认</span>
             <span><kbd class="px-1.5 py-0.5 bg-white/10 rounded text-gray-400">Esc</kbd> 关闭</span>

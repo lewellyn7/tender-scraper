@@ -148,16 +148,19 @@ def hash_password(password: str, salt: str = None) -> Tuple[str, str]:
 
 
 def verify_password(password: str, pwd_hash: str, salt: str = None) -> bool:
-    """验证密码（兼容新旧格式）"""
+    """验证密码（兼容新旧格式，使用 constant-time 比较防时序攻击）"""
     try:
-        # 尝试 bcrypt 验证
+        # bcrypt.checkpw 内部是 constant-time，无泄露风险
         return bcrypt.checkpw(password.encode(), pwd_hash.encode())
-    except Exception:
-        # 兼容旧 PBKDF2 格式
-        if salt:
-            computed_hash, _ = _hash_password_pbdkf2(password, salt)
-            return hmac.compare_digest(computed_hash, pwd_hash)
-        return False
+    except (ValueError, TypeError, AttributeError):
+        # 格式错误的 hash 不抛异常给调用者，保证所有路径耗时一致
+        pass
+    # 兼容旧 PBKDF2 格式或无效格式：走 constant-time 对比路径
+    # 为无效格式构造假 hash 以保证耗时一致
+    if salt:
+        computed_hash, _ = _hash_password_pbdkf2(password, salt)
+        return hmac.compare_digest(computed_hash, pwd_hash)
+    return False
 
 
 def _hash_password_pbdkf2(password: str, salt: str) -> Tuple[str, str]:

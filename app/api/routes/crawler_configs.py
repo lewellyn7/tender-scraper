@@ -30,6 +30,7 @@ def get_current_user_id(request) -> str:
 @router.get("/{config_id}")
 def get_config(config_id: int, request: Request):
     """获取单个爬虫配置"""
+    get_current_user_id(request)  # require auth
     db = get_db()
     conn = db._get_conn()
     cursor = conn.execute("SELECT * FROM crawler_configs WHERE id=?", (config_id,))
@@ -46,6 +47,7 @@ def get_config(config_id: int, request: Request):
 @router.get("")
 def list_configs(request: Request):
     """列出所有爬虫配置"""
+    get_current_user_id(request)  # require auth
     db = get_db()
     conn = db._get_conn()
     cursor = conn.execute(

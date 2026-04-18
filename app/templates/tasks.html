@@ -1,16 +1,14 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>任务管理 - 采集系统</title>
+{% extends "base.html" %}
+{% block title %}任务管理 - 采集系统{% endblock %}
+{% block extra_head %}
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; }
         
-        .page-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 24px 32px; }
-        .page-header h1 { font-size: 1.5rem; font-weight: 600; }
-        .page-header p { opacity: 0.85; font-size: 0.875rem; margin-top: 4px; }
+        /* Page Banner - matches DESIGN.md primary color */
+ .page-header { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 24px 32px; border-radius: 0 0 12px 12px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15); }
+        .page-header h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 4px; }
+        .page-header p { opacity: 0.9; font-size: 0.875rem; }
         
         .container { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
         
@@ -172,9 +170,9 @@
         .tab-btn { padding: 8px 16px; border: none; background: none; cursor: pointer; font-size: 0.875rem; color: #64748b; border-bottom: 2px solid transparent; margin-bottom: -1px; }
         .tab-btn.active { color: #667eea; border-bottom-color: #667eea; font-weight: 500; }
     </style>
-</head>
-<body>
+{% endblock %}
 
+{% block content %}
 <div class="page-header">
     <h1>📋 任务管理</h1>
     <p>创建、管理和监控采集任务</p>
@@ -803,5 +801,4 @@ function escAttr(s) {
     return String(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 }
 </script>
-</body>
-</html>
+{% endblock %}

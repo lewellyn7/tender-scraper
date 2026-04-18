@@ -26,7 +26,7 @@ def get_sqlite_conn():
 def get_pg_url():
     return os.getenv(
         "DATABASE_URL",
-        "postgresql://root:root123@localhost:5435/tender_scraper"
+        "postgresql://root:YOUR_DB_PASSWORD_HERE@localhost:5435/tender_scraper"
     )
 
 

@@ -19,7 +19,7 @@ import redis.asyncio as redis
 from redis.asyncio.client import Redis
 
 # ── 配置 ────────────────────────────────────────────────
-REDIS_URL = os.getenv("REDIS_URL", "redis://:infini_rag_flow@localhost:6381/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://:YOUR_REDIS_PASSWORD_HERE@localhost:6381/0")
 CACHE_TTL_DEFAULT = int(os.getenv("CACHE_TTL_DEFAULT", "3600"))      # 1h
 CACHE_TTL_HARVEST = int(os.getenv("CACHE_TTL_HARVEST", "86400"))      # 24h
 LOCK_TIMEOUT = int(os.getenv("CACHE_LOCK_TIMEOUT", "30"))           # 30s

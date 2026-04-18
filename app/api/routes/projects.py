@@ -12,6 +12,7 @@ from loguru import logger
 from fastapi import HTTPException, Request
 
 from app.database import get_db
+from app.services.vector_store import get_vector_store
 from app.utils.tfidf_matcher import TFIDFMatcher
 from app.utils.session import get_user_from_session
 
@@ -24,6 +25,17 @@ def get_current_user_id_optional(request) -> str:
         if user:
             return user["user_id"]
     return None
+
+
+def get_current_user_id_required(request) -> str:
+    """获取当前用户ID（必选，未登录抛出401）"""
+    token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
+    if not token:
+        raise HTTPException(status_code=401, detail="未登录")
+    user = get_user_from_session(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="无效的session")
+    return user["user_id"]
 
 router = APIRouter(prefix="/api", tags=["项目"])
 SYS_PATH = Path(__file__).parent.parent.parent.parent
@@ -90,7 +102,7 @@ def _clear_cache():
 @router.get("/projects")
 def get_projects(request: Request,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(100, ge=1, le=500),
     keyword: str = Query(""),
     category: str = Query(""),
     date_start: str = Query(""),
@@ -99,6 +111,7 @@ def get_projects(request: Request,
     source: str = Query(""),
     sort_by: str = Query("date"),
     use_tfidf: bool = Query(False),
+    use_vector: bool = Query(True),
 ):
     db = get_db()
     projects, _ = _load_projects()
@@ -110,27 +123,49 @@ def get_projects(request: Request,
             category = category or fc.get("category", "")
             date_start = date_start or fc.get("date_start", "")
             date_end = date_end or fc.get("date_end", "")
+
+    vector_matched_urls = None
+    url_scores = {}
+
     filtered = projects
     if keyword:
-        if use_tfidf:
-            m = TFIDFMatcher()
-            m.build_corpus([p.get("title", "") for p in projects])
-            kws = [k.strip() for k in keyword.split(",") if k.strip()]
-            m.build_keywords(kws)
-            mu = set()
-            for p in projects:
-                _, matched, _ = m.match(p.get("title", ""), kws)
-                if matched:
-                    mu.add(p.get("url", ""))
-            filtered = [p for p in projects if p.get("url", "") in mu]
-        else:
-            kws = [k.strip().lower() for k in keyword.split(",") if k.strip()]
-            filtered = [
-                p
-                for p in projects
-                if any(kw in p.get("title", "").lower() for kw in kws)
-                or any(kw in p.get("content_preview", "").lower() for kw in kws)
-            ]
+        if use_vector:
+            try:
+                vs = get_vector_store()
+                vec_results = vs.search(query=keyword, top_k=500)
+                vector_matched_urls = {r["metadata"].get("url") for r in vec_results if r.get("metadata", {}).get("url")}
+                url_scores = {r["metadata"].get("url"): r["score"] for r in vec_results if r.get("metadata", {}).get("url")}
+                logger.debug(f"[vector] 语义搜索 '{keyword[:20]}...' 召回 {len(vector_matched_urls)} 条")
+            except Exception as e:
+                logger.warning(f"[vector] 向量搜索失败，回退简单匹配: {e}")
+                vector_matched_urls = None
+
+        if vector_matched_urls is None:
+            if use_tfidf:
+                m = TFIDFMatcher()
+                m.build_corpus([p.get("title", "") for p in projects])
+                kws = [k.strip() for k in keyword.split(",") if k.strip()]
+                m.build_keywords(kws)
+                mu = set()
+                for p in projects:
+                    _, matched, _ = m.match(p.get("title", ""), kws)
+                    if matched:
+                        mu.add(p.get("url", ""))
+                filtered = [p for p in projects if p.get("url", "") in mu]
+            else:
+                kws = [k.strip().lower() for k in keyword.split(",") if k.strip()]
+                filtered = [
+                    p
+                    for p in projects
+                    if any(kw in p.get("title", "").lower() for kw in kws)
+                    or any(kw in p.get("content_preview", "").lower() for kw in kws)
+                ]
+
+    if vector_matched_urls is not None:
+        filtered = [p for p in filtered if p.get("url", "") in vector_matched_urls]
+        if url_scores:
+            filtered.sort(key=lambda p: url_scores.get(p.get("url", ""), 0), reverse=True)
+
     if category:
         filtered = [
             p for p in filtered if p.get("tender_type") == category or p.get("type") == category
@@ -207,7 +242,8 @@ def get_project(request: Request, project_url: str):
 
 
 @router.get("/duplicates")
-def find_duplicates(threshold: float = Query(0.7, ge=0, le=1)):
+def find_duplicates(request: Request, threshold: float = Query(0.7, ge=0, le=1)):
+    get_current_user_id_required(request)  # require auth
     db = get_db()
     projects, _ = _load_projects()
     if not projects:
@@ -238,7 +274,8 @@ def find_duplicates(threshold: float = Query(0.7, ge=0, le=1)):
 
 
 @router.get("/stats")
-def get_stats():
+def get_stats(request: Request):
+    get_current_user_id_required(request)  # require auth
     db = get_db()
     projects, total = _load_projects()
     data_file = SYS_PATH / "output" / "latest.json"

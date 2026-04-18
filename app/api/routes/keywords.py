@@ -37,7 +37,7 @@ def list_keywords(user_id: str = Depends(get_current_user)):
 
 
 @router.get("/stats")
-def get_stats():
+def get_stats(user_id: str = Depends(get_current_user)):
     """获取关键词统计"""
     svc = KeywordsService()
     return svc.get_stats()

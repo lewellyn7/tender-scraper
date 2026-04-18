@@ -1,7 +1,7 @@
 """向量语义检索 API"""
 
 from typing import Optional
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
 from app.services.vector_store import get_vector_store
@@ -15,7 +15,7 @@ async def vector_search(
     q: str = Query(..., min_length=1, max_length=500, description="自然语言检索查询"),
     top_k: int = Query(5, ge=1, le=50),
     source: Optional[str] = Query(None, description="来源过滤，如 ccgp, ggzy"),
-    user_id: str = Query(..., dependencies=[get_current_user]),
+    user_id: str = Depends(get_current_user),
 ):
     """
     向量语义检索接口
@@ -40,7 +40,7 @@ async def vector_search(
 @router.post("/upsert")
 async def vector_upsert(
     docs: list,
-    user_id: str = Query(..., dependencies=[get_current_user]),
+    user_id: str = Depends(get_current_user),
 ):
     """
     批量添加/更新向量文档
@@ -66,7 +66,7 @@ async def vector_upsert(
 @router.delete("")
 async def vector_delete(
     ids: str = Query(..., description="逗号分隔的 ID 列表"),
-    user_id: str = Query(..., dependencies=[get_current_user]),
+    user_id: str = Depends(get_current_user),
 ):
     """删除指定 ID 的向量"""
     id_list = [i.strip() for i in ids.split(",") if i.strip()]

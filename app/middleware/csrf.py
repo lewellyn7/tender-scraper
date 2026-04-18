@@ -18,10 +18,18 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
     """CSRF Token 验证 — 已修复 H-2"""
 
     SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+    # Public auth endpoints: no CSRF check needed (no session exists yet)
+    PUBLIC_AUTH_PATHS = {"/api/users/login", "/api/users/register", "/login", "/register"}
 
     async def dispatch(self, request: Request, call_next):
         # Safe methods don't need CSRF check
         if request.method in self.SAFE_METHODS:
+            return await call_next(request)
+
+        path = request.url.path
+
+        # Public auth endpoints: allow without CSRF (user has no session yet)
+        if path in self.PUBLIC_AUTH_PATHS:
             return await call_next(request)
 
         # Non-safe methods: require BOTH session and CSRF token
@@ -35,11 +43,18 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
                 content={"error": "Authentication required"}
             )
 
-        # 已登录用户必须提供 CSRF token（防止已登录用户的 CSRF 攻击）
+        # 已登录用户必须提供 CSRF token
+        # Proper double-submit: X-CSRF-Token header must match csrf_token cookie
         if not client_token:
             return JSONResponse(
                 status_code=403,
                 content={"error": "CSRF token required"}
+            )
+        csrf_cookie = request.cookies.get("csrf_token", "")
+        if client_token != csrf_cookie:
+            return JSONResponse(
+                status_code=403,
+                content={"error": "CSRF token invalid"}
             )
 
         return await call_next(request)

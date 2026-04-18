@@ -111,7 +111,9 @@ async def login(
                     user_agent=user_agent, result="success",
                     details={"username": user["username"], "role": user["role"]})
 
+    import secrets
     from fastapi.responses import JSONResponse
+    csrf_token = secrets.token_hex(16)
     resp = JSONResponse({
         "token": token,
         "user": {"user_id": user["user_id"], "username": user["username"], "role": user["role"]},
@@ -120,6 +122,13 @@ async def login(
         key="session_token",
         value=token,
         httponly=True,
+        samesite="lax",
+        max_age=86400,
+    )
+    resp.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        httponly=False,
         samesite="lax",
         max_age=86400,
     )

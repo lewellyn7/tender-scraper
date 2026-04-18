@@ -35,29 +35,32 @@ def get_current_user_id(request) -> str:
 
 
 @router.get("")
-def get_favorites(status: str = None, limit: int = 500):
+def get_favorites(request: Request, status: str = None, limit: int = 500):
     """获取收藏列表"""
+    user_id = get_current_user_id(request)
     db = get_db()
-    favorites = db.get_favorites(status=status, limit=limit)
+    favorites = db.get_favorites(user_id=user_id, status=status, limit=limit)
     serialized = [_serialize_row(f) for f in favorites]
     return JSONResponse({"favorites": serialized})
 
 
 @router.post("")
-def add_favorite(project: dict = Body(...)):
+def add_favorite(request: Request, project: dict = Body(...)):
     """添加收藏"""
+    user_id = get_current_user_id(request)
     db = get_db()
-    success = db.add_favorite_sync(project)
+    success = db.add_favorite_sync(project, user_id=user_id)
     if success:
         return JSONResponse({"success": True, "message": "已添加到收藏"})
     return JSONResponse({"success": False, "error": "添加失败"}, status_code=500)
 
 
 @router.patch("/status")
-def update_favorite_status(project_url: str = Query(...), status: dict = Body(...)):
+def update_favorite_status(request: Request, project_url: str = Query(...), status: dict = Body(...)):
     """更新收藏状态（query参数避免URL编码冲突）"""
+    user_id = get_current_user_id(request)
     db = get_db()
-    success = db.update_favorite_status(project_url, status.get("status") if isinstance(status, dict) else status)
+    success = db.update_favorite_status(project_url, status.get("status") if isinstance(status, dict) else status, user_id=user_id)
     if success:
         return JSONResponse({"success": True})
     return JSONResponse({"success": False}, status_code=500)
@@ -84,8 +87,9 @@ def remove_favorite(request: Request, project_url: str = Query(...)):
 
 
 @router.post("/batch")
-def add_favorites_batch(projects: list = Body(...)):
+def add_favorites_batch(request: Request, projects: list = Body(...)):
     """批量添加收藏"""
+    user_id = get_current_user_id(request)
     db = get_db()
-    count = db.add_favorites_batch(projects)
+    count = db.add_favorites_batch(projects, user_id=user_id)
     return JSONResponse({"success": True, "count": count})

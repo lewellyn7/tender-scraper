@@ -79,7 +79,7 @@ async def get_data(request: Request):
     """数据页"""
     user_info = _get_user_info(request)
     return _templates.TemplateResponse(
-        request, "settings.html", {"request": request, "user_info": user_info}
+        request, "data.html", {"request": request, "user_info": user_info}
     )
 
 

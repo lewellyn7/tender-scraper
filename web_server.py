@@ -39,6 +39,27 @@ logger.add(sys.stderr, level=LOG_LEVEL)
 # 创建 FastAPI 应用
 app = FastAPI(title="招投标采集系统", version="3.1")
 
+
+@app.on_event("startup")
+async def _warmup_embedding_model():
+    """服务启动时预热 embedding 模型，避免首次请求 10s+ 延迟"""
+    import threading
+
+    def _load():
+        try:
+            from app.services.vector_store import get_embedding_model
+            model = get_embedding_model()
+            if model is not None:
+                logger.info(f"[startup] embedding 模型预热完成: {type(model).__name__}")
+            else:
+                logger.warning("[startup] embedding 模型未加载（sentence-transformers 未安装，将使用 OpenAI fallback）")
+        except Exception as e:
+            logger.warning(f"[startup] embedding 模型预热失败: {e}")
+
+    # 后台线程加载，不阻塞服务启动
+    t = threading.Thread(target=_load, daemon=True)
+    t.start()
+
 # 检测是否为生产模式
 is_production = os.getenv("ENV", "development") == "production"
 
@@ -105,7 +126,14 @@ async def serve_spa_assets(path: str):
 # ── 健康检查 & 指标端点 ──────────────────────────────────
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "tender-scraper"}
+    """健康检查（包含向量库状态）"""
+    from app.services.vector_store import get_vector_store
+    try:
+        vs = get_vector_store()
+        stats = vs.stats()
+    except Exception:
+        stats = {"error": "vector store unavailable"}
+    return {"status": "ok", "service": "tender-scraper", "vector": stats}
 
 # Prometheus 指标端点 — 统一入口，同时服务标准 process/http 指标和自定义资质/日志指标
 # make_asgi_app() 已移除：它会拦截 /metrics/* 子路径，导致 /metrics/qualifications 等路由失效

@@ -191,6 +191,7 @@ class KeywordsService:
             ("流标", "exclude", "exact", 1.0),
             ("终止", "exclude", "exact", 1.0),
             ("废标", "exclude", "exact", 1.0),
+        ("交易日程", "exclude", "exact", 1.0),
             ("智慧城市", "include", "fuzzy", 0.7),
             ("智慧园区", "include", "fuzzy", 0.7),
         ]

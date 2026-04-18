@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 from loguru import logger
 
 from app.database.repositories import AnnotationRepository, FavoriteRepository
+from app.services.vector_store import get_vector_store
 from app.utils.tfidf_matcher import TFIDFMatcher
 
 SYS_PATH = Path(__file__).parent.parent.parent
@@ -62,8 +63,15 @@ class ProjectService:
         source: str = "",
         sort_by: str = "date",
         use_tfidf: bool = False,
+        use_vector: bool = True,
     ) -> Dict:
-        """获取项目列表（带业务逻辑）"""
+        """获取项目列表（带业务逻辑）
+
+        搜索模式优先级:
+        - use_vector=True (默认): 向量语义搜索（可捕捉同义词/语义相似）
+        - use_vector=False + use_tfidf=True: TF-IDF 关键词匹配
+        - use_vector=False + use_tfidf=False: 简单子串匹配
+        """
         from app.database import get_db
 
         db = get_db()
@@ -81,27 +89,61 @@ class ProjectService:
 
         filtered = projects
 
+        # URL 集合（用于向量搜索结果匹配）
+        vector_matched_urls = None
+
         # 关键词过滤
         if keyword:
-            if use_tfidf:
-                m = TFIDFMatcher()
-                m.build_corpus([p.get("title", "") for p in projects])
-                kws = [k.strip() for k in keyword.split(",") if k.strip()]
-                m.build_keywords(kws)
-                mu = set()
-                for p in projects:
-                    _, matched, _ = m.match(p.get("title", ""), kws)
-                    if matched:
-                        mu.add(p.get("url", ""))
-                filtered = [p for p in projects if p.get("url", "") in mu]
-            else:
-                kws = [k.strip().lower() for k in keyword.split(",") if k.strip()]
-                filtered = [
-                    p
-                    for p in projects
-                    if any(kw in p.get("title", "").lower() for kw in kws)
-                    or any(kw in p.get("content_preview", "").lower() for kw in kws)
-                ]
+            if use_vector:
+                # 语义向量搜索
+                try:
+                    vs = get_vector_store()
+                    # top_k 取大一些，后续过滤器会裁剪
+                    vec_results = vs.search(query=keyword, top_k=500, filters=None)
+                    vector_matched_urls = {r["metadata"].get("url") for r in vec_results if r.get("metadata", {}).get("url")}
+                    logger.debug(f"[vector] 语义搜索 '{keyword[:20]}...' 召回 {len(vector_matched_urls)} 条")
+                except Exception as e:
+                    logger.warning(f"[vector] 向量搜索失败，回退简单匹配: {e}")
+                    vector_matched_urls = None
+
+            if vector_matched_urls is None:
+                # 回退：TF-IDF 或简单匹配
+                if use_tfidf:
+                    m = TFIDFMatcher()
+                    m.build_corpus([p.get("title", "") for p in projects])
+                    kws = [k.strip() for k in keyword.split(",") if k.strip()]
+                    m.build_keywords(kws)
+                    mu = set()
+                    for p in projects:
+                        _, matched, _ = m.match(p.get("title", ""), kws)
+                        if matched:
+                            mu.add(p.get("url", ""))
+                    filtered = [p for p in projects if p.get("url", "") in mu]
+                else:
+                    kws = [k.strip().lower() for k in keyword.split(",") if k.strip()]
+                    filtered = [
+                        p
+                        for p in projects
+                        if any(kw in p.get("title", "").lower() for kw in kws)
+                        or any(kw in p.get("content_preview", "").lower() for kw in kws)
+                    ]
+
+        # 向量搜索结果过滤（与向量得分排序）
+        if vector_matched_urls is not None:
+            # 保留同时满足向量匹配 + 其他过滤条件的项目
+            url_scores = {}
+            try:
+                vs = get_vector_store()
+                vec_results = vs.search(query=keyword, top_k=500)
+                url_scores = {r["metadata"].get("url"): r["score"] for r in vec_results if r.get("metadata", {}).get("url")}
+            except Exception:
+                pass
+
+            filtered = [p for p in filtered if p.get("url", "") in vector_matched_urls]
+
+            # 按向量得分排序（高分在前）
+            if url_scores:
+                filtered.sort(key=lambda p: url_scores.get(p.get("url", ""), 0), reverse=True)
 
         # 分类过滤
         if category:

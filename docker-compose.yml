@@ -18,7 +18,7 @@ services:
       --maxmemory 256mb
       --maxmemory-policy allkeys-lru
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "infini_rag_flow", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-YOUR_REDIS_PASSWORD_HERE}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -74,8 +74,10 @@ services:
       - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - RAGFLOW_MCP_URL=http://host.docker.internal:9382
-      - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-ragflow-Z95CAjDHSyKZflHv6xMD6SXvmjdkSzCZCZK5BSyQcSw}
+      - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-YOUR_RAGFLOW_API_KEY_HERE}
       - RAGFLOW_BASE_URL=http://host.docker.internal:8088
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -145,7 +147,7 @@ services:
       - "3030:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=http://localhost:3030
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
@@ -179,7 +181,7 @@ services:
       - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - RAGFLOW_MCP_URL=http://host.docker.internal:9382
-      - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-ragflow-Z95CAjDHSyKZflHv6xMD6SXvmjdkSzCZCZK5BSyQcSw}
+      - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-YOUR_RAGFLOW_API_KEY_HERE}
       - RAGFLOW_BASE_URL=http://host.docker.internal:8088
     extra_hosts:
       - "host.docker.internal:host-gateway"
