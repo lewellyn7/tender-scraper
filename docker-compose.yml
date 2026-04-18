@@ -84,7 +84,7 @@ services:
     volumes:
       - ./output:/app/output
       - scraper-data:/app/data
-      - ./logs:/app/logs
+      - logs-data:/app/logs
     logging:
       driver: json-file
       options:
@@ -190,7 +190,7 @@ services:
     volumes:
       - ./output:/app/output
       - scraper-data:/app/data
-      - ./logs:/app/logs
+      - logs-data:/app/logs
     logging:
       driver: json-file
       options:
@@ -217,6 +217,7 @@ volumes:
   postgres-data:
   redis-data:
   scraper-data:
+  logs-data:
   prometheus-data:
   grafana-data:
 
