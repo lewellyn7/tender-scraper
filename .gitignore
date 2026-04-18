@@ -49,3 +49,4 @@ htmlcov/
 .env.local
 .env.*.local
 node_modules/
+.env.production
