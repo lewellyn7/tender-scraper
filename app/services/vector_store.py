@@ -27,14 +27,16 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 # ── Embedding Provider ─────────────────────────────────────
 
 def _load_embedding_model():
-    """延迟加载 embedding 模型"""
+    """延迟加载 embedding 模型（使用 vLLM 部署的 Qwen3-Embedding-4B）"""
     try:
-        from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer(EMBEDDING_MODEL)
-        logger.info(f"[vector] Embedding model loaded: {EMBEDDING_MODEL}")
-        return model
-    except ImportError:
-        logger.warning("[vector] sentence-transformers not installed; OpenAI fallback disabled")
+        import httpx
+        # 使用 vLLM 的 Embedding API
+        base_url = os.getenv("VLLM_EMBEDDING_URL", "http://host.docker.internal:8000/v1/embeddings")
+        model_name = os.getenv("EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-4B")
+        logger.info(f"[vector] Using vLLM embedding: {base_url} / {model_name}")
+        return {"type": "vllm", "url": base_url, "model": model_name}
+    except Exception as e:
+        logger.warning(f"[vector] vLLM embedding init failed: {e}")
         return None
 
 

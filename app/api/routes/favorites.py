@@ -71,7 +71,7 @@ def remove_favorite(request: Request, project_url: str = Query(...)):
     """移除收藏（query参数避免URL编码冲突）"""
     user_id = get_current_user_id(request)
     db = get_db()
-    success = db.remove_favorite(project_url)
+    success = db.remove_favorite(project_url, user_id=user_id)
     write_audit_log(
         EVENT_DATA_DELETE,
         user_id=user_id,

@@ -293,12 +293,24 @@ class Database(
     def _init_tables(self):
         if USE_PG:
             # PG schema is created by migration script
+            # Migration: add user_id column to favorites if missing
+            c = self._get_conn()
+            try:
+                c.execute("SELECT user_id FROM favorites LIMIT 1")
+            except Exception:
+                try:
+                    c.execute("ALTER TABLE favorites ADD COLUMN user_id TEXT DEFAULT ''")
+                    c.execute("CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id)")
+                    logger.info("Migrated PG favorites table: added user_id column")
+                except Exception as e:
+                    logger.warning(f"PG favorites migration skipped: {e}")
             return
         c = self._get_conn()
         c.executescript(
             """
             CREATE TABLE IF NOT EXISTS favorites(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL DEFAULT '',
                 project_url TEXT UNIQUE NOT NULL,
                 title TEXT NOT NULL,
                 source_url TEXT DEFAULT "",
@@ -309,6 +321,17 @@ class Database(
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
+            """
+        )
+        # Migration: add user_id column to existing favorites table (runs after CREATE TABLE)
+        try:
+            c.execute("SELECT user_id FROM favorites LIMIT 1")
+        except Exception:
+            c.execute("ALTER TABLE favorites ADD COLUMN user_id TEXT DEFAULT ''")
+            logger.info("Migrated favorites table: added user_id column")
+        c.executescript(
+            """
             CREATE TABLE IF NOT EXISTS annotations(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_url TEXT NOT NULL,

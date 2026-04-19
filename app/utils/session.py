@@ -13,18 +13,19 @@ from app.constants import SecurityConstants, TimeConstants
 _redis = None
 
 def _get_redis():
-    """Get Redis client, lazy init"""
+    """Get Redis client with automatic retry when previously failed"""
     global _redis
-    if _redis is None:
-        import redis, os
-        redis_url = os.getenv("REDIS_URL", "redis://:@redis:6379/0")
-        try:
-            _redis = redis.from_url(redis_url, decode_responses=True, socket_timeout=2)
-            _redis.ping()
-            logger.info("Session store: Redis connected")
-        except Exception as e:
-            logger.warning(f"Redis unavailable for sessions ({e}), falling back to in-memory")
-            _redis = None
+    if _redis is not None:
+        return _redis
+    import redis, os
+    redis_url = os.getenv("REDIS_URL", "redis://:@redis:6379/0")
+    try:
+        _redis = redis.from_url(redis_url, decode_responses=True, socket_timeout=2)
+        _redis.ping()
+        logger.info("Session store: Redis connected")
+    except Exception as e:
+        logger.warning(f"Redis unavailable for sessions ({e}), falling back to in-memory")
+        _redis = None
     return _redis
 
 
