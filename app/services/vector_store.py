@@ -51,30 +51,22 @@ def get_embedding_model():
 
 
 def encode_texts(texts: List[str]) -> List[List[float]]:
-    """将文本列表转为向量列表"""
+    """将文本列表转为向量列表（使用 vLLM Embedding API）"""
     model = get_embedding_model()
-    if model is not None:
-        embeddings = model.encode(texts, normalize_embeddings=True)
-        return embeddings.tolist()
-
-    # Fallback: 使用 OpenAI ada-002（需配置 API Key）
-    api_key = os.getenv("OPENAI_API_KEY", "")
-    if api_key:
+    if model and isinstance(model, dict) and model.get('type') == 'vllm':
         try:
-            import openai
-            openai.api_key = api_key
-            response = openai.Embedding.create(
-                model="text-embedding-ada-002",
-                input=texts,
-            )
-            return [item["embedding"] for item in response["data"]]
+            import httpx
+            response = httpx.post(model['url'], json={'input': texts, 'model': model['model']}, timeout=30.0)
+            response.raise_for_status()
+            data = response.json()
+            embeddings = [item['embedding'] for item in data['data']]
+            logger.debug(f'[vector] Encoded {len(texts)} texts via vLLM')
+            return embeddings
         except Exception as e:
-            logger.error(f"[vector] OpenAI embedding failed: {e}")
-
-    # 最终 Fallback: 随机向量（仅供测试）
-    logger.warning("[vector] No embedding provider available; using random vectors")
+            logger.error(f'[vector] vLLM embedding failed: {e}')
+    logger.warning('[vector] No embedding provider available; using random vectors')
     import random
-    dim = 384  # MiniLM default dim
+    dim = 2560
     return [[random.random() - 0.5 for _ in range(dim)] for _ in texts]
 
 
