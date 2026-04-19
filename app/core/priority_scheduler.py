@@ -238,18 +238,60 @@ class PriorityQueue:
         self._redis_ttl = 86400 * 7  # 7 天过期
         self._queue: List[TenderScore] = []
         self._seen_urls: set = set()
+        self._redis_client = None
+        self._init_redis()
+
+    def _init_redis(self):
+        """初始化 Redis 连接（可选，失败则回退到内存去重）"""
+        try:
+            import redis
+            self._redis_client = redis.from_url(
+                self._redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+                socket_timeout=2,
+                socket_connect_timeout=2
+            )
+            self._redis_client.ping()
+            logger.debug(f"[PriorityQueue] Redis connected: {self._redis_url}")
+        except Exception as e:
+            logger.warning(f"[PriorityQueue] Redis unavailable ({e}), using in-memory dedup only")
+            self._redis_client = None
+
+    def _check_url_exists(self, url: str) -> bool:
+        """检查 URL 是否已存在（Redis + 内存双重检查）"""
+        if url in self._seen_urls:
+            return True
+        if self._redis_client:
+            try:
+                return bool(self._redis_client.sismember(self._redis_key, url))
+            except Exception:
+                pass
+        return False
+
+    def _add_url(self, url: str):
+        """添加 URL 到去重集合"""
+        self._seen_urls.add(url)
+        if self._redis_client:
+            try:
+                self._redis_client.sadd(self._redis_key, url)
+                self._redis_client.expire(self._redis_key, self._redis_ttl)
+            except Exception:
+                pass
 
     def push(self, tender: Dict[str, Any], scorer: TenderScorer) -> bool:
         """入队，返回是否成功（去重）"""
         url = tender.get("url", "")
-        if not url or url in self._seen_urls:
+        if not url:
+            return False
+        # 去重检查
+        if self._check_url_exists(url):
             return False
 
         score = scorer.score(tender)
+        # 添加到去重集合
+        self._add_url(url)
 
-        # 去重
-        if url in self._seen_urls:
-            return False
 
         self._queue.append(score)
         self._seen_urls.add(url)
