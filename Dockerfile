@@ -65,7 +65,8 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
 
 RUN pip install --no-cache-dir playwright==1.44.0 \
-    && playwright install --with-deps chromium \
+    && mkdir -p /app/.playwright \
+    && PLAYWRIGHT_BROWSERS_PATH=/app/.playwright playwright install chromium \
     && pip uninstall -y playwright \
     && find /root/.cache -type f -name "*.whl" -delete 2>/dev/null || true
 
@@ -83,6 +84,9 @@ RUN groupadd --gid 1000 appgroup \
 
 # 从 builder 复制已安装的 Python 包
 COPY --from=builder /root/.local /home/appuser/.local
+
+# 从 base 复制 Playwright 浏览器（base 阶段已安装）
+COPY --from=base /app/.playwright /app/.playwright
 
 # 复制应用代码（晚于依赖，利用缓存）
 # 先创建必要目录
