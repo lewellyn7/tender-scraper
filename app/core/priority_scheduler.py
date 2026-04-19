@@ -9,6 +9,8 @@
 
 import time
 from collections import deque
+import os
+import redis.asyncio as redis
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -231,6 +233,9 @@ class PriorityQueue:
 
     def __init__(self, max_size: int = 1000):
         self.max_size = max_size
+        self._redis_url = os.getenv("REDIS_URL", "redis://:YOUR_REDIS_PASSWORD_HERE@localhost:6381/0")
+        self._redis_key = "tender:scheduler:seen_urls"
+        self._redis_ttl = 86400 * 7  # 7 天过期
         self._queue: List[TenderScore] = []
         self._seen_urls: set = set()
 
