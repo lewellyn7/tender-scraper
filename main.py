@@ -34,6 +34,10 @@ def _build_vector_text(p: dict) -> str:
         p.get("project_overview", ""),
         p.get("bidder_requirements", ""),
     ]
+    # content_preview 含实际内容摘要，补充向量语义（尤其是 project_overview 为空时）
+    content_preview = p.get("content_preview", "") or ""
+    if content_preview:
+        parts.append(content_preview[:500])
     text = " | ".join(x for x in parts if x)
     # MiniLM max_tokens=256, 约1000 tokens，截断至2000字符
     return text[:2000] if text else p.get("title", "")
