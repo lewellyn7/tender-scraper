@@ -51,3 +51,4 @@ htmlcov/
 node_modules/
 .env.production
 output/latest.json
+secrets/
