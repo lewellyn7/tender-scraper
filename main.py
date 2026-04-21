@@ -173,7 +173,7 @@ async def run_collection():
             task_id_item_map = {task.task_id: item for task, item in zip(crawl_tasks, detail_items)}
 
             # 创建 SmartScheduler（最大并发 3，避免触发反爬）
-            scheduler = SmartScheduler(max_concurrent=3)
+            scheduler = SmartScheduler(max_concurrent=settings.DETAIL_MAX_CONCURRENT)
 
             # 注册全部任务（按动态优先级排序）
             priorities = await scheduler.register_batch(crawl_tasks)

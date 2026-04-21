@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     MAX_RETRIES: int = 3
     RETRY_DELAY: int = 5
 
+    # 采集并发配置
+    DETAIL_MAX_CONCURRENT: int = 5  # 详情页并行采集上限
+
     # n8n 集成配置
     N8N_WEBHOOK_URL: str = ""
     N8N_TRIGGER_COLLECTION: str = ""
