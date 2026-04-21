@@ -76,8 +76,7 @@ def _run_collection_sync():
             return {"ok": False, "error": "no result", "elapsed": round(elapsed, 1)}
     except Exception as e:
         logger.error(f"[Collector] 采集异常: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("[Collector] traceback:")
         return {"ok": False, "error": str(e)}
 
 
