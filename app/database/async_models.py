@@ -427,9 +427,9 @@ class HarvestRecord:
 
             try:
                 affected = await conn.execute(sql, *param_list)
-                # affected like "INSERT 0 10" or "UPDATE 10"
+                # affected: "INSERT 0 10" (10 rows affected) or "UPDATE 10"
                 import re
-                m = re.search(r"(INSERT|UPDATE)\s+(\d+)", affected, re.IGNORECASE)
+                m = re.search(r"(INSERT|UPDATE)\s+\d+\s+(\d+)", affected, re.IGNORECASE)
                 if m:
                     op, count = m.group(1).upper(), int(m.group(2))
                     if op == "INSERT":
