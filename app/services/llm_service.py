@@ -1,4 +1,4 @@
-"""LLM 多模型服务 — 支持重试 + 自动切换"""
+"""LLM 多模型服务 — 支持重试 + 自动切换 + 连接池化"""
 
 import asyncio
 import json
@@ -8,6 +8,34 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from loguru import logger
+
+# ── 共享 aiohttp Session（连接池复用，避免每请求新建）───────
+_aiohttp_session: Optional[Any] = None
+
+
+async def _get_aiohttp_session() -> Any:
+    """获取共享 aiohttp ClientSession（连接池复用）"""
+    global _aiohttp_session
+    if _aiohttp_session is None or _aiohttp_session.closed:
+        import aiohttp
+        connector = aiohttp.TCPConnector(
+            limit=20,          # 最大并发连接数
+            limit_per_host=10,  # 每个 host 最大连接
+            ttl_dns_cache=300, # DNS 缓存 5 分钟
+        )
+        _aiohttp_session = aiohttp.ClientSession(connector=connector)
+        logger.info("[llm] aiohttp session pool initialized: limit=20, per_host=10")
+    return _aiohttp_session
+
+
+async def close_aiohttp_session():
+    """关闭共享 aiohttp session（应用退出时调用）"""
+    global _aiohttp_session
+    if _aiohttp_session is not None and not _aiohttp_session.closed:
+        await _aiohttp_session.close()
+        _aiohttp_session = None
+        logger.info("[llm] aiohttp session closed")
+
 
 # ── Provider 类型常量 ──────────────────────────────────────
 PROVIDER_OPENAI = "openai"
@@ -366,7 +394,7 @@ class LLMService:
             },
         }
 
-        async with aiohttp.ClientSession() as sess:
+        async with (await _get_aiohttp_session()) as sess:
             async with sess.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=p.timeout)) as resp:
                 if resp.status == 429:
                     raise RateLimitError("ollama rate limited")
@@ -405,7 +433,7 @@ class LLMService:
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
 
-        async with aiohttp.ClientSession() as sess:
+        async with (await _get_aiohttp_session()) as sess:
             async with sess.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=p.timeout)) as resp:
                 if resp.status == 429:
                     raise RateLimitError("qwen rate limited")
@@ -444,7 +472,7 @@ class LLMService:
             "max_tokens": max_tokens,
         }
 
-        async with aiohttp.ClientSession() as sess:
+        async with (await _get_aiohttp_session()) as sess:
             async with sess.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=p.timeout)) as resp:
                 if resp.status == 429:
                     raise RateLimitError("minimax rate limited")
