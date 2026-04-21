@@ -1,6 +1,7 @@
 """项目路由"""
 
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -76,9 +77,12 @@ def _batch_load_favorites_and_annotations(urls: list, db):
     return fav_map, ann_map
 
 
+_CACHE_TTL = int(os.getenv("PROJECTS_CACHE_TTL", "300"))  # 5分钟
+
+
 def _load_projects():
     now = time.time()
-    if _cache["projects"] and (now - _cache["last_load"]) < 60:
+    if _cache["projects"] and (now - _cache["last_load"]) < _CACHE_TTL:
         return _cache["projects"], _cache["total"]
     data_file = SYS_PATH / "output" / "latest.json"
     if data_file.exists():

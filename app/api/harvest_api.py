@@ -51,7 +51,7 @@ DATABASE_URL: str = os.getenv(
     "DATABASE_URL",
     "postgresql://scraper:changeme_pg_password_2026@localhost:5432/tender_scraper",
 )
-MAX_CONCURRENT: int = int(os.getenv("MAX_CONCURRENT", "20"))
+MAX_CONCURRENT: int = int(os.getenv("MAX_CONCURRENT", "10"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 全局状态
