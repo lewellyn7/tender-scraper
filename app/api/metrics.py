@@ -122,6 +122,22 @@ ACTIVE_CRAWLERS = Gauge(
     registry=REGISTRY,
 )
 
+# ── DB 连接池指标 ───────────────────────────────────────
+
+DB_POOL_SIZE = Gauge(
+    "db_pool_connections",
+    "PostgreSQL connection pool size (asyncpg)",
+    ["pool_name"],
+    registry=REGISTRY,
+)
+
+DB_POOL_IDLE = Gauge(
+    "db_pool_idle_connections",
+    "Idle PostgreSQL connections in pool (asyncpg)",
+    ["pool_name"],
+    registry=REGISTRY,
+)
+
 # ── 资质指标 ─────────────────────────────────────────────
 
 QUALIFICATION_GAUGE = Gauge(
@@ -284,8 +300,21 @@ def _refresh_log_metrics():
 
 def _refresh_all():
     """同时刷新所有自定义指标"""
+    _refresh_db_pool_metrics()
     _refresh_qualification_metrics()
     _refresh_log_metrics()
+
+
+def _refresh_db_pool_metrics():
+    """刷新 DB 连接池指标（asyncpg）"""
+    try:
+        from app.database.async_models import DatabaseManager
+        pool = DatabaseManager._pool
+        if pool is not None:
+            DB_POOL_SIZE.labels(pool_name="asyncpg").set(pool.get_size())
+            DB_POOL_IDLE.labels(pool_name="asyncpg").set(pool.get_idle_size())
+    except Exception:
+        pass
 
 
 # ── 端点定义 ─────────────────────────────────────────────
