@@ -173,7 +173,7 @@ class ChromaDBBackend(VectorBackend):
         self._dim = dim
         logger.info(f"[vector:chroma] collection={collection_name} dim={dim}")
 
-    def upsert(self, ids: List[str], embeddings: List[List[float]], payloads: List[List[Dict]]):
+    def upsert(self, ids: List[str], embeddings: List[List[float]], payloads: List[Dict]):
         # ChromaDB upsert with payloads as metadatas
         flat_payloads = []
         for p in payloads:
