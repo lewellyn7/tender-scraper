@@ -1,12 +1,16 @@
 """定时采集调度器 - Docker 容器入口
 
-通过 APScheduler 定时触发采集任务，采集结果写入 output/ 目录。
-与 Web 服务解耦，独立运行。
+通过 APScheduler 定时触发采集任务，通过 Redis Pub/Sub 发布采集指令。
+与实际采集逻辑完全解耦。
+
+采集 Worker（app.workers.collector）订阅 redis channel 响应触发。
 
 运行方式 (docker-compose):
   docker compose run --rm scheduler
 """
+import json
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -15,9 +19,43 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
+import redis
 
 # 日志配置
-logger.add("logs/scheduler.log", rotation="1 day", retention="7 days", level="INFO")
+logger.add("/dev/stderr", format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level="INFO", colorize=False)
+
+# ── Redis 配置 ──────────────────────────────────────────────
+REDIS_URL = os.getenv("REDIS_URL", "redis://:infini_rag_flow@localhost:6379/0")
+TRIGGER_CHANNEL = os.getenv("COLLECT_CHANNEL", "tender:collect:trigger")
+
+
+def _parse_redis_url(url: str) -> dict:
+    m = re.match(r"redis://(?::([^@]+)@)?([^:]+):(\d+)(?:/(\d+))?", url)
+    if not m:
+        return {"host": "localhost", "port": 6379, "db": 0, "password": None}
+    password, host, port, db = m.groups()
+    return {
+        "host": host,
+        "port": int(port),
+        "db": int(db) if db else 0,
+        "password": password,
+    }
+
+
+def _publish_trigger() -> bool:
+    """发布采集触发消息到 Redis channel，返回是否成功"""
+    try:
+        r = redis.Redis(**_parse_redis_url(REDIS_URL))
+        msg_id = r.publish(TRIGGER_CHANNEL, json.dumps({
+            "source": "scheduler",
+            "triggered_at": datetime.now().isoformat(),
+        }, ensure_ascii=False))
+        r.close()
+        logger.info(f"[Scheduler] 已发送采集触发 (接收者: {msg_id})")
+        return msg_id > 0
+    except Exception as e:
+        logger.error(f"[Scheduler] Redis 触发发布失败: {e}")
+        return False
 
 
 def job_run_collection():
@@ -38,38 +76,10 @@ def job_run_collection():
     except Exception as e:
         logger.warning(f"[Scheduler] 审计日志写入失败 (crawl_started): {e}")
 
-    try:
-        import asyncio
-        from main import run_collection
-
-        result = asyncio.run(run_collection())
-        if result:
-            logger.info(
-                f"[Scheduler] 采集完成: {result.get('filtered', 0)} 条匹配 / "
-                f"{result.get('total', 0)} 条总计"
-            )
-            # 审计日志：采集成功
-            try:
-                from app.security.audit import write_audit_log, EVENT_CRAWL_COMPLETED
-                write_audit_log(
-                    EVENT_CRAWL_COMPLETED,
-                    user_id=None,
-                    ip_address=None,
-                    resource="scheduler.daily_collection",
-                    result="success",
-                    details={
-                        "filtered": result.get("filtered", 0),
-                        "total": result.get("total", 0),
-                        "new_items": result.get("new_items", 0),
-                    },
-                )
-            except Exception as e:
-                logger.warning(f"[Scheduler] 审计日志写入失败 (crawl_completed): {e}")
-        else:
-            logger.warning("[Scheduler] 采集未返回结果")
-    except Exception as e:
-        logger.error(f"[Scheduler] 采集任务异常: {e}")
-        # 审计日志：采集失败
+    # 发布 Redis 消息，由 Collector Worker 执行实际采集
+    ok = _publish_trigger()
+    if not ok:
+        logger.error("[Scheduler] 采集触发发布失败，Worker 可能未订阅")
         try:
             from app.security.audit import write_audit_log, EVENT_CRAWL_FAILED
             write_audit_log(
@@ -78,10 +88,10 @@ def job_run_collection():
                 ip_address=None,
                 resource="scheduler.daily_collection",
                 result="failure",
-                details={"error": str(e)},
+                details={"error": "Redis publish failed"},
             )
-        except Exception as audit_err:
-            logger.warning(f"[Scheduler] 审计日志写入失败 (crawl_failed): {audit_err}")
+        except Exception:
+            pass
 
 
 def main():

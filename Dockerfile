@@ -76,8 +76,8 @@ RUN pip install --no-cache-dir playwright==1.44.0 \
 FROM --platform=$TARGETPLATFORM base AS runtime
 
 # 安全：非 root 用户
-RUN groupadd --gid 1000 appgroup \
-    && useradd --uid 1000 --gid 1000 \
+RUN groupadd --gid 1002 appgroup \
+    && useradd --uid 1002 --gid 1002 \
         --shell /bin/bash \
         --create-home \
         appuser
