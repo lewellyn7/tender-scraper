@@ -120,20 +120,18 @@ async def run_collection():
         # 2. 创建采集器 V2
         crawler = CQGGZYCrawlerV2(browser)
 
-        # 3. 采集数据 (列表页)
+        # 3. 采集数据 (列表页，并行两路)
         all_items = []
 
-        # 采集政府采购公告
-        logger.info("📋 开始采集政府采购公告...")
-        gov_items = await crawler.fetch_list(category="gov_purchase")
+        logger.info("📋 开始采集政府采购公告 + 工程招投标（并行）...")
+        gov_items, eng_items = await asyncio.gather(
+            crawler.fetch_list(category="gov_purchase"),
+            crawler.fetch_list(category="engineering"),
+        )
         all_items.extend(gov_items)
-
-        # 采集工程招投标
-        logger.info("📋 开始采集工程招投标信息...")
-        eng_items = await crawler.fetch_list(category="engineering")
         all_items.extend(eng_items)
 
-        logger.info(f"📥 列表页数据总计：{len(all_items)} 条")
+        logger.info(f"📥 列表页数据总计：{len(all_items)} 条（政府采购 {len(gov_items)} 条，工程招投标 {len(eng_items)} 条）")
 
         if not all_items:
             logger.warning("⚠️ 未采集到任何数据")
