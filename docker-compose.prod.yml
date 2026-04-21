@@ -188,6 +188,69 @@ services:
         limits:
           memory: 384M
 
+  # ============================================================
+  # Redis Exporter (Prometheus metrics for Redis)
+  # ============================================================
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.61.0
+    container_name: tender-scraper-redis-exporter
+    restart: unless-stopped
+    ports:
+      - "9121:9121"
+    command:
+      - --redis.addr=redis://redis:6379
+      - --redis.password=${REDIS_PASSWORD:-}
+      - --web.metrics-path=/metrics
+    networks:
+      - scraper-net
+    depends_on:
+      - redis
+
+  # ============================================================
+  # Postgres Exporter (Prometheus metrics for PostgreSQL)
+  # ============================================================
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: tender-scraper-postgres-exporter
+    restart: unless-stopped
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}?sslmode=disable
+      - POSTGRES_EXPORTER_EXTEND_QUERY_PATH=/config/queries.yml
+    command:
+      - --web.metrics-path=/metrics
+      - --web.listen-address=:9187
+      - --disable-settings-metrics
+      - --disable-diagnostics-models
+    volumes:
+      - ./monitoring/postgres/queries.yml:/config/queries.yml:ro
+    networks:
+      - scraper-net
+    depends_on:
+      - postgres
+
+  # ── 本地 PostgreSQL (仅开发/演示用，生产使用外部 PG) ──────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: tender-scraper-postgres
+    restart: unless-stopped
+    ports:
+      - "5435:5432"
+    environment:
+      - POSTGRES_USER=${DB_USER:-root}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME:-tender_scraper}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - scraper-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-root} -d ${DB_NAME:-tender_scraper}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 networks:
   scraper-net:
     driver: bridge

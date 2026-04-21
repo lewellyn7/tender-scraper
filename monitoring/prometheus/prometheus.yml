@@ -46,6 +46,18 @@ scrape_configs:
     static_configs:
       - targets: ["alertmgr:9093"]
 
+  # ── Redis Exporter ──────────────────────────────────
+  - job_name: "redis-exporter"
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+    scrape_interval: 30s
+
+  # ── Postgres Exporter ───────────────────────────────
+  - job_name: "postgres-exporter"
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+    scrape_interval: 30s
+
   # ── 日志文件直采（备选方案：node_exporter textfile） ──
   # 启用条件：宿主机部署 node_exporter --collector.textfile.directory=/var/lib/node_exporter
   # 将 scraper 日志统计写入该目录，由 Prometheus 抓取
