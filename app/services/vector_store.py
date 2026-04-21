@@ -30,7 +30,6 @@ def _load_embedding_model():
     """延迟加载 embedding 模型（使用 vLLM 部署的 Qwen3-Embedding-4B）"""
     try:
         import httpx
-        # 使用 vLLM 的 Embedding API
         base_url = os.getenv("VLLM_EMBEDDING_URL", "http://host.docker.internal:8000/v1/embeddings")
         model_name = os.getenv("EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-4B")
         logger.info(f"[vector] Using vLLM embedding: {base_url} / {model_name}")
@@ -41,6 +40,20 @@ def _load_embedding_model():
 
 
 _embedding_model: Optional[Any] = None
+_http_client: Optional[Any] = None
+
+
+def _get_http_client() -> Any:
+    """单例 HTTP 客户端（连接池复用）"""
+    global _http_client
+    if _http_client is None:
+        import httpx
+        _http_client = httpx.Client(
+            timeout=30.0,
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+        logger.info("[vector] HTTP client pool initialized: max_conn=20")
+    return _http_client
 
 
 def get_embedding_model():
@@ -51,12 +64,12 @@ def get_embedding_model():
 
 
 def encode_texts(texts: List[str]) -> List[List[float]]:
-    """将文本列表转为向量列表（使用 vLLM Embedding API）"""
+    """将文本列表转为向量列表（使用 vLLM Embedding API，连接池复用）"""
     model = get_embedding_model()
     if model and isinstance(model, dict) and model.get('type') == 'vllm':
         try:
-            import httpx
-            response = httpx.post(model['url'], json={'input': texts, 'model': model['model']}, timeout=30.0)
+            client = _get_http_client()
+            response = client.post(model['url'], json={'input': texts, 'model': model['model']})
             response.raise_for_status()
             data = response.json()
             embeddings = [item['embedding'] for item in data['data']]

@@ -31,8 +31,12 @@ DB_PATH = Path(__file__).parent.parent.parent / "config" / "tender_scraper.db"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 USE_PG = DATABASE_URL.startswith("postgresql://")
 
-# PostgreSQL connection pool (QueuePool: pool_size=10, max_overflow=20)
+# PostgreSQL connection pool
 _pg_pool = None
+
+# Allow env override since this pool serves sync FastAPI routes (analytics, health, permissions)
+_PG_POOL_MIN = int(os.getenv("DB_POOL_MIN", "5"))
+_PG_POOL_MAX = int(os.getenv("DB_POOL_MAX", "50"))
 
 
 def _build_pg_url():
@@ -46,17 +50,13 @@ def _get_pg_pool():
         import psycopg2
         from psycopg2 import pool
         _pg_pool = pool.ThreadedConnectionPool(
-            minconn=1,
-            maxconn=10,          # pool_size
-            # Note: max_overflow is controlled via maxconn - pool_size
+            minconn=_PG_POOL_MIN,
+            maxconn=_PG_POOL_MAX,
             dsn=DATABASE_URL,
             connect_timeout=10,
         )
-        # QueuePool-style: pool_size=10, max_overflow=20 via SimpleQueue pool
-        # Using ThreadedConnectionPool as base; overflow handled by maxconn ceiling
         logger.info(
-            f"PG connection pool started: minconn=1, maxconn=10 "
-            f"(effective max_overflow=20 via SimpleQueue pool)"
+            f"PG connection pool started: minconn={_PG_POOL_MIN}, maxconn={_PG_POOL_MAX}"
         )
     return _pg_pool
 
@@ -301,7 +301,8 @@ class Database(
                 try:
                     c.execute("ALTER TABLE favorites ADD COLUMN user_id TEXT DEFAULT ''")
                     c.execute("CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id)")
-                    logger.info("Migrated PG favorites table: added user_id column")
+                    c.execute("CREATE INDEX IF NOT EXISTS idx_favorites_title ON favorites(title)")
+                    logger.info("Migrated PG favorites table: added user_id column and title index")
                 except Exception as e:
                     logger.warning(f"PG favorites migration skipped: {e}")
             return
@@ -322,6 +323,8 @@ class Database(
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
+            CREATE INDEX IF NOT EXISTS idx_favorites_title ON favorites(title);
+            CREATE INDEX IF NOT EXISTS idx_favorites_updated ON favorites(updated_at);
             """
         )
         # Migration: add user_id column to existing favorites table (runs after CREATE TABLE)

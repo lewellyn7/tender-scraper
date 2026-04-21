@@ -18,8 +18,8 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://lewellyn:lewellyn@localhost:5432/procurement"
 )
-POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
-POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
+POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "5"))
+POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "50"))
 
 
 # ── 连接池 ──────────────────────────────────────────────

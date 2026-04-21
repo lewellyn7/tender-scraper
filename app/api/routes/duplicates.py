@@ -1,6 +1,7 @@
-"""重复检测路由 — 多字段智能查重"""
+"""重复检测路由 — 多字段智能查重（分桶优化 O(n²) → O(n×k)）"""
 
 import re
+from collections import defaultdict
 from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Tuple
 
@@ -35,10 +36,9 @@ def _budget_similarity(b1: str, b2: str) -> float:
     """预算相似度：都无预算→0.0，一方无→0.3，数字接近→1.0"""
     n1, n2 = _extract_numbers(b1), _extract_numbers(b2)
     if not n1 and not n2:
-        return 0.0  # 都为空
+        return 0.0
     if not n1 or not n2:
-        return 0.3  # 一方为空
-    # 取最大值比较
+        return 0.3
     v1, v2 = max(n1), max(n2)
     if v1 == 0 and v2 == 0:
         return 0.0
@@ -53,7 +53,6 @@ def _date_proximity(d1: str, d2: str) -> float:
     if d1 == d2:
         return 1.0
     try:
-        # 提取年月
         m1 = re.match(r"(\d{4})-(\d{2})", d1)
         m2 = re.match(r"(\d{4})-(\d{2})", d2)
         if m1 and m2:
@@ -87,7 +86,6 @@ def _multi_field_compare(p1: dict, p2: dict) -> Tuple[float, dict]:
     # 2. 标题相似度（字符序列 + 共同词比例）
     title1, title2 = p1.get("title", "").strip(), p2.get("title", "").strip()
     title_score = _token_similarity(title1, title2)
-    # 额外加分：如果一个是另一个的子串
     if title1 and title2 and (title1 in title2 or title2 in title1):
         title_score = max(title_score, 0.85)
     fields["title"] = {"score": title_score, "v1": title1, "v2": title2, "matched": title_score >= 0.6}
@@ -113,6 +111,11 @@ def _multi_field_compare(p1: dict, p2: dict) -> Tuple[float, dict]:
     return round(total, 3), fields
 
 
+def _make_bucket_key(title: str) -> str:
+    """提取标题前4字作为桶分界键（标题不同则基本不会重复）"""
+    return title[:4].strip().lower() if title else "___"
+
+
 # ─── API 路由 ────────────────────────────────────────────
 
 @router.get("")
@@ -121,64 +124,80 @@ def find_duplicates(
     user_id: str = Depends(get_current_user),
 ):
     """
-    多字段智能查重。
+    多字段智能查重（分桶预过滤 O(n²) → O(n×k)）。
 
-    比对维度：标题(t)、预算(b)、项目类型(t)、URL(同项目)、发布日期
+    比对维度：标题、预算、项目类型、URL、发布日期
     每组结果包含：综合分数、各字段得分、匹配标记
     """
     db = get_db()
     conn = db._get_conn()
 
-    rows = conn.execute("SELECT * FROM favorites LIMIT 1000").fetchall()
+    # 按 user_id 过滤（修复：之前忽略了 user_id 参数）
+    if user_id:
+        rows = conn.execute(
+            "SELECT * FROM favorites WHERE user_id=? ORDER BY updated_at DESC LIMIT 1000",
+            (user_id,),
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM favorites ORDER BY updated_at DESC LIMIT 1000").fetchall()
+
     projects = [dict(r) for r in rows]
 
     if len(projects) < 2:
         return JSONResponse({"duplicates": [], "count": 0, "total": 0, "threshold": threshold})
 
+    # ── 优化：分桶预过滤 ──────────────────────────────────
+    # 标题前4字作为桶键，仅桶内比对（不同标题基本不会重复）
+    buckets: Dict[str, list] = defaultdict(list)
+    for p in projects:
+        buckets[_make_bucket_key(p.get("title", ""))].append(p)
+
     duplicate_groups = []
     processed: set = set()
 
-    for i in range(len(projects)):
-        pi = projects[i]
-        url_i = pi.get("project_url", "")
+    for bucket_key, bucket_projects in buckets.items():
+        # 桶内 O(k²)，桶间无比较，总复杂度 O(Σk_i²) ≈ O(n×k)
+        for i in range(len(bucket_projects)):
+            pi = bucket_projects[i]
+            url_i = pi.get("project_url", "")
 
-        if url_i in processed:
-            continue
-
-        group = [{
-            "url": url_i,
-            "title": pi.get("title", ""),
-            "budget": pi.get("budget", ""),
-            "tender_type": pi.get("tender_type", ""),
-            "publish_date": pi.get("publish_date", ""),
-            "sim": 1.0,
-            "fields": None,  # 原始项不显示字段详情
-        }]
-
-        for j in range(i + 1, len(projects)):
-            pj = projects[j]
-            url_j = pj.get("project_url", "")
-
-            if url_j in processed:
+            if url_i in processed:
                 continue
 
-            sim, fields = _multi_field_compare(pi, pj)
+            group = [{
+                "url": url_i,
+                "title": pi.get("title", ""),
+                "budget": pi.get("budget", ""),
+                "tender_type": pi.get("tender_type", ""),
+                "publish_date": pi.get("publish_date", ""),
+                "sim": 1.0,
+                "fields": None,
+            }]
 
-            if sim >= threshold:
-                group.append({
-                    "url": url_j,
-                    "title": pj.get("title", ""),
-                    "budget": pj.get("budget", ""),
-                    "tender_type": pj.get("tender_type", ""),
-                    "publish_date": pj.get("publish_date", ""),
-                    "sim": sim,
-                    "fields": fields,
-                })
-                processed.add(url_j)
+            for j in range(i + 1, len(bucket_projects)):
+                pj = bucket_projects[j]
+                url_j = pj.get("project_url", "")
 
-        if len(group) > 1:
-            processed.add(url_i)
-            duplicate_groups.append(group)
+                if url_j in processed:
+                    continue
+
+                sim, fields = _multi_field_compare(pi, pj)
+
+                if sim >= threshold:
+                    group.append({
+                        "url": url_j,
+                        "title": pj.get("title", ""),
+                        "budget": pj.get("budget", ""),
+                        "tender_type": pj.get("tender_type", ""),
+                        "publish_date": pj.get("publish_date", ""),
+                        "sim": sim,
+                        "fields": fields,
+                    })
+                    processed.add(url_j)
+
+            if len(group) > 1:
+                processed.add(url_i)
+                duplicate_groups.append(group)
 
     return JSONResponse({
         "duplicates": duplicate_groups,
