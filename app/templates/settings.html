@@ -4,18 +4,28 @@
 <div id="settingsApp" class="space-y-6">
   <!-- Navigation Tabs -->
   <div class="border-b border-gray-200 dark:border-gray-700">
-    <nav class="flex gap-1 -mb-px" id="settingsTabs">
-      <button type="button" data-tab="ragflow" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">📚 RAGFlow</button>
-      <button type="button" data-tab="llm" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">🤖 AI 模型</button>
-      <button type="button" data-tab="notifications" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">通知设置</button>
-      <button type="button" data-tab="presets" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">筛选预设</button>
-      <button type="button" data-tab="keywords" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">🔑 关键词</button>
-      <button type="button" data-tab="backup" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">配置备份</button>
-      <button type="button" data-tab="duplicates" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">重复检测</button>
-      <button type="button" data-tab="users" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 admin-only hidden">👥 用户管理</button>
-      <button type="button" data-tab="dbbackup" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 admin-only hidden">💾 数据库备份</button>
-      <button type="button" data-tab="crawler" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">🕷️ 自定义爬虫</button>
-      <button type="button" data-tab="account" class="settings-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">我的账户</button>
+    <nav class="flex flex-wrap gap-1 -mb-px items-center" id="settingsTabs">
+      <!-- 采集配置 -->
+      <span class="text-xs text-gray-400 px-2 hidden md:inline">采集</span>
+      <button type="button" data-tab="notifications" class="settings-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">通知</button>
+      <button type="button" data-tab="crawler" class="settings-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">🕷️ 爬虫</button>
+      <!-- 数据管理 -->
+      <span class="text-xs text-gray-400 px-2 border-l border-gray-200 dark:border-gray-700 hidden md:inline">数据</span>
+      <button type="button" data-tab="keywords" class="settings-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">🔑 关键词</button>
+      <button type="button" data-tab="presets" class="settings-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">预设</button>
+      <button type="button" data-tab="duplicates" class="settings-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">查重</button>
+      <!-- AI 配置 -->
+      <span class="text-xs text-gray-400 px-2 border-l border-gray-200 dark:border-gray-700 hidden md:inline">AI</span>
+      <button type="button" data-tab="llm" class="settings-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">🤖 模型</button>
+      <button type="button" data-tab="ragflow" class="settings-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">📚 RAGFlow</button>
+      <!-- 系统 (admin) -->
+      <span class="text-xs text-gray-400 px-2 border-l border-gray-200 dark:border-gray-700 admin-only hidden md:inline">系统</span>
+      <button type="button" data-tab="backup" class="settings-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 admin-only hidden">💾 备份</button>
+      <button type="button" data-tab="users" class="settings-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 admin-only hidden">👥 用户</button>
+      <button type="button" data-tab="dbbackup" class="settings-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 admin-only hidden">💾 DB</button>
+      <!-- 所有用户 -->
+      <span class="text-xs text-gray-400 px-2 border-l border-gray-200 dark:border-gray-700 hidden md:inline">账户</span>
+      <button type="button" data-tab="account" class="settings-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">👤 账户</button>
     </nav>
   </div>
 
