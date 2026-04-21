@@ -13,9 +13,11 @@
   QDRANT_API_KEY=...
 """
 
+import hashlib
 import os
 import time
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -41,6 +43,8 @@ def _load_embedding_model():
 
 _embedding_model: Optional[Any] = None
 _http_client: Optional[Any] = None
+_text_embedding_cache: OrderedDict = OrderedDict()  # LRU cache for encoded texts
+TEXT_CACHE_SIZE = 1000  # 最多缓存 1000 条文本向量
 
 
 def _get_http_client() -> Any:
@@ -64,23 +68,113 @@ def get_embedding_model():
 
 
 def encode_texts(texts: List[str]) -> List[List[float]]:
-    """将文本列表转为向量列表（使用 vLLM Embedding API，连接池复用）"""
+    """
+    将文本列表转为向量列表（vLLM Embedding API，连接池复用）。
+
+    优化点：
+    1. httpx.Client 单例连接池（max_connections=20）
+    2. 重试 3 次（指数退避），应对网络抖动
+    3. 内存 LRU 缓存（TEXT_CACHE_SIZE 条），同文本不重复调用 vLLM
+    4. TF-IDF fallback（vLLM 完全不可用时，避免返回随机向量
+    """
     model = get_embedding_model()
     if model and isinstance(model, dict) and model.get('type') == 'vllm':
-        try:
-            client = _get_http_client()
-            response = client.post(model['url'], json={'input': texts, 'model': model['model']})
-            response.raise_for_status()
-            data = response.json()
-            embeddings = [item['embedding'] for item in data['data']]
-            logger.debug(f'[vector] Encoded {len(texts)} texts via vLLM')
-            return embeddings
-        except Exception as e:
-            logger.error(f'[vector] vLLM embedding failed: {e}')
-    logger.warning('[vector] No embedding provider available; using random vectors')
-    import random
-    dim = 2560
-    return [[random.random() - 0.5 for _ in range(dim)] for _ in texts]
+        # 先查缓存
+        uncached: List[tuple[int, str]] = []
+        cached_results: List[Optional[List[float]]] = [None] * len(texts)
+
+        for i, text in enumerate(texts):
+            cache_key = _text_cache_key(text)
+            cached = _text_embedding_cache.get(cache_key)
+            if cached is not None:
+                cached_results[i] = cached
+            else:
+                uncached.append((i, text))
+
+        if not uncached:
+            logger.debug(f'[vector] encode_texts cache hit: {len(texts)}/{len(texts)}')
+            return cached_results
+
+        # 批量 encode 未缓存的文本
+        uncached_texts = [t for _, t in uncached]
+        for attempt in range(3):
+            try:
+                client = _get_http_client()
+                response = client.post(
+                    model['url'],
+                    json={'input': uncached_texts, 'model': model['model']},
+                )
+                response.raise_for_status()
+                data = response.json()
+                embeddings = [item['embedding'] for item in data['data']]
+
+                # 写入缓存（LRU 淘汰）
+                for (i, text), emb in zip(uncached, embeddings):
+                    cache_key = _text_cache_key(text)
+                    _text_embedding_cache[cache_key] = emb
+                    cached_results[i] = emb
+
+                # LRU 淘汰超出容量
+                while len(_text_embedding_cache) > TEXT_CACHE_SIZE:
+                    _text_embedding_cache.popitem(last=False)
+
+                logger.debug(f'[vector] Encoded {len(uncached_texts)} texts via vLLM (attempt {attempt+1})')
+                return cached_results
+
+            except Exception as e:
+                wait = (2 ** attempt) * 0.5
+                logger.warning(f'[vector] vLLM encoding failed (attempt {attempt+1}/3): {e}, retry in {wait}s')
+                if attempt < 2:
+                    time.sleep(wait)
+
+        # 全部重试失败 → TF-IDF fallback（保证返回有用向量）
+        logger.warning('[vector] vLLM unavailable after 3 attempts, using TF-IDF fallback')
+        fallback_vecs = _tfidf_fallback(uncached_texts)
+        for (i, _), fv in zip(uncached, fallback_vecs):
+            cached_results[i] = fv
+        return cached_results
+
+    # 无 vLLM → TF-IDF fallback
+    return _tfidf_fallback(texts)
+
+
+# ── TF-IDF Fallback（vLLM 不可用时保底）────────────────────
+
+_tfidf_cache: OrderedDict = OrderedDict()
+
+
+def _text_cache_key(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()[:32]
+
+
+def _tfidf_fallback(texts: List[str]) -> List[List[float]]:
+    """
+    TF-IDF 向量 fallback（vLLM 完全不可用时使用）。
+    基于字符 n-gram TF-IDF，保证向量有语义区分度（非随机）。
+    """
+    global _tfidf_cache
+    dim = 256  # 降维维度
+    try:
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        # 简单的字符级 n-gram
+        vectorizer = TfidfVectorizer(analyzer='char', ngram_range=(2, 4), max_features=dim)
+        tfidf_matrix = vectorizer.fit_transform(texts)
+        # L2 normalize
+        norms = (tfidf_matrix.multiply(tfidf_matrix)).sum(axis=1) ** 0.5
+        norms[norms == 0] = 1
+        normalized = tfidf_matrix.multiply(1 / norms)
+        return normalized.toarray().tolist()
+    except Exception as e:
+        logger.warning(f'[vector] TF-IDF fallback also failed: {e}, using deterministic vectors')
+        # 最差情况：基于文本内容的确定性向量（不是随机）
+        import hashlib
+        result = []
+        for text in texts:
+            h = int(hashlib.sha256(text.encode()).hexdigest(), 16)
+            vec = [(h >> (i * 4)) & 0xFFFF for i in range(dim)]
+            norm = sum(v * v for v in vec) ** 0.5 or 1
+            result.append([v / norm for v in vec])
+        return result
 
 
 def cosine_sim(a: List[float], b: List[float]) -> float:
