@@ -1,6 +1,7 @@
 """数据过滤与关键词匹配模块 - 增强版 V2"""
 
 import difflib
+import math
 from typing import Any, Dict, List
 
 from loguru import logger
@@ -164,3 +165,158 @@ class TenderFilter:
             "submission_deadline": submission_deadline,
             "bid_amount": bid_amount,
         }
+
+
+class SemanticTenderFilter:
+    """基于 Embedding 语义相似度的招投标过滤器
+
+    使用 MiniMax Embedding API 将关键词和项目标题转为向量，
+    计算余弦相似度。支持与 TenderFilter 组合使用（AND 逻辑）。
+    """
+
+    DEFAULT_THRESHOLD = 0.65  # 语义相似度阈值
+    MAX_BATCH = 50            # 每批处理条数（API 限制）
+
+    def __init__(
+        self,
+        keywords: List[str],
+        threshold: float = DEFAULT_THRESHOLD,
+        min_keywords_semantic: int = 1,  # 至少 N 个关键词语义匹配（0=全部AND）
+    ):
+        self.keywords = [kw.strip() for kw in keywords if kw.strip()]
+        self.threshold = max(0.0, min(1.0, threshold))
+        self.min_keywords_semantic = min_keywords_semantic
+        self._kw_embeddings: List[List[float]] = []
+        self._ready = False
+
+    async def ainit(self):
+        """异步初始化：批量获取所有关键词的 embedding（只调用一次）"""
+        if not self.keywords:
+            self._ready = True
+            return
+        try:
+            from app.services.minimax_service import get_minimax_service
+            svc = get_minimax_service()
+            # MiniMax 限制单批 50 条
+            all_embs = []
+            for i in range(0, len(self.keywords), self.MAX_BATCH):
+                batch = self.keywords[i : i + self.MAX_BATCH]
+                resp = await svc.embed_texts(batch)
+                if resp.success and resp.data:
+                    all_embs.extend(resp.data.get("embeddings", []))
+                else:
+                    logger.warning(f"[SemanticFilter] embedding batch {i} failed: {resp.error}")
+            self._kw_embeddings = all_embs
+            self._ready = True
+            logger.info(f"[SemanticFilter] 初始化完成，{len(self._kw_embeddings)}/{len(self.keywords)} 关键词已向量化")
+        except Exception as e:
+            logger.error(f"[SemanticFilter] 初始化失败: {e}")
+            self._kw_embeddings = []
+            self._ready = True
+
+    def _cosine_sim(self, a: List[float], b: List[float]) -> float:
+        if not a or not b or len(a) != len(b):
+            return 0.0
+        dot = sum(x * y for x, y in zip(a, b))
+        na = math.sqrt(sum(x * x for x in a))
+        nb = math.sqrt(sum(x * x for x in b))
+        if na == 0 or nb == 0:
+            return 0.0
+        return dot / (na * nb)
+
+    async def get_title_embedding(self, title: str):
+        """获取单条标题的 embedding"""
+        try:
+            from app.services.minimax_service import get_minimax_service
+            resp = await get_minimax_service().embed_text(title)
+            if resp.success and resp.data and resp.data.get("embeddings"):
+                return resp.data["embeddings"][0]
+        except Exception as e:
+            logger.error(f"[SemanticFilter] title embedding failed: {e}")
+        return None
+
+    async def get_title_embeddings(self, titles: List[str]) -> List[List[float]]:
+        """批量获取标题 embedding"""
+        try:
+            from app.services.minimax_service import get_minimax_service
+            all_embs = []
+            for i in range(0, len(titles), self.MAX_BATCH):
+                batch = titles[i : i + self.MAX_BATCH]
+                resp = await get_minimax_service().embed_texts(batch)
+                if resp.success and resp.data:
+                    all_embs.extend(resp.data.get("embeddings", []))
+                else:
+                    all_embs.extend([None] * len(batch))
+            return all_embs
+        except Exception as e:
+            logger.error(f"[SemanticFilter] batch title embedding failed: {e}")
+            return [None] * len(titles)
+
+    async def match_title(self, title: str) -> tuple:
+        """
+        判断单条标题是否语义匹配任意关键词。
+        Returns: (是否匹配, 最高相似度, 匹配上的关键词列表)
+        """
+        if not self._ready or not self._kw_embeddings:
+            return False, 0.0, []
+        title_emb = await self.get_title_embedding(title)
+        if not title_emb:
+            return False, 0.0, []
+
+        matched_kws = []
+        max_sim = 0.0
+        for kw, emb in zip(self.keywords, self._kw_embeddings):
+            sim = self._cosine_sim(title_emb, emb)
+            if sim >= self.threshold:
+                matched_kws.append(kw)
+            if sim > max_sim:
+                max_sim = sim
+        if self.min_keywords_semantic > 0 and len(matched_kws) < self.min_keywords_semantic:
+            return False, max_sim, matched_kws
+        return len(matched_kws) > 0, max_sim, matched_kws
+
+    async def filter_items(self, items: List[Any]) -> List[Dict]:
+        """
+        语义过滤项目列表。
+        每个 item 支持 TenderInfo 对象或字典。
+        返回匹配项列表，每项附加 semantic_score 和 semantic_matched_kws 字段。
+        """
+        if not self._ready:
+            await self.ainit()
+        if not self.keywords or not items:
+            return []
+
+        titles = [self._get_title(it) for it in items]
+        title_embs = await self.get_title_embeddings(titles)
+
+        results = []
+        for item, title_emb in zip(items, title_embs):
+            if not title_emb:
+                continue
+            matched_kws = []
+            max_sim = 0.0
+            for kw, kw_emb in zip(self.keywords, self._kw_embeddings):
+                sim = self._cosine_sim(title_emb, kw_emb)
+                if sim >= self.threshold:
+                    matched_kws.append(kw)
+                if sim > max_sim:
+                    max_sim = sim
+            if self.min_keywords_semantic > 0 and len(matched_kws) < self.min_keywords_semantic:
+                continue
+            if matched_kws:
+                item_dict = dict(item) if isinstance(item, dict) else {}
+                if not isinstance(item, dict):
+                    for f in ["title", "url", "budget", "deadline", "publish_date", "tender_type", "source_url"]:
+                        item_dict[f] = getattr(item, f, None) or ""
+                item_dict["semantic_score"] = round(max_sim, 3)
+                item_dict["semantic_matched_kws"] = matched_kws
+                results.append(item_dict)
+
+        logger.info(f"[SemanticFilter] 语义过滤: {len(items)} -> {len(results)} 条匹配")
+        return results
+
+    @staticmethod
+    def _get_title(item: Any) -> str:
+        if hasattr(item, "title"):
+            return item.title
+        return item.get("title", "") if isinstance(item, dict) else ""

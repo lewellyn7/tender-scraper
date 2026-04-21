@@ -266,6 +266,16 @@ async def run_collection():
         if standardized_matched:
             _upsert_to_vector_store(standardized_matched)
 
+        # 11. 截标日期 T-3 提醒检查
+        try:
+            from app.utils.notifications import get_notif_manager
+            nm = get_notif_manager()
+            sent = await nm.check_deadline_alerts(days=3)
+            if sent:
+                logger.info(f"📬 截标提醒已发送 {len(sent)} 条")
+        except Exception as e:
+            logger.warning(f"截标提醒检查失败（不影响采集）: {e}")
+
         logger.info("=" * 60)
         logger.info("✅ 采集任务完成")
         logger.info(f"📊 报表文件：{excel_path}")

@@ -1,5 +1,6 @@
 """Telegram 推送通知模块"""
 
+import datetime
 import json
 import re
 from pathlib import Path
@@ -189,6 +190,77 @@ class NotificationManager:
 
     def update_config(self, **kwargs):
         self.config.update(**kwargs)
+
+    async def check_deadline_alerts(self, days: int = 3) -> List[Dict]:
+        """
+        检查 favorites 表中 deadline 在未来 N 天内的项目，
+        发送 Telegram 截标提醒。返回发送成功的项目列表。
+        """
+        if not self.config.enabled or not self.config.bot_token or not self.config.chat_id:
+            return []
+
+        try:
+            from app.database import get_db
+            db = get_db()
+            conn = db._get_conn()
+            rows = conn.execute(
+                "SELECT project_url, title, budget, deadline, url, tender_type FROM favorites WHERE deadline IS NOT NULL AND deadline != ''"
+            ).fetchall()
+        except Exception as e:
+            logger.error(f"[DeadlineAlert] 查询失败: {e}")
+            return []
+
+        today = datetime.date.today()
+        deadline_max = today + datetime.timedelta(days=days)
+        urgent = []
+
+        for row in rows:
+            d = dict(row)
+            dl = d.get("deadline", "")
+            if not dl:
+                continue
+            try:
+                # 支持 "YYYY-MM-DD" 和 "YYYY-MM-DD HH:MM" 格式
+                dl_date = datetime.datetime.strptime(dl[:19], "%Y-%m-%d %H:%M").date()
+            except Exception:
+                try:
+                    dl_date = datetime.datetime.strptime(dl[:10], "%Y-%m-%d").date()
+                except Exception:
+                    continue
+            if today <= dl_date <= deadline_max:
+                urgent.append(d)
+
+        if not urgent:
+            return []
+
+        # 格式化并发送
+        sent = []
+        for p in urgent:
+            msg = format_deadline_message(p)
+            if await send_telegram_message(self.config.bot_token, self.config.chat_id, msg):
+                sent.append(p)
+
+        logger.info(f"[DeadlineAlert] 发送 {len(sent)}/{len(urgent)} 条截标提醒")
+        return sent
+
+
+def format_deadline_message(project: Dict) -> str:
+    """格式化单条截标提醒消息"""
+    title = project.get("title", "无标题")[:80]
+    url = project.get("url", "") or project.get("project_url", "")
+    budget = project.get("budget", "")
+    deadline = project.get("deadline", "")
+    tender_type = project.get("tender_type", "")
+    msg = "🏁 【即将截标提醒】\n\n"
+    msg += f"📌 {title}\n\n"
+    if budget:
+        msg += f"💰 预算: {budget}\n"
+    if deadline:
+        msg += f"📅 截标: {deadline}\n"
+    if tender_type:
+        msg += f"🏷️ 类型: {tender_type}\n"
+    msg += f'🔗 <a href="{url}">查看原文</a>\n'
+    return msg
 
 
 _nm: Optional[NotificationManager] = None
