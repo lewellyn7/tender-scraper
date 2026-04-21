@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import routes_n8n, routes_users
+from app.api.routes.system import router as system_router
 from app.api.metrics import router as metrics_router
 from app.api.routes import api_router
 from app.api.routes.document_upload import router as document_upload_router
@@ -59,6 +60,46 @@ async def _warmup_embedding_model():
     # 后台线程加载，不阻塞服务启动
     t = threading.Thread(target=_load, daemon=True)
     t.start()
+
+    # 自用模式：初始化 admin 用户
+    try:
+        from app.config.settings import get_settings
+        settings = get_settings()
+        if settings.is_self_mode:
+            _init_self_mode_admin()
+    except Exception as e:
+        logger.warning(f"[startup] 自用模式 admin 用户初始化失败: {e}")
+
+
+def _init_self_mode_admin():
+    """自用模式：确保 admin 用户存在"""
+    try:
+        from app.database import get_db
+        from app.utils.security import hash_password
+        from app.config.settings import get_settings
+        import secrets
+
+        settings = get_settings()
+        db = get_db()
+        existing = db.get_user_by_username(settings.default_admin_username)
+        if existing:
+            logger.info("[startup] 自用模式：admin 用户已存在")
+            return
+
+        # 创建 admin 用户
+        pwd_hash, salt = hash_password(settings.default_admin_password)
+        user_id = "admin_self_mode"
+        db.create_user({
+            "user_id": user_id,
+            "username": settings.default_admin_username,
+            "password_hash": pwd_hash,
+            "password_salt": salt,
+            "display_name": settings.default_admin_display_name,
+            "role": "admin",
+        })
+        logger.info(f"[startup] 自用模式：admin 用户创建成功 (password={settings.default_admin_password})")
+    except Exception as e:
+        logger.error(f"[startup] 自用模式 admin 用户创建失败: {e}")
 
 # 检测是否为生产模式
 is_production = os.getenv("ENV", "development") == "production"
@@ -104,6 +145,7 @@ app.include_router(routes_users.router)
 app.include_router(document_upload_router)
 app.include_router(pages_router)
 app.include_router(metrics_router)
+app.include_router(system_router)
 
 # 静态文件
 STATIC_DIR = Path(__file__).parent / "app" / "static"

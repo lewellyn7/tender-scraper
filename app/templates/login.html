@@ -64,6 +64,41 @@
 </div>
 
 <script>
+// ── Deployment Mode Check ────────────────────────────────────
+(async function() {
+  // Skip if already logged in
+  if (localStorage.getItem('session_token')) {
+    return;
+  }
+  try {
+    var r = await fetch('/api/system/mode');
+    if (r.ok) {
+      var d = await r.json();
+      if (d.is_self_mode) {
+        // 自用模式：尝试自动登录
+        try {
+          var loginR = await fetch('/api/users/login', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username: 'admin', password: 'admin123'})
+          });
+          if (loginR.ok) {
+            var loginD = await loginR.json();
+            if (loginD.token) {
+              setToken(loginD.token);
+              localStorage.setItem('user_role', 'admin');
+              localStorage.setItem('user_name', 'admin');
+            }
+          }
+        } catch(e) {}
+        var target = new URLSearchParams(location.search).get('redirect') || '/';
+        setTimeout(function() { location.href = target; }, 300);
+        return;
+      }
+    }
+  } catch(e) {}
+})();
+
 // ── Auth Helper ──────────────────────────────────────────────
 function getToken() { return localStorage.getItem('session_token'); }
 function setToken(t) { localStorage.setItem('session_token', t); }
