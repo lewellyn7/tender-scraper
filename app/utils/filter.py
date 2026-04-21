@@ -170,12 +170,12 @@ class TenderFilter:
 class SemanticTenderFilter:
     """基于 Embedding 语义相似度的招投标过滤器
 
-    使用 MiniMax Embedding API 将关键词和项目标题转为向量，
+    使用 vLLM Qwen3-Embedding-4B 将关键词和项目标题转为向量，
     计算余弦相似度。支持与 TenderFilter 组合使用（AND 逻辑）。
     """
 
-    DEFAULT_THRESHOLD = 0.65  # 语义相似度阈值
-    MAX_BATCH = 50            # 每批处理条数（API 限制）
+    DEFAULT_THRESHOLD = 0.60  # 语义相似度阈值（Qwen3-Embedding 经验值）
+    MAX_BATCH = 32            # 每批处理条数（vLLM 限制）
 
     def __init__(
         self,
@@ -195,20 +195,20 @@ class SemanticTenderFilter:
             self._ready = True
             return
         try:
-            from app.services.minimax_service import get_minimax_service
-            svc = get_minimax_service()
-            # MiniMax 限制单批 50 条
+            import asyncio
+            from app.services.vector_store import encode_texts
             all_embs = []
+            loop = asyncio.get_running_loop()
             for i in range(0, len(self.keywords), self.MAX_BATCH):
                 batch = self.keywords[i : i + self.MAX_BATCH]
-                resp = await svc.embed_texts(batch)
-                if resp.success and resp.data:
-                    all_embs.extend(resp.data.get("embeddings", []))
+                embs = await loop.run_in_executor(None, encode_texts, batch)
+                if embs:
+                    all_embs.extend(embs)
                 else:
-                    logger.warning(f"[SemanticFilter] embedding batch {i} failed: {resp.error}")
+                    logger.warning(f"[SemanticFilter] embedding batch {i} returned empty")
             self._kw_embeddings = all_embs
             self._ready = True
-            logger.info(f"[SemanticFilter] 初始化完成，{len(self._kw_embeddings)}/{len(self.keywords)} 关键词已向量化")
+            logger.info(f"[SemanticFilter] 初始化完成，{len(self._kw_embeddings)}/{len(self.keywords)} 关键词已向量化 (vLLM Qwen3-Embedding-4B)")
         except Exception as e:
             logger.error(f"[SemanticFilter] 初始化失败: {e}")
             self._kw_embeddings = []
@@ -224,29 +224,17 @@ class SemanticTenderFilter:
             return 0.0
         return dot / (na * nb)
 
-    async def get_title_embedding(self, title: str):
-        """获取单条标题的 embedding"""
-        try:
-            from app.services.minimax_service import get_minimax_service
-            resp = await get_minimax_service().embed_text(title)
-            if resp.success and resp.data and resp.data.get("embeddings"):
-                return resp.data["embeddings"][0]
-        except Exception as e:
-            logger.error(f"[SemanticFilter] title embedding failed: {e}")
-        return None
-
     async def get_title_embeddings(self, titles: List[str]) -> List[List[float]]:
-        """批量获取标题 embedding"""
+        """批量获取标题 embedding（vLLM Qwen3-Embedding-4B）"""
         try:
-            from app.services.minimax_service import get_minimax_service
+            import asyncio
+            from app.services.vector_store import encode_texts
             all_embs = []
+            loop = asyncio.get_running_loop()
             for i in range(0, len(titles), self.MAX_BATCH):
                 batch = titles[i : i + self.MAX_BATCH]
-                resp = await get_minimax_service().embed_texts(batch)
-                if resp.success and resp.data:
-                    all_embs.extend(resp.data.get("embeddings", []))
-                else:
-                    all_embs.extend([None] * len(batch))
+                embs = await loop.run_in_executor(None, encode_texts, batch)
+                all_embs.extend(embs if embs else [None] * len(batch))
             return all_embs
         except Exception as e:
             logger.error(f"[SemanticFilter] batch title embedding failed: {e}")
@@ -259,7 +247,8 @@ class SemanticTenderFilter:
         """
         if not self._ready or not self._kw_embeddings:
             return False, 0.0, []
-        title_emb = await self.get_title_embedding(title)
+        title_embs = await self.get_title_embeddings([title])
+        title_emb = title_embs[0] if title_embs else None
         if not title_emb:
             return False, 0.0, []
 
