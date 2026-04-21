@@ -50,3 +50,4 @@ htmlcov/
 .env.*.local
 node_modules/
 .env.production
+output/latest.json
