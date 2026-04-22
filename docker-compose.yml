@@ -73,6 +73,8 @@ services:
     - RAGFLOW_MCP_URL=http://host.docker.internal:9382
     - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-YOUR_RAGFLOW_API_KEY_HERE}
     - RAGFLOW_BASE_URL=http://host.docker.internal:8088
+        - VLLM_EMBEDDING_URL=http://host.docker.internal:8000/v1/embeddings
+        - EMBEDDING_MODEL=Qwen/Qwen3-Embedding-4B
     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
     - VECTOR_STORE_BACKEND=pgvector
@@ -183,6 +185,8 @@ services:
     - RAGFLOW_MCP_URL=http://host.docker.internal:9382
     - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-YOUR_RAGFLOW_API_KEY_HERE}
     - RAGFLOW_BASE_URL=http://host.docker.internal:8088
+        - VLLM_EMBEDDING_URL=http://host.docker.internal:8000/v1/embeddings
+        - EMBEDDING_MODEL=Qwen/Qwen3-Embedding-4B
     - VECTOR_STORE_BACKEND=pgvector
     extra_hosts:
     - host.docker.internal:host-gateway
@@ -231,6 +235,8 @@ services:
     - RAGFLOW_MCP_URL=http://host.docker.internal:9382
     - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-YOUR_RAGFLOW_API_KEY_HERE}
     - RAGFLOW_BASE_URL=http://host.docker.internal:8088
+        - VLLM_EMBEDDING_URL=http://host.docker.internal:8000/v1/embeddings
+        - EMBEDDING_MODEL=Qwen/Qwen3-Embedding-4B
     - VECTOR_STORE_BACKEND=pgvector
     - COLLECT_CHANNEL=tender:collect:trigger
     - RESULT_CHANNEL=tender:collect:result
