@@ -75,7 +75,7 @@ services:
     - RAGFLOW_BASE_URL=http://host.docker.internal:8088
     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
-    - VECTOR_STORE_BACKEND=chromadb
+    - VECTOR_STORE_BACKEND=pgvector
     extra_hosts:
     - host.docker.internal:host-gateway
     volumes:
@@ -183,7 +183,7 @@ services:
     - RAGFLOW_MCP_URL=http://host.docker.internal:9382
     - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-YOUR_RAGFLOW_API_KEY_HERE}
     - RAGFLOW_BASE_URL=http://host.docker.internal:8088
-    - VECTOR_STORE_BACKEND=chromadb
+    - VECTOR_STORE_BACKEND=pgvector
     extra_hosts:
     - host.docker.internal:host-gateway
     volumes:
@@ -231,7 +231,7 @@ services:
     - RAGFLOW_MCP_URL=http://host.docker.internal:9382
     - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-YOUR_RAGFLOW_API_KEY_HERE}
     - RAGFLOW_BASE_URL=http://host.docker.internal:8088
-    - VECTOR_STORE_BACKEND=chromadb
+    - VECTOR_STORE_BACKEND=pgvector
     - COLLECT_CHANNEL=tender:collect:trigger
     - RESULT_CHANNEL=tender:collect:result
     extra_hosts:

@@ -3,10 +3,11 @@
 支持多种后端：
   - numpy   : 纯 NumPy 实现（轻量 fallback，无需额外依赖）
   - chromadb: ChromaDB（生产推荐，需 pip install chromadb）
+  - pgvector: PostgreSQL + pgvector（生产推荐，需 pgvector 扩展）
   - qdrant  : Qdrant（需 pip install qdrant-client）
 
 配置方式（环境变量）：
-  VECTOR_STORE_BACKEND=numpy|chromadb|qdrant
+  VECTOR_STORE_BACKEND=numpy|chromadb|pgvector|qdrant
   EMBEDDING_MODEL=all-MiniLM-L6-v2   # HuggingFace sentence-transformers 模型名
   OPENAI_API_KEY=sk-...               # 如使用 OpenAI Embedding
   QDRANT_URL=http://localhost:6333
@@ -22,6 +23,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
+
+from app.database.db import _get_pg_pool
 
 BACKEND = os.getenv("VECTOR_STORE_BACKEND", "numpy").lower()
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
@@ -302,7 +305,91 @@ class ChromaDBBackend(VectorBackend):
         return self._collection.count()
 
 
+# ── pgvector 后端 ─────────────────────────────────────────
+
+class PGVectorBackend(VectorBackend):
+    """pgvector SQL 向量后端（PostgreSQL + pgvector 扩展）"""
+
+    def __init__(self, dim: int = 384, table_name: str = "vector_store"):
+        import psycopg2.extras
+        self._dim = dim
+        self._table = table_name
+        self._pool = _get_pg_pool()
+        logger.info(f"[vector:pgvector] table={table_name} dim={dim}")
+
+    def _get_conn(self):
+        return self._pool.getconn()
+
+    def _return_conn(self, conn):
+        self._pool.putconn(conn)
+
+    def upsert(self, ids: List[str], embeddings: List[List[float]], payloads: List[Dict]):
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            for id_, emb, payload in zip(ids, embeddings, payloads):
+                import json
+                meta = json.dumps(payload, default=str)
+                cur.execute(
+                    f"INSERT INTO {self._table} (doc_id, text, metadata, embedding) "
+                    f"VALUES (%s, %s, %s, %s::vector) "
+                    f"ON CONFLICT (doc_id) DO UPDATE SET "
+                    f"text=excluded.text, metadata=excluded.metadata, embedding=excluded.embedding",
+                    (id_, "", meta, emb),
+                )
+            conn.commit()
+            cur.close()
+        finally:
+            self._return_conn(conn)
+
+
+    def search(
+        self, query_embedding: List[float], top_k: int = 5, filters: Optional[Dict] = None
+    ) -> List[Dict]:
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            filter_cond = ""
+            if filters:
+                parts = [f"metadata->>'{k}' = '{v}'" for k, v in filters.items()]
+                filter_cond = "WHERE " + " AND ".join(parts)
+            sql = (
+                f"SELECT doc_id, 1 - (embedding <=> %s::vector) AS score, metadata "
+                f"FROM {self._table} {filter_cond} "
+                f"ORDER BY embedding <=> %s::vector LIMIT %s"
+            )
+            cur.execute(sql, (query_embedding, query_embedding, top_k))
+            rows = cur.fetchall()
+            cur.close()
+            return [{"id": r[0], "score": r[1], **r[2]} for r in rows]
+        finally:
+            self._return_conn(conn)
+
+    def delete(self, ids: List[str]):
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            for id_ in ids:
+                cur.execute(f"DELETE FROM {self._table} WHERE doc_id = %s", (id_,))
+            conn.commit()
+            cur.close()
+        finally:
+            self._return_conn(conn)
+
+    def count(self) -> int:
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(f"SELECT COUNT(*) FROM {self._table}")
+            n = cur.fetchone()[0]
+            cur.close()
+            return n
+        finally:
+            self._return_conn(conn)
+
+
 # ── Qdrant 后端 ─────────────────────────────────────────
+
 
 class QdrantBackend(VectorBackend):
     """Qdrant 向量后端"""
@@ -382,7 +469,7 @@ def get_vector_backend() -> VectorBackend:
 
     if BACKEND == "chromadb":
         try:
-            _backend = ChromaDBBackend(dim=dim)
+            _backend = ChromaDBBackend(dim=2560)
             logger.info("[vector] Using ChromaDB backend")
         except ImportError:
             logger.warning("[vector] ChromaDB not installed, falling back to numpy")
@@ -393,6 +480,13 @@ def get_vector_backend() -> VectorBackend:
             logger.info("[vector] Using Qdrant backend")
         except ImportError:
             logger.warning("[vector] Qdrant not installed, falling back to numpy")
+            _backend = NumpyVectorBackend(dim=dim)
+    elif BACKEND == "pgvector":
+        try:
+            _backend = PGVectorBackend(dim=2560)
+            logger.info("[vector] Using pgvector backend")
+        except Exception as e:
+            logger.warning(f"[vector] pgvector init failed: {e}, falling back to numpy")
             _backend = NumpyVectorBackend(dim=dim)
     else:
         _backend = NumpyVectorBackend(dim=dim)
