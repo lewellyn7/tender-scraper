@@ -66,6 +66,8 @@ services:
       # API Keys
       NVIDIA_API_KEY: ${NVIDIA_API_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY}
+      MINIMAX_BASE_URL: ${MINIMAX_BASE_URL:-https://api.minimax.chat/v1}
 
       # 服务器配置
       ENV: production
