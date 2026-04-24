@@ -15,7 +15,7 @@ from app.core.browser import StealthBrowser
 from app.core.harvest.smart_scheduler import CrawlTask, SmartScheduler, TaskStatus
 from app.core.session_memory import SessionMemory, SessionMemoryConfig
 from app.crawlers.cqggzy import CQGGZYCrawlerV2
-from app.services.vector_store import get_vector_store
+from app.services.vector_store import get_vector_store_indexed
 from app.utils.filter import TenderFilter
 from app.utils.report import ReportGenerator
 from config.settings import settings
@@ -63,7 +63,7 @@ def _upsert_to_vector_store(projects: list):
             }
             for i, p in enumerate(projects)
         ]
-        vs = get_vector_store()
+        vs = get_vector_store_indexed()
         result = vs.upsert_documents(docs)
         logger.info(f"向量入库: {result['inserted']} 条，backend={result['backend']}")
     except Exception as e:

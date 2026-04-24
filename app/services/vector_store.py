@@ -579,8 +579,73 @@ class VectorStoreService:
         }
 
 
+class VectorStoreServiceIndexed:
+    """
+    HNSW 索引专用向量服务。
+    自动将 2560 维 embedding 切片至 1024 维，入库 vector_store_1024 表。
+    该表已在 dim=1024 上创建 HNSW 索引 (m=16, ef_construction=64)。
+    """
+
+    _INDEXED_DIM = 1024
+    _INDEXED_TABLE = "vector_store_1024"
+
+    def __init__(self):
+        self._backend = PGVectorBackend(dim=self._INDEXED_DIM, table_name=self._INDEXED_TABLE)
+        logger.info(f"[vector:indexed] table={self._INDEXED_TABLE} dim={self._INDEXED_DIM} (HNSW indexed)")
+
+    def upsert_documents(self, docs: List[Dict]) -> Dict[str, Any]:
+        if not docs:
+            return {"inserted": 0}
+
+        texts = [d["text"] for d in docs]
+        ids = [d["id"] for d in docs]
+        payloads = [d.get("metadata", {}) for d in docs]
+
+        t0 = time.time()
+        embeddings_raw = encode_texts(texts)
+
+        # 切片至 1024 维（适配 HNSW 索引表）
+        embeddings: List[List[float]] = []
+        for emb in embeddings_raw:
+            if len(emb) >= self._INDEXED_DIM:
+                embeddings.append(emb[: self._INDEXED_DIM])
+            else:
+                # 维度不足，填充 zeros（理论上不应发生）
+                padded = list(emb) + [0.0] * (self._INDEXED_DIM - len(emb))
+                embeddings.append(padded)
+                logger.warning(
+                    f"[vector:indexed] embedding dim={len(emb)} < {self._INDEXED_DIM}, padded with zeros"
+                )
+
+        self._backend.upsert(ids, embeddings, payloads)
+        elapsed_ms = (time.time() - t0) * 1000
+        logger.info(
+            f"[vector:indexed] encoded+sliced {len(texts)} texts in {elapsed_ms:.0f}ms -> "
+            f"{self._INDEXED_TABLE} ({self._INDEXED_DIM}-dim)"
+        )
+
+        return {"inserted": len(docs), "backend": BACKEND, "table": self._INDEXED_TABLE}
+
+    def search(self, query: str, top_k: int = 5, filters: Optional[Dict] = None) -> List[Dict]:
+        query_emb = encode_texts([query])[0][: self._INDEXED_DIM]
+        raw = self._backend.search(query_emb, top_k=top_k, filters=filters)
+        results = []
+        for r in raw:
+            results.append({
+                "id": r["id"],
+                "score": round(r["score"], 4),
+                "text": r.get("text", r.get("content", "")),
+                "metadata": {k: v for k, v in r.items() if k not in ("id", "score", "text")},
+            })
+        return results
+
+    def count(self) -> int:
+        return self._backend.count()
+
+
 # ── 全局单例 ─────────────────────────────────────────────
 _vector_service: Optional[VectorStoreService] = None
+_vector_indexed_service: Optional[VectorStoreServiceIndexed] = None
 
 
 def get_vector_store() -> VectorStoreService:
@@ -588,3 +653,11 @@ def get_vector_store() -> VectorStoreService:
     if _vector_service is None:
         _vector_service = VectorStoreService()
     return _vector_service
+
+
+def get_vector_store_indexed() -> VectorStoreServiceIndexed:
+    """返回 HNSW 索引专用向量服务（2560→1024 维切片）。"""
+    global _vector_indexed_service
+    if _vector_indexed_service is None:
+        _vector_indexed_service = VectorStoreServiceIndexed()
+    return _vector_indexed_service

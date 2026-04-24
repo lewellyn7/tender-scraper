@@ -38,7 +38,14 @@ class Settings:
     
     @property
     def default_admin_password(self) -> str:
-        return os.getenv("DEFAULT_ADMIN_PASSWORD", "admin123")
+        pwd = os.getenv("DEFAULT_ADMIN_PASSWORD")
+        if not pwd:
+            raise ValueError(
+                "DEFAULT_ADMIN_PASSWORD environment variable is not set. "
+                "Production deployment requires explicit admin password. "
+                "Hint: set it in docker secrets or .env file."
+            )
+        return pwd
     
     @property
     def default_admin_display_name(self) -> str:
