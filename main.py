@@ -21,7 +21,7 @@ from app.utils.report import ReportGenerator
 from config.settings import settings
 
 # 配置日志
-logger.add("/dev/stderr", format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level="INFO", colorize=False)
+logger.add(sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level="INFO", colorize=False)
 
 
 def _build_vector_text(p: dict) -> str:
