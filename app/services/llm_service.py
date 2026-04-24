@@ -47,16 +47,20 @@ PROVIDER_MINIMAX = "minimax"    # MiniMax
 # MiniMax 可用模型列表
 MINIMAX_MODELS = (
     "MiniMax-M2",           # 对话/编码模型 (默认)
+    "MiMo-V2.5-Pro",        # 小米 MiMo-V2.5-Pro 推理模型
+    "MiMo-V2.5",            # 小米 MiMo-V2.5 基础模型
     "coding-plan-vlm",     # 图片理解 VLM (Coding Plan)
     "image-01",            # 图片生成模型
     "lyrics_generation",   # 歌词生成模型
+    "MiMo-V2.5-TTS-VoiceClone",  # TTS 语音克隆模型
 )
 
 # 模型用途分类
-MINIMAX_CHAT_MODELS = ("MiniMax-M2",)              # 对话模型
+MINIMAX_CHAT_MODELS = ("MiniMax-M2", "MiMo-V2.5-Pro", "MiMo-V2.5")  # 对话模型
 MINIMAX_IMAGE_UNDERSTAND_MODELS = ("coding-plan-vlm",)  # 图片理解
 MINIMAX_IMAGE_GENERATION_MODELS = ("image-01",)     # 图片生成
 MINIMAX_MUSIC_MODELS = ("lyrics_generation",)       # 音乐/歌词生成
+MINIMAX_TTS_MODELS = ("MiMo-V2.5-TTS-VoiceClone",)  # TTS 语音克隆
 
 PROVIDER_RAGFLOW = "ragflow"
 PROVIDER_NONE = "none"
