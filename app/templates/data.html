@@ -100,6 +100,7 @@
             <th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">公示</th>
             <th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">日期</th>
             <th class="w-24 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">关键词</th>
+          <th class="w-40 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">内容摘要</th>
             <th class="w-20 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
           </tr>
         </thead>
@@ -161,6 +162,12 @@
   function escHtml(str) {
     if (!str) return '';
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');
+  }
+
+  function truncate(str, len) {
+    if (!str) return '';
+    str = String(str);
+    return str.length > len ? str.substring(0, len) + '…' : str;
   }
 
   function switchView(view) {
@@ -250,6 +257,7 @@
         '<td class="px-4 py-3">' + infoBadge + '</td>' +
         '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(item.publish_date || '-') + '</td>' +
         '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(item.keywords_matched || '-') + '</td>' +
+ '<td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-xs truncate">' + escHtml(truncate((item.content_preview || item.project_overview || '无内容'), 50)) + '</td>' +
         '<td class="px-4 py-3"><a href="' + escHtml(item.url) + '" target="_blank" class="text-blue-600 hover:text-blue-800 text-sm">原文</a></td>' +
       '</tr>';
     }).join('');
@@ -341,6 +349,12 @@
       var res = await authFetch('/api/projects' + qs);
       var data = await res.json();
       allItems = data.projects || data.data || [];
+      var seenUrls = new Set();
+      allItems = allItems.filter(function(item) {
+        if (seenUrls.has(item.url)) return false;
+        seenUrls.add(item.url);
+        return true;
+      });
 
       var statsRes = await authFetch('/api/stats');
       var stats = statsRes.ok ? await statsRes.json() : null;
@@ -387,7 +401,7 @@
   document.getElementById('searchKeyword').addEventListener('input', applyFilters);
   document.getElementById('filterType').addEventListener('change', applyFilters);
   document.getElementById('filterInfoType').addEventListener('change', applyFilters);
-  document.getElementById('exportBtn').addEventListener('click', function() { window.location.href = '/api/export/csv'; });
+  document.getElementById('exportBtn').addEventListener('click', function() { var token = localStorage.getItem('session_token') || ''; window.location.href = '/api/export/csv?session_token=' + encodeURIComponent(token); });
   document.getElementById('prevPage').addEventListener('click', function() { if (currentPage > 1) { currentPage--; render(); } });
   document.getElementById('nextPage').addEventListener('click', function() { if (currentPage < totalPages) { currentPage++; render(); } });
 

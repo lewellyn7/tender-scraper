@@ -29,24 +29,33 @@ async def run_collection():
     """执行采购网采集任务"""
     logger.info("=" * 60)
     logger.info("🚀 开始执行重庆政府采购网采集任务")
-    logger.info("📡 目标网站: https://www.ccgp-chongqing.gov.cn")
-    logger.info(f"📅 执行时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    logger.info("📡 目标网站：https://www.ccgp-chongqing.gov.cn")
+    logger.info(f"📅 执行时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
     logger.info("=" * 60)
 
     browser = None
     try:
         browser = StealthBrowser(headless=True, slow_mo=100)
         await browser.start()
-
         crawler = CCGPCrawlerV3(browser)
+        # 清空已访问 URL 集合，确保每日采集能获取最新数据
+        crawler._visited_urls.clear()
+
         all_items = []
 
-        # 采集三类信息
+        # 采集三类信息（注意：先采集详情再统一标记访问，避免列表页URL被提前标记）
         for info_type in ["采购意向", "采购公告", "结果公告"]:
             logger.info(f"\n📋 开始采集 [{info_type}]...")
             items = await crawler.fetch_list(info_type=info_type, page_num=1)
-            logger.info(f"  获取 {len(items)} 条")
-            all_items.extend(items)
+            if items:
+                for item in items:
+                    item.info_type = info_type
+                logger.info(f" 获取 {len(items)} 条")
+                all_items.extend(items)
+                # 短暂延迟，避免请求过快
+                await asyncio.sleep(1)
+            if not items:
+                break
 
         logger.info(f"\n📥 总计获取：{len(all_items)} 条")
 
@@ -57,7 +66,6 @@ async def run_collection():
         # 关键词过滤
         filter_engine = TenderFilter(keywords=KEYWORDS, exclude_keywords=EXCLUDE_KEYWORDS)
         matched_items = []
-
         for item in all_items:
             if filter_engine._contains_exclude(item.title):
                 item.keywords_matched = []
@@ -72,7 +80,6 @@ async def run_collection():
         # 生成报表
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         report_gen = ReportGenerator(OUTPUT_DIR)
-
         standardized = []
         for item in matched_items:
             std = filter_engine.extract_project_info(item)
@@ -81,7 +88,6 @@ async def run_collection():
         excel_path = ""
         if standardized:
             excel_path = report_gen.generate_excel(standardized, filename_prefix="ccgp_procurement")
-
         summary = report_gen.generate_summary(standardized) if standardized else "无匹配数据"
 
         # 保存 JSON
@@ -98,8 +104,8 @@ async def run_collection():
         logger.info("\n" + summary)
         logger.info("=" * 60)
         logger.info("✅ 采集完成")
-        logger.info(f"📊 Excel：{excel_path}")
-        logger.info(f"📊 JSON：{data_path}")
+        logger.info(f"📊 Excel: {excel_path}")
+        logger.info(f"📊 JSON: {data_path}")
         logger.info("=" * 60)
 
         return {
@@ -116,7 +122,6 @@ async def run_collection():
         import traceback
         traceback.print_exc()
         return None
-
     finally:
         if browser:
             await browser.close()
@@ -127,9 +132,9 @@ def main():
     if result:
         print(f"\n✅ 采集完成：{result['filtered']}/{result['total']} 条匹配")
         if result['excel_path']:
-            print(f"📊 Excel：{result['excel_path']}")
+            print(f"📊 Excel: {result['excel_path']}")
         if result['data_path']:
-            print(f"📊 JSON：{result['data_path']}")
+            print(f"📊 JSON: {result['data_path']}")
     else:
         print("\n⚠️ 未采集到数据")
 

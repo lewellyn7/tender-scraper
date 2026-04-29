@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/export", tags=["导出"])
 
 def _get_user_from_request(request: Request):
     """从请求中获取用户ID（未登录抛出 401）"""
-    token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
+    token = request.query_params.get("session_token") or request.cookies.get("session_token") or request.headers.get("X-Session-Token")
     if not token:
         from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="未登录")

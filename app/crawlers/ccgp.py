@@ -1,7 +1,4 @@
-"""重庆市政府采购网采集器 V3 - 继承 BaseCrawler
-- 复用通用字段提取、日期解析、附件解析
-- 三类信息：采购意向 / 采购公告 / 结果公告
-"""
+"""重庆市政府采购网采集器 V3 - 继承 BaseCrawler - 复用通用字段提取、日期解析、附件解析 - 三类信息：采购意向 / 采购公告 / 结果公告 """
 
 import asyncio
 import re
@@ -29,7 +26,7 @@ class CCGPCrawlerV3(BaseCrawler):
         """采集列表页"""
         results = []
         if info_type not in self.LIST_URLS:
-            logger.error(f"❌ 不支持的信息类型: {info_type}")
+            logger.error(f"❌ 不支持的信息类型：{info_type}")
             return results
 
         url = self.LIST_URLS[info_type]
@@ -39,7 +36,7 @@ class CCGPCrawlerV3(BaseCrawler):
         page = None
         try:
             page = await self.browser.new_page()
-            logger.info(f"📄 采集 [{info_type}] 列表 第{page_num}页: {url}")
+            logger.info(f"📄 采集 [{info_type}] 列表 第{page_num}页：{url}")
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await asyncio.sleep(2)
 
@@ -49,14 +46,19 @@ class CCGPCrawlerV3(BaseCrawler):
                 ".item-title",
                 "[class*=TitleCol]",
                 "[class*=ListItem]",
-                ".notice-item", ".list-item", ".item",
-                "ul.list li", "table tr", ".data-list tr",
+                ".notice-item",
+                ".list-item",
+                ".item",
+                "ul.list li",
+                "table tr",
+                ".data-list tr",
             ]
+
             items = []
             for selector in list_item_selectors:
                 items = await page.query_selector_all(selector)
                 if items:
-                    logger.debug(f"使用选择器: {selector}, 找到 {len(items)} 项")
+                    logger.debug(f"使用选择器：{selector}, 找到 {len(items)} 项")
                     break
 
             if not items:
@@ -72,37 +74,56 @@ class CCGPCrawlerV3(BaseCrawler):
                     except (AttributeError, TypeError):
                         # Mock 对象没有 evaluate 方法
                         pass
-                    if not link_elem:
-                        # 新版 ListItem 结构：标题在 .title 中，链接在 .desc a 中
+
+                    # 修复：新版 ListItem 结构 - 标题在 .item-title 的 title 属性中
+                    title = ""
+                    title_elem = await item.query_selector(".item-title")
+                    if title_elem:
+                        title = (await title_elem.get_attribute("title")).strip()
+                    
+                    if not title:
                         title_elem = await item.query_selector(".title")
                         if title_elem:
                             title = (await title_elem.text_content()).strip()
-                        else:
-                            title = (await item.text_content()).strip()[:100]
-                        # 尝试从 .desc a 获取链接
-                        desc_link = await item.query_selector(".desc a, [class*=desc] a")
-                        if desc_link:
-                            href = await desc_link.get_attribute("href")
-                        else:
-                            href = await item.get_attribute("href") if tag == "A" else ""
-                    else:
-                        href = await link_elem.get_attribute("href")
-                        title = await link_elem.text_content()
+                    
                     if not title:
-                        title = (await item.text_content()).strip()[:100]
-                    title = title.strip()
-                    if len(title) < 5:
+                        title = (await item.text_content()).strip()[:200]
+
+                    # 尝试从 .desc a 获取链接
+                    desc_link = await item.query_selector(".desc a, [class*=desc] a")
+                    href = ""
+                    if desc_link:
+                        href = await desc_link.get_attribute("href")
+                    elif tag == "A":
+                        href = await item.get_attribute("href")
+                    
+                    if not href and link_elem and tag != "A":
+                        href = await link_elem.get_attribute("href")
+
+                    if not title or len(title.strip()) < 5:
                         continue
+
                     if href and "javascript" in href.lower():
                         href = None
 
+                    # 提取日期
+                    date_text = ""
                     try:
                         date_elem = await item.query_selector('.date, .time, [class*="date"], td:nth-child(2)')
-                        date_text = (await date_elem.text_content()).strip() if date_elem else ""
+                        if date_elem:
+                            date_text = (await date_elem.text_content()).strip()
                     except (AttributeError, TypeError):
-                        date_text = ""
+                        pass
 
-                    full_url = urljoin(self.BASE_URL, href)
+                    # 如果没有 href，生成唯一 URL（使用标题哈希避免重复）
+                    if href:
+                        full_url = urljoin(self.BASE_URL, href)
+                    else:
+                        # 使用标题生成唯一标识，避免相同列表 URL 导致去重失败
+                        import hashlib
+                        title_hash = hashlib.md5(title.encode('utf-8')).hexdigest()[:8]
+                        full_url = f"{self.BASE_URL}/gkw/web/portal/{info_type}/{title_hash}"
+
                     if not await self._mark_visited(full_url, source="ccgp-chongqing"):
                         continue
 
@@ -120,21 +141,23 @@ class CCGPCrawlerV3(BaseCrawler):
                         tender.publish_date = self._parse_date(date_text)
                     results.append(tender)
                 except Exception as e:
-                    logger.debug(f"提取列表项失败: {e}")
+                    logger.debug(f"提取列表项失败：{e}")
                     continue
 
-            logger.info(f"✅ 列表页采集完成: {len(results)} 条")
+            logger.info(f"✅ 列表页采集完成：{len(results)} 条")
             return results
+
         except Exception as e:
-            logger.error(f"❌ 列表页采集失败: {e}")
+            logger.error(f"❌ 列表页采集失败：{e}")
             return results
         finally:
-            await page.close()
+            if page:
+                await page.close()
 
     async def fetch_detail(self, tender: TenderInfo) -> TenderInfo:
         """采集详情页"""
         if not await self._mark_visited(tender.url, source="ccgp-chongqing"):
-            logger.info(f"⏭️ URL已采集，跳过：{tender.url}")
+            logger.info(f"⏭️ URL 已采集，跳过：{tender.url}")
             return tender
         return await self._fetch_detail_page(tender)
 
@@ -143,15 +166,20 @@ class CCGPCrawlerV3(BaseCrawler):
         page = None
         try:
             page = await self.browser.new_page()
-            logger.info(f"📄 采集详情: {tender.title[:40]}...")
+            logger.info(f"📄 采集详情：{tender.title[:40]}...")
             await page.goto(tender.url, wait_until="networkidle", timeout=30000)
             await asyncio.sleep(1)
 
             # 提取正文
             content_selectors = [
-                ".content", ".article-content", ".detail-content",
-                "#content", ".main-content", ".text-content",
-                "article", ".body",
+                ".content",
+                ".article-content",
+                ".detail-content",
+                "#content",
+                ".main-content",
+                ".text-content",
+                "article",
+                ".body",
             ]
             for selector in content_selectors:
                 elem = await page.query_selector(selector)
@@ -160,7 +188,7 @@ class CCGPCrawlerV3(BaseCrawler):
                     if len(full) > 50:
                         tender.full_content = full
                         tender.content_preview = full[:300] + "..." if len(full) > 300 else full
-                        break
+                    break
 
             # 按信息类型提取专用字段
             if tender.info_type == "采购意向":
@@ -176,10 +204,10 @@ class CCGPCrawlerV3(BaseCrawler):
 
             # 生成摘要
             tender.project_overview = self._summarize_content(tender)
-            return tender
 
+            return tender
         except Exception as e:
-            logger.warning(f"⚠️ 详情页采集失败: {e}")
+            logger.warning(f"⚠️ 详情页采集失败：{e}")
             return tender
         finally:
             if page:
@@ -190,35 +218,33 @@ class CCGPCrawlerV3(BaseCrawler):
     async def _extract_intention_fields(self, page, tender: TenderInfo) -> None:
         """提取采购意向专用字段"""
         text = await page.inner_text("body")
-
-        name_match = re.search(r"采购项目[名称]*[：:]\s*([^\n]+)", text)
+        name_match = re.search(r"采购项目 [名称]*[：:]\s*([^\n]+)", text)
         if name_match:
             tender.title = name_match.group(1).strip()
 
         tender.budget = await self._extract_field(
             page,
             [
-                r"预算金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
-                r"采购预算[：:]\s*([\d,\.]+)\s*(?:万元|元)",
+                r"预算金额 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
+                r"采购预算 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
             ],
         )
 
-        time_match = re.search(r"预计采购时间[：:]\s*([^\n]+)", text)
+        time_match = re.search(r"预计采购时间 [：:]\s*([^\n]+)", text)
         if time_match:
-            tender.bidder_requirements = f"预计采购时间: {time_match.group(1).strip()}"
+            tender.bidder_requirements = f"预计采购时间：{time_match.group(1).strip()}"
 
-        needs_match = re.search(r"采购需求概况[：:]\s*([^\n]+(?:\n(?!采购)[^\n]+)*)", text)
+        needs_match = re.search(r"采购需求概况 [：:]\s*([^\n]+(?:\n(?! 采购) [^\n]+)*)", text)
         if needs_match:
             tender.project_overview = needs_match.group(1).strip()
 
     async def _extract_notice_fields(self, page, tender: TenderInfo) -> None:
         """提取采购公告专用字段"""
         text = await page.inner_text("body")
-
         overview_patterns = [
-            r"项目概况[：:]\s*([^\n]+)",
-            r"采购内容[：:]\s*([^\n]+)",
-            r"项目简介[：:]\s*([^\n]+)",
+            r"项目概况 [：:]\s*([^\n]+)",
+            r"采购内容 [：:]\s*([^\n]+)",
+            r"项目简介 [：:]\s*([^\n]+)",
         ]
         for pattern in overview_patterns:
             match = re.search(pattern, text)
@@ -229,16 +255,13 @@ class CCGPCrawlerV3(BaseCrawler):
         tender.budget = await self._extract_field(
             page,
             [
-                r"预算金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
-                r"采购预算[：:]\s*([\d,\.]+)\s*(?:万元|元)",
-                r"项目预算[：:]\s*([\d,\.]+)\s*(?:万元|元)",
+                r"预算金额 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
+                r"采购预算 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
+                r"项目预算 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
             ],
         )
 
-        req_match = re.search(
-            r"资格要求[：:]\s*([^\n]+)",
-            text,
-        )
+        req_match = re.search(r"资格要求 [：:]\s*([^\n]+)", text)
         if req_match:
             tender.bidder_requirements = req_match.group(1).strip()[:500]
 
@@ -250,43 +273,42 @@ class CCGPCrawlerV3(BaseCrawler):
         else:
             tender.submission_deadline = deadline_raw
 
-        opening_match = re.search(r"开标时间[：:]\s*([^\n]+)", text)
+        opening_match = re.search(r"开标时间 [：:]\s*([^\n]+)", text)
         if opening_match:
             tender.opening_date = self._parse_datetime(opening_match.group(1))
 
     async def _extract_result_fields(self, page, tender: TenderInfo) -> None:
         """提取结果公告专用字段"""
         text = await page.inner_text("body")
-
         supplier_patterns = [
-            r"中标(?:[（(]?成交[）)?])?供应商[名称]*[：:]\s*([^\n]+)",
-            r"中标人[：:]\s*([^\n]+)",
-            r"成交供应商[：:]\s*([^\n]+)",
+            r"中标 (?:[（(]?成交 [）)?])?供应商 [名称]*[：:]\s*([^\n]+)",
+            r"中标人 [：:]\s*([^\n]+)",
+            r"成交供应商 [：:]\s*([^\n]+)",
         ]
         for pattern in supplier_patterns:
             match = re.search(pattern, text)
             if match:
-                tender.bidder_requirements = f"中标供应商: {match.group(1).strip()}"
+                tender.bidder_requirements = f"中标供应商：{match.group(1).strip()}"
                 break
 
         tender.bid_amount = await self._extract_field(
             page,
             [
-                r"中标金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
-                r"成交金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
-                r"合同金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
+                r"中标金额 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
+                r"成交金额 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
+                r"合同金额 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
             ],
         )
 
         tender.budget = await self._extract_field(
             page,
             [
-                r"预算金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
-                r"项目预算[：:]\s*([\d,\.]+)\s*(?:万元|元)",
+                r"预算金额 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
+                r"项目预算 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
             ],
         )
 
-        date_match = re.search(r"公告日期[：:]\s*([^\n]+)", text)
+        date_match = re.search(r"公告日期 [：:]\s*([^\n]+)", text)
         if date_match:
             tender.publish_date_raw = date_match.group(1).strip()
 
@@ -298,30 +320,28 @@ class CCGPCrawlerV3(BaseCrawler):
 
         if tender.info_type == "采购意向":
             if tender.budget:
-                parts.append(f"预算: {tender.budget}")
+                parts.append(f"预算：{tender.budget}")
             if tender.bidder_requirements:
                 parts.append(tender.bidder_requirements)
-
         elif tender.info_type == "采购公告":
             if tender.project_overview:
-                parts.append(f"项目概况: {tender.project_overview[:100]}")
+                parts.append(f"项目概况：{tender.project_overview[:100]}")
             if tender.budget:
-                parts.append(f"预算: {tender.budget}")
+                parts.append(f"预算：{tender.budget}")
             if tender.submission_deadline:
-                parts.append(f"截止时间: {tender.submission_deadline}")
+                parts.append(f"截止时间：{tender.submission_deadline}")
             if tender.bidder_requirements:
-                parts.append(f"资格要求: {tender.bidder_requirements[:100]}")
-
+                parts.append(f"资格要求：{tender.bidder_requirements[:100]}")
         elif tender.info_type == "结果公告":
             if tender.bidder_requirements:
                 parts.append(tender.bidder_requirements)
             if tender.bid_amount:
-                parts.append(f"中标金额: {tender.bid_amount}")
+                parts.append(f"中标金额：{tender.bid_amount}")
             if tender.budget:
-                parts.append(f"项目预算: {tender.budget}")
+                parts.append(f"项目预算：{tender.budget}")
 
         if tender.contact_info.name or tender.contact_info.phone:
-            c = f"联系人: {tender.contact_info.name}"
+            c = f"联系人：{tender.contact_info.name}"
             if tender.contact_info.phone:
                 c += f" ({tender.contact_info.phone})"
             parts.append(c)

@@ -14,7 +14,7 @@ from app.utils.notifications import get_notif_manager
 from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api", tags=["通知和设置"])
-SYS_PATH = Path(__file__).parent.parent.parent.parent
+SYS_PATH = Path('/app') if Path('/.dockerenv').exists() else Path(__file__).parent.parent.parent
 SETTINGS_FILE = SYS_PATH / "config" / "settings.json"
 
 # ========== notifications ==========

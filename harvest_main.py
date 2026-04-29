@@ -124,13 +124,12 @@ async def _process_results(browser, crawler, all_items, keywords, exclude_kw, so
 
     logger.info(f"✅ 关键词匹配：{len(matched)}/{len(all_items)} 条")
 
-    # 详情页采集（前 10 条，限制并发 3）
-    detail_limit = min(10, len(matched))
-    if detail_limit > 0:
-        logger.info(f"📄 开始采集详情页（前 {detail_limit} 条）...")
+    # 详情页采集（全部匹配项，限制并发 3）
+    if matched:
+        logger.info(f"📄 开始采集详情页（{len(matched)} 条）...")
         # 使用基类通用批量采集方法
-        matched[:detail_limit] = await crawler.fetch_details_batch(
-            matched[:detail_limit], max_concurrent=3
+        matched = await crawler.fetch_details_batch(
+            matched, max_concurrent=3
         )
 
     # 标准化输出

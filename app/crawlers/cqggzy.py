@@ -130,8 +130,8 @@ class CQGGZYCrawlerV2(BaseCrawler):
 
             # 批量提取字段（使用基类通用方法）
             tender.contact_info = await self._extract_contact_info(page)
-            tender.budget = self._extract_budget(page)
-            deadline_raw, deadline_dt = self._extract_deadline(page)
+            tender.budget = await self._extract_budget(page)
+            deadline_raw, deadline_dt = await self._extract_deadline(page)
             if deadline_dt:
                 tender.deadline = deadline_dt
             tender.attachments = await self._extract_attachments(page)

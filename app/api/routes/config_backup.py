@@ -10,7 +10,7 @@ from app.database import get_db
 from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api", tags=["配置和备份"])
-SYS_PATH = Path(__file__).parent.parent.parent.parent
+SYS_PATH = Path('/app') if Path('/.dockerenv').exists() else Path(__file__).parent.parent.parent
 BACKUP_ROOT = Path(__file__).parent.parent.parent.parent / "data" / "backups"
 
 # ========== config backups ==========

@@ -1,804 +1,121 @@
 {% extends "base.html" %}
-{% block title %}任务管理 - 采集系统{% endblock %}
-{% block extra_head %}
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; }
-        
-        /* Page Banner - matches DESIGN.md primary color */
- .page-header { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 24px 32px; border-radius: 0 0 12px 12px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15); }
-        .page-header h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 4px; }
-        .page-header p { opacity: 0.9; font-size: 0.875rem; }
-        
-        .container { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
-        
-        /* Stats Row */
-        .stats-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 24px; }
-        .stat-card { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-        .stat-card .num { font-size: 1.75rem; font-weight: 700; color: #1e293b; }
-        .stat-card .label { font-size: 0.75rem; color: #64748b; margin-top: 4px; }
-        .stat-card.running .num { color: #16a34a; }
-        .stat-card.idle .num { color: #2563eb; }
-        .stat-card.disabled .num { color: #94a3b8; }
-        .stat-card.items .num { color: #7c3aed; }
-        
-        /* Toolbar */
-        .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-        .toolbar-left { display: flex; gap: 8px; }
-        .toolbar-right { display: flex; gap: 8px; }
-        
-        .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border: none; transition: all 0.2s; }
-        .btn-primary { background: #667eea; color: white; }
-        .btn-primary:hover { background: #5a67d2; }
-        .btn-secondary { background: #e2e8f0; color: #475569; }
-        .btn-secondary:hover { background: #cbd5e1; }
-        .btn-danger { background: #fee2e2; color: #dc2626; }
-        .btn-danger:hover { background: #fecaca; }
-        .btn-success { background: #dcfce7; color: #16a34a; }
-        .btn-success:hover { background: #bbf7d0; }
-        .btn-warning { background: #fef3c7; color: #d97706; }
-        .btn-warning:hover { background: #fde68a; }
-        .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
-        
-        .filter-btn { padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; border: 1px solid #e2e8f0; background: white; cursor: pointer; }
-        .filter-btn.active { background: #667eea; color: white; border-color: #667eea; }
-        
-        /* Task List */
-        .task-list { display: flex; flex-direction: column; gap: 12px; }
-        .task-card { background: white; border-radius: 12px; padding: 16px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: flex; align-items: center; gap: 16px; transition: box-shadow 0.2s; }
-        .task-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        
-        .task-status-badge { min-width: 80px; }
-        .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
-        .badge-idle { background: #dbeafe; color: #1d4ed8; }
-        .badge-running { background: #dcfce7; color: #15803d; }
-        .badge-disabled { background: #f1f5f9; color: #64748b; }
-        .badge-completed { background: #f0fdf4; color: #16a34a; }
-        .badge-failed { background: #fee2e2; color: #dc2626; }
-        
-        .task-info { flex: 1; min-width: 0; }
-        .task-info h3 { font-size: 1rem; font-weight: 600; color: #1e293b; margin-bottom: 4px; }
-        .task-info .meta { display: flex; gap: 16px; font-size: 0.8rem; color: #64748b; }
-        .task-info .keywords { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
-        .kw-chip { background: #f1f5f9; color: #475569; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; }
-        
-        .task-stats { display: flex; gap: 20px; text-align: center; min-width: 160px; }
-        .task-stats .stat { }
-        .task-stats .stat .n { font-size: 1.1rem; font-weight: 700; color: #1e293b; }
-        .task-stats .stat .l { font-size: 0.7rem; color: #94a3b8; }
-        
-        .task-actions { display: flex; gap: 6px; align-items: center; }
-        
-        /* Empty State */
-        .empty-state { text-align: center; padding: 60px 20px; color: #94a3b8; }
-        .empty-state .icon { font-size: 3rem; margin-bottom: 16px; }
-        .empty-state h3 { font-size: 1.1rem; color: #64748b; margin-bottom: 8px; }
-        .empty-state p { font-size: 0.875rem; }
-        
-        /* Modal */
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
-        .modal-overlay.active { opacity: 1; pointer-events: all; }
-        .modal { background: white; border-radius: 16px; width: 680px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2); transform: translateY(20px); transition: transform 0.2s; }
-        .modal-overlay.active .modal { transform: translateY(0); }
-        
-        .modal-header { padding: 20px 24px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
-        .modal-header h2 { font-size: 1.1rem; font-weight: 600; }
-        .modal-close { width: 32px; height: 32px; border-radius: 8px; border: none; background: #f1f5f9; cursor: pointer; font-size: 1.1rem; display: flex; align-items: center; justify-content: center; }
-        
-        .modal-body { padding: 24px; }
-        
-        /* Wizard Steps */
-        .wizard-steps { display: flex; margin-bottom: 24px; border-bottom: 1px solid #e2e8f0; padding-bottom: 16px; }
-        .wizard-step { display: flex; align-items: center; gap: 8px; flex: 1; }
-        .wizard-step .num { width: 28px; height: 28px; border-radius: 50%; background: #e2e8f0; color: #64748b; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 600; }
-        .wizard-step.active .num { background: #667eea; color: white; }
-        .wizard-step.done .num { background: #16a34a; color: white; }
-        .wizard-step .label { font-size: 0.875rem; color: #64748b; }
-        .wizard-step.active .label { color: #1e293b; font-weight: 500; }
-        .wizard-step .arrow { color: #cbd5e1; margin: 0 4px; }
-        
-        /* Form */
-        .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; font-size: 0.875rem; font-weight: 500; color: #374151; margin-bottom: 6px; }
-        .form-group .hint { font-size: 0.75rem; color: #94a3b8; margin-top: 4px; }
-        input[type="text"], input[type="number"], input[type="password"], select, textarea { width: 100%; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.875rem; transition: border-color 0.2s; background: white; }
-        input:focus, select:focus, textarea:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.1); }
-        
-        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        
-        /* Chips Input */
-        .chips-input { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; min-height: 42px; display: flex; flex-wrap: wrap; gap: 6px; cursor: text; }
-        .chips-input:focus-within { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.1); }
-        .chip { background: #667eea; color: white; padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; display: flex; align-items: center; gap: 4px; }
-        .chip .x { cursor: pointer; opacity: 0.7; font-size: 0.9rem; }
-        .chip .x:hover { opacity: 1; }
-        .chips-input input { border: none; outline: none; flex: 1; min-width: 100px; font-size: 0.875rem; padding: 2px 4px; }
-        
-        /* Checkbox Group */
-        .checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; }
-        .checkbox-item { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid #e2e8f0; border-radius: 6px; cursor: pointer; font-size: 0.875rem; transition: all 0.2s; }
-        .checkbox-item:hover { border-color: #667eea; }
-        .checkbox-item input { display: none; }
-        .checkbox-item.checked { background: #667eea; color: white; border-color: #667eea; }
-        
-        /* Schedule Type */
-        .schedule-options { display: flex; gap: 8px; margin-bottom: 12px; }
-        .schedule-option { flex: 1; padding: 10px; border: 2px solid #e2e8f0; border-radius: 8px; text-align: center; cursor: pointer; font-size: 0.875rem; transition: all 0.2s; }
-        .schedule-option:hover { border-color: #667eea; }
-        .schedule-option.selected { border-color: #667eea; background: #f0f4ff; color: #667eea; font-weight: 500; }
-        .schedule-option input { display: none; }
-        
-        /* Advanced Toggle */
-        .advanced-toggle { color: #667eea; font-size: 0.875rem; cursor: pointer; display: flex; align-items: center; gap: 4px; }
-        .advanced-toggle:hover { text-decoration: underline; }
-        .advanced-panel { margin-top: 12px; padding: 12px; background: #f8fafc; border-radius: 8px; display: none; }
-        .advanced-panel.show { display: block; }
-        
-        /* Preview */
-        .preview-card { background: #f8fafc; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-        .preview-card h4 { font-size: 0.875rem; color: #64748b; margin-bottom: 12px; }
-        .preview-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e2e8f0; font-size: 0.875rem; }
-        .preview-item:last-child { border-bottom: none; }
-        .preview-item .k { color: #64748b; }
-        .preview-item .v { font-weight: 500; color: #1e293b; }
-        
-        /* Modal Footer */
-        .modal-footer { padding: 16px 24px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; }
-        
-        /* Status Panel */
-        .status-panel { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 16px; }
-        .status-panel h3 { font-size: 1rem; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
-        .progress-bar { height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; margin-bottom: 12px; }
-        .progress-bar .fill { height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); border-radius: 4px; transition: width 0.3s; }
-        .status-logs { max-height: 200px; overflow-y: auto; background: #0f172a; border-radius: 8px; padding: 12px; font-family: 'Monaco', 'Menlo', monospace; font-size: 0.75rem; color: #94a3b8; }
-        .status-logs .log-line { padding: 2px 0; }
-        .status-logs .log-line .time { color: #64748b; margin-right: 8px; }
-        .status-logs .log-line.success { color: #4ade80; }
-        .status-logs .log-line.error { color: #f87171; }
-        .status-logs .log-line.warning { color: #fbbf24; }
-        
-        /* Toast */
-        .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 2000; display: flex; flex-direction: column; gap: 8px; }
-        .toast { background: white; border-radius: 8px; padding: 12px 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 10px; font-size: 0.875rem; animation: slideIn 0.3s ease; }
-        .toast.success { border-left: 4px solid #16a34a; }
-        .toast.error { border-left: 4px solid #dc2626; }
-        .toast.info { border-left: 4px solid #667eea; }
-        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-        
-        /* Tabs */
-        .tab-bar { display: flex; gap: 4px; border-bottom: 1px solid #e2e8f0; margin-bottom: 20px; }
-        .tab-btn { padding: 8px 16px; border: none; background: none; cursor: pointer; font-size: 0.875rem; color: #64748b; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-        .tab-btn.active { color: #667eea; border-bottom-color: #667eea; font-weight: 500; }
-    </style>
-{% endblock %}
-
+{% block title %}任务管理 - 招投标采集系统{% endblock %}
 {% block content %}
-<div class="page-header">
-    <h1>📋 任务管理</h1>
-    <p>创建、管理和监控采集任务</p>
-</div>
-
-<div class="container">
-    <!-- Stats -->
-    <div class="stats-row">
-        <div class="stat-card">
-            <div class="num" id="stat-total">0</div>
-            <div class="label">总任务数</div>
-        </div>
-        <div class="stat-card running">
-            <div class="num" id="stat-running">0</div>
-            <div class="label">执行中</div>
-        </div>
-        <div class="stat-card idle">
-            <div class="num" id="stat-idle">0</div>
-            <div class="label">空闲待执行</div>
-        </div>
-        <div class="stat-card disabled">
-            <div class="num" id="stat-disabled">0</div>
-            <div class="label">已停用</div>
-        </div>
-        <div class="stat-card items">
-            <div class="num" id="stat-items">0</div>
-            <div class="label">累计采集</div>
-        </div>
-    </div>
-    
-    <!-- Toolbar -->
-    <div class="toolbar">
-        <div class="toolbar-left">
-            <button class="filter-btn active" data-filter="all">全部</button>
-            <button class="filter-btn" data-filter="running">执行中</button>
-            <button class="filter-btn" data-filter="idle">空闲</button>
-            <button class="filter-btn" data-filter="disabled">已停用</button>
-        </div>
-        <div class="toolbar-right">
-            <button class="btn btn-primary" id="btn-new-task">+ 新建任务</button>
-        </div>
-    </div>
-    
-    <!-- Task List -->
-    <div id="task-list" class="task-list"></div>
-    
-    <!-- Empty State -->
-    <div id="empty-state" class="empty-state" style="display:none;">
-        <div class="icon">📋</div>
-        <h3>暂无采集任务</h3>
-        <p>点击上方「新建任务」开始你的第一个采集任务</p>
-    </div>
-</div>
-
-<!-- Create Task Modal -->
-<div class="modal-overlay" id="modal-create">
-    <div class="modal">
-        <div class="modal-header">
-            <h2>新建采集任务</h2>
-            <button class="modal-close" onclick="closeModal()">×</button>
-        </div>
-        
-        <!-- Wizard Steps -->
-        <div class="wizard-steps">
-            <div class="wizard-step active" data-step="1">
-                <div class="num">1</div>
-                <div class="label">选择来源</div>
-            </div>
-            <div class="arrow">›</div>
-            <div class="wizard-step" data-step="2">
-                <div class="num">2</div>
-                <div class="label">配置参数</div>
-            </div>
-            <div class="arrow">›</div>
-            <div class="wizard-step" data-step="3">
-                <div class="num">3</div>
-                <div class="label">确认启动</div>
-            </div>
-        </div>
-        
-        <div class="modal-body">
-            <!-- Step 1: Source -->
-            <div class="wizard-content" id="step-1">
-                <div class="form-group">
-                    <label>任务名称</label>
-                    <input type="text" id="task-name" placeholder="例如：重庆政府采购每日采集">
-                </div>
-                <div class="form-group">
-                    <label>数据来源</label>
-                    <select id="task-source">
-                        <option value="">— 选择来源 —</option>
-                        <option value="cqggzy">重庆市公共资源交易网 (cqggzy.com)</option>
-                        <option value="ccgp-chongqing">重庆市政府采购网 (ccgp-chongqing.gov.cn)</option>
-                        <option value="ccgp">全国政府采购网 (ccgp.gov.cn)</option>
-                        <option value="custom">自定义来源</option>
-                    </select>
-                </div>
-                <div class="form-group" id="custom-url-group" style="display:none;">
-                    <label>自定义 URL</label>
-                    <input type="text" id="task-custom-url" placeholder="https://example.com/list">
-                </div>
-            </div>
-            
-            <!-- Step 2: Config -->
-            <div class="wizard-content" id="step-2" style="display:none;">
-                <div class="form-group">
-                    <label>关键词（包含）</label>
-                    <div class="chips-input" id="keywords-input">
-                        <input type="text" placeholder="输入后按回车添加" id="keyword-chip-input">
-                    </div>
-                    <div class="hint">标题或内容包含这些词的項目会被采集</div>
-                </div>
-                <div class="form-group">
-                    <label>排除词</label>
-                    <div class="chips-input" id="exclude-input">
-                        <input type="text" placeholder="输入后按回车添加" id="exclude-chip-input">
-                    </div>
-                    <div class="hint">包含这些词的項目会被过滤掉</div>
-                </div>
-                <div class="form-group">
-                    <label>信息类型</label>
-                    <div class="checkbox-group" id="info-types">
-                        <label class="checkbox-item checked"><input type="checkbox" value="tender" checked> 招标公告</label>
-                        <label class="checkbox-item checked"><input type="checkbox" value="result" checked> 中标结果</label>
-                        <label class="checkbox-item"><input type="checkbox" value="intention"> 采购意向</label>
-                        <label class="checkbox-item"><input type="checkbox" value="change"> 变更公告</label>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>预算下限（万元）</label>
-                        <input type="number" id="budget-min" placeholder="不限" min="0">
-                    </div>
-                    <div class="form-group">
-                        <label>优先级 (1-10)</label>
-                        <input type="number" id="task-priority" value="5" min="1" max="10">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>执行方式</label>
-                    <div class="schedule-options">
-                        <label class="schedule-option selected"><input type="radio" name="schedule" value="manual" checked> 手动执行</label>
-                        <label class="schedule-option"><input type="radio" name="schedule" value="daily"> 每天一次</label>
-                        <label class="schedule-option"><input type="radio" name="schedule" value="hourly"> 每小时</label>
-                    </div>
-                </div>
-                <div class="advanced-toggle" id="advanced-toggle">⚙️ 高级配置 »</div>
-                <div class="advanced-panel" id="advanced-panel">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>最大并发数</label>
-                            <input type="number" id="max-concurrency" value="5" min="1" max="20">
-                        </div>
-                        <div class="form-group">
-                            <label>请求间隔（秒）</label>
-                            <input type="number" id="request-interval" value="2.0" min="0.5" max="30" step="0.5">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>超时时间（秒）</label>
-                        <input type="number" id="timeout-seconds" value="30" min="5" max="120">
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Step 3: Confirm -->
-            <div class="wizard-content" id="step-3" style="display:none;">
-                <div class="preview-card">
-                    <h4>📋 任务配置摘要</h4>
-                    <div class="preview-item"><span class="k">任务名称</span><span class="v" id="preview-name">—</span></div>
-                    <div class="preview-item"><span class="k">数据来源</span><span class="v" id="preview-source">—</span></div>
-                    <div class="preview-item"><span class="k">关键词</span><span class="v" id="preview-keywords">—</span></div>
-                    <div class="preview-item"><span class="k">排除词</span><span class="v" id="preview-exclude">—</span></div>
-                    <div class="preview-item"><span class="k">信息类型</span><span class="v" id="preview-types">—</span></div>
-                    <div class="preview-item"><span class="k">执行方式</span><span class="v" id="preview-schedule">—</span></div>
-                    <div class="preview-item"><span class="k">预算下限</span><span class="v" id="preview-budget">—</span></div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="modal-footer">
-            <button class="btn btn-secondary" id="btn-prev" style="display:none;">← 上一步</button>
-            <div style="flex:1"></div>
-            <button class="btn btn-secondary" onclick="closeModal()">取消</button>
-            <button class="btn btn-primary" id="btn-next">下一步 →</button>
-            <button class="btn btn-primary" id="btn-create" style="display:none;">创建任务</button>
-        </div>
-    </div>
-</div>
-
-<!-- Status Modal -->
-<div class="modal-overlay" id="modal-status">
-    <div class="modal">
-        <div class="modal-header">
-            <h2 id="status-task-name">执行中...</h2>
-            <button class="modal-close" onclick="closeStatusModal()">×</button>
-        </div>
-        <div class="modal-body">
-            <div class="progress-bar"><div class="fill" id="progress-fill" style="width:0%"></div></div>
-            <div style="display:flex;justify-content:space-between;font-size:0.875rem;color:#64748b;margin-bottom:12px;">
-                <span id="progress-text">0%</span>
-                <span id="progress-items">找到 0 条 · 新增 0 条</span>
-            </div>
-            <div class="status-logs" id="status-logs"></div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="closeStatusModal()">关闭</button>
-        </div>
-    </div>
-</div>
-
-<!-- Toast Container -->
 <div class="toast-container" id="toastContainer"></div>
 
+<div class="flex justify-between items-center mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white">任务管理</h1>
+    <p class="text-sm text-gray-500 mt-1">采集任务列表与执行状态</p>
+  </div>
+  <div class="flex gap-2">
+    <button onclick="loadTasks()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">刷新</button>
+  </div>
+</div>
+
+<!-- 统计卡片 -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+  <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4">
+    <div class="text-xs text-gray-500 mb-1">任务总数</div>
+    <div class="text-3xl font-bold text-blue-600" id="taskTotal">-</div>
+  </div>
+  <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4">
+    <div class="text-xs text-gray-500 mb-1">进行中</div>
+    <div class="text-3xl font-bold text-green-600" id="taskRunning">-</div>
+  </div>
+  <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4">
+    <div class="text-xs text-gray-500 mb-1">已采集项目</div>
+    <div class="text-3xl font-bold text-purple-600" id="taskProjects">-</div>
+  </div>
+  <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4">
+    <div class="text-xs text-gray-500 mb-1">最近采集</div>
+    <div class="text-lg font-semibold text-gray-700 dark:text-gray-200" id="taskLastRun">-</div>
+  </div>
+</div>
+
+<!-- 任务列表 -->
+<div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
+  <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+    <h2 class="font-semibold text-gray-800 dark:text-white">采集任务</h2>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full">
+      <thead class="bg-gray-50 dark:bg-gray-700">
+        <tr>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">任务名称</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">采集源</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">采集数量</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">最近运行</th>
+        </tr>
+      </thead>
+      <tbody id="taskTableBody" class="divide-y divide-gray-200 dark:divide-gray-700">
+        <tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">加载中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <script>
-// ── State ──────────────────────────────────────────────────────────────────
-var currentFilter = 'all';
-var wizardStep = 1;
-var keywords = [];
-var excludeKeywords = [];
-var runningSSE = null;
-var taskList = [];
+var CACHE = { projects: [], total: 0, last_run: '' };
 
-// ── Init ───────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', function() {
-    loadTasks();
-    loadStats();
-    setupEventListeners();
-});
+function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-function setupEventListeners() {
-    // Filter buttons
-    document.querySelectorAll('.filter-btn').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-            document.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('active'); });
-            btn.classList.add('active');
-            currentFilter = btn.dataset.filter;
-            renderTasks();
-        });
-    });
-    
-    // New task button
-    document.getElementById('btn-new-task').addEventListener('click', function() {
-        openModal();
-    });
-    
-    // Source change
-    document.getElementById('task-source').addEventListener('change', function() {
-        var show = this.value === 'custom';
-        document.getElementById('custom-url-group').style.display = show ? 'block' : 'none';
-    });
-    
-    // Schedule options
-    document.querySelectorAll('.schedule-option').forEach(function(opt) {
-        opt.addEventListener('click', function() {
-            document.querySelectorAll('.schedule-option').forEach(function(o) { o.classList.remove('selected'); });
-            opt.classList.add('selected');
-            opt.querySelector('input').checked = true;
-        });
-    });
-    
-    // Checkbox items
-    document.querySelectorAll('.checkbox-item').forEach(function(item) {
-        item.addEventListener('click', function() {
-            var input = item.querySelector('input');
-            input.checked = !input.checked;
-            item.classList.toggle('checked', input.checked);
-        });
-    });
-    
-    // Advanced toggle
-    document.getElementById('advanced-toggle').addEventListener('click', function() {
-        document.getElementById('advanced-panel').classList.toggle('show');
-    });
-    
-    // Wizard navigation
-    document.getElementById('btn-prev').addEventListener('click', wizardPrev);
-    document.getElementById('btn-next').addEventListener('click', wizardNext);
-    document.getElementById('btn-create').addEventListener('click', createTask);
-    
-    // Chips input - keywords
-    setupChipsInput('keywords-input', 'keyword-chip-input', keywords, '关键词');
-    setupChipsInput('exclude-input', 'exclude-chip-input', excludeKeywords, '排除词');
+async function loadTasks() {
+  try {
+    var projRes = await authFetch('/api/projects?page_size=500');
+    var projData = await projRes.json();
+    CACHE.projects = projData.projects || [];
+    CACHE.total = projData.total || 0;
+    CACHE.last_run = projData.last_run || '-';
+    renderTaskDashboard();
+  } catch(e) {
+    console.error('加载任务失败:', e);
+    document.getElementById('taskTableBody').innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-red-400">加载失败</td></tr>';
+  }
 }
 
-function setupChipsInput(containerId, inputId, dataArray, label) {
-    var container = document.getElementById(containerId);
-    var input = document.getElementById(inputId);
-    
-    input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && input.value.trim()) {
-            e.preventDefault();
-            var val = input.value.trim();
-            if (!dataArray.includes(val)) {
-                dataArray.push(val);
-                renderChips(container, dataArray, label);
-            }
-            input.value = '';
-        }
-    });
+function renderTaskDashboard() {
+  // 按来源分组统计
+  var sourceMap = {};
+  CACHE.projects.forEach(function(p) {
+    var src = p.source_url || p.source_name || '未知来源';
+    if (!sourceMap[src]) sourceMap[src] = { count: 0, matched: 0, latest: '' };
+    sourceMap[src].count++;
+    if (p.keywords_matched) sourceMap[src].matched++;
+    if (p.publish_date > sourceMap[src].latest) sourceMap[src].latest = p.publish_date;
+  });
+
+  // 统计数据
+  document.getElementById('taskTotal').textContent = Object.keys(sourceMap).length;
+  document.getElementById('taskRunning').textContent = '-';  // 无实时采集状态
+  document.getElementById('taskProjects').textContent = CACHE.total;
+  document.getElementById('taskLastRun').textContent = CACHE.last_run || '-';
+
+  // 渲染任务表格
+  var sources = Object.entries(sourceMap).sort(function(a, b) { return b[1].count - a[1].count; });
+  var tbody = document.getElementById('taskTableBody');
+  
+  if (sources.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">暂无采集任务数据</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = sources.map(function(entry) {
+    var src = entry[0];
+    var data = entry[1];
+    var statusClass = data.count > 0 ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-gray-100 text-gray-500';
+    var shortSrc = src.replace(/^https?:\/\//, '').split('/')[0];
+    return '<tr class="hover:bg-gray-50 dark:hover:bg-gray-750">' +
+      '<td class="px-4 py-3 text-sm text-gray-900 dark:text-white">' + escHtml(shortSrc) + '</td>' +
+      '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(shortSrc) + '</td>' +
+      '<td class="px-4 py-3"><span class="px-2 py-0.5 text-xs rounded-full ' + statusClass + '">活跃</span></td>' +
+      '<td class="px-4 py-3 text-sm font-mono text-gray-700 dark:text-gray-300">' + data.count + ' 条</td>' +
+      '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(data.latest || '-') + '</td>' +
+      '</tr>';
+  }).join('');
 }
 
-function renderChips(container, dataArray, label) {
-    var chips = dataArray.map(function(k) {
-        return '<span class="chip">' + escHtml(k) + '<span class="x" onclick="removeChip(this, \'' + escAttr(label) + '\')">×</span></span>';
-    }).join('');
-    container.innerHTML = chips + '<input type="text" id="' + container.id.replace('-input', '-chip-input') + '" placeholder="输入后按回车添加">';
-    
-    // Rebind
-    var inputId = container.id.replace('-input', '-chip-input');
-    var input = document.getElementById(inputId);
-    input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && input.value.trim()) {
-            e.preventDefault();
-            var val = input.value.trim();
-            if (!dataArray.includes(val)) {
-                dataArray.push(val);
-                renderChips(container, dataArray, label);
-            }
-            input.value = '';
-        }
-    });
-}
-
-function removeChip(el, label) {
-    var chip = el.parentElement;
-    var text = chip.textContent.replace('×', '').trim();
-    var arr = label === '关键词' ? keywords : excludeKeywords;
-    var idx = arr.indexOf(text);
-    if (idx > -1) arr.splice(idx, 1);
-    var container = chip.parentElement;
-    renderChips(container, arr, label);
-}
-
-// ── Load Data ──────────────────────────────────────────────────────────────
-async function authFetch(url, options) {
-    var token = document.cookie.match(/session_token=([^;]+)/);
-    var headers = { 'Content-Type': 'application/json' };
-    if (token) headers['X-Session-Token'] = token[1];
-    var r = await fetch(url, Object.assign({ headers: headers }, options || {}));
-    if (r.status === 401) { window.location.href = '/login'; return null; }
-    return r;
-}
-
-function loadTasks() {
-    authFetch('/api/tasks').then(function(r) { return r.json(); }).then(function(data) {
-        taskList = data.tasks || [];
-        renderTasks();
-    }).catch(function(e) { console.error(e); });
-}
-
-function loadStats() {
-    authFetch('/api/tasks/stats/summary').then(function(r) { return r.json(); }).then(function(d) {
-        document.getElementById('stat-total').textContent = d.total || 0;
-        document.getElementById('stat-running').textContent = d.running || 0;
-        document.getElementById('stat-idle').textContent = d.idle || 0;
-        document.getElementById('stat-disabled').textContent = d.disabled || 0;
-        document.getElementById('stat-items').textContent = d.total_items_found || 0;
-    });
-}
-
-// ── Render ─────────────────────────────────────────────────────────────────
-function renderTasks() {
-    var filtered = taskList;
-    if (currentFilter !== 'all') {
-        filtered = taskList.filter(function(t) { return t.status === currentFilter; });
-    }
-    
-    var list = document.getElementById('task-list');
-    var empty = document.getElementById('empty-state');
-    
-    if (filtered.length === 0) {
-        list.style.display = 'none';
-        empty.style.display = 'block';
-        return;
-    }
-    
-    list.style.display = 'flex';
-    empty.style.display = 'none';
-    
-    list.innerHTML = filtered.map(function(t) {
-        var badgeClass = 'badge-' + t.status;
-        var badgeText = {'idle': '⏸ 待执行', 'running': '🔄 执行中', 'disabled': '⛔ 已停用', 'completed': '✅ 完成'}[t.status] || t.status;
-        
-        var kws = (t.keywords || []).slice(0, 4).map(function(k) { return '<span class="kw-chip">' + escHtml(k) + '</span>'; }).join('');
-        if ((t.keywords || []).length > 4) kws += '<span class="kw-chip">+' + (t.keywords.length - 4) + '</span>';
-        
-        var scheduleText = {'manual': '手动', 'daily': '每天', 'hourly': '每小时'}[t.schedule_type] || t.schedule_type;
-        
-        return '<div class="task-card">' +
-            '<div class="task-status-badge"><span class="badge ' + badgeClass + '">' + badgeText + '</span></div>' +
-            '<div class="task-info">' +
-                '<h3>' + escHtml(t.name) + '</h3>' +
-                '<div class="meta">' +
-                    '<span>📡 ' + escHtml(t.source) + '</span>' +
-                    '<span>⏰ ' + scheduleText + '</span>' +
-                    '<span>🕐 ' + (t.last_run_at ? t.last_run_at.substring(0, 16) : '从未执行') + '</span>' +
-                '</div>' +
-                (kws ? '<div class="keywords">' + kws + '</div>' : '') +
-            '</div>' +
-            '<div class="task-stats">' +
-                '<div class="stat"><div class="n">' + (t.items_found || 0) + '</div><div class="l">采集</div></div>' +
-                '<div class="stat"><div class="n">' + (t.items_new || 0) + '</div><div class="l">新增</div></div>' +
-            '</div>' +
-            '<div class="task-actions">' +
-                (t.status === 'idle' ? '<button class="btn btn-success btn-sm" onclick="runTask(' + t.id + ')">▶ 执行</button>' : '') +
-                (t.status === 'running' ? '<button class="btn btn-warning btn-sm" onclick="watchTask(' + t.id + ', \'' + escAttr(t.name) + '\')">👁 监控</button>' : '') +
-                '<button class="btn btn-secondary btn-sm" onclick="editTask(' + t.id + ')">✏️</button>' +
-                '<button class="btn btn-danger btn-sm" onclick="deleteTask(' + t.id + ')">🗑</button>' +
-            '</div>' +
-        '</div>';
-    }).join('');
-}
-
-// ── Wizard ──────────────────────────────────────────────────────────────────
-function openModal() {
-    wizardStep = 1;
-    document.getElementById('modal-create').classList.add('active');
-    document.getElementById('btn-prev').style.display = 'none';
-    document.getElementById('btn-next').style.display = 'inline-flex';
-    document.getElementById('btn-create').style.display = 'none';
-    document.getElementById('step-1').style.display = 'block';
-    document.getElementById('step-2').style.display = 'none';
-    document.getElementById('step-3').style.display = 'none';
-    updateWizardSteps();
-}
-
-function closeModal() {
-    document.getElementById('modal-create').classList.remove('active');
-}
-
-function wizardNext() {
-    if (wizardStep === 1) {
-        var name = document.getElementById('task-name').value.trim();
-        var source = document.getElementById('task-source').value;
-        if (!name) { showToast('请输入任务名称', 'error'); return; }
-        if (!source) { showToast('请选择数据来源', 'error'); return; }
-    }
-    
-    if (wizardStep === 2) {
-        updatePreview();
-    }
-    
-    wizardStep++;
-    updateWizardSteps();
-    
-    if (wizardStep === 3) {
-        document.getElementById('btn-next').style.display = 'none';
-        document.getElementById('btn-create').style.display = 'inline-flex';
-        updatePreview();
-    }
-}
-
-function wizardPrev() {
-    wizardStep--;
-    document.getElementById('btn-next').style.display = 'inline-flex';
-    document.getElementById('btn-create').style.display = 'none';
-    updateWizardSteps();
-}
-
-function updateWizardSteps() {
-    document.querySelectorAll('.wizard-step').forEach(function(s) {
-        var step = parseInt(s.dataset.step);
-        s.classList.remove('active', 'done');
-        if (step === wizardStep) s.classList.add('active');
-        if (step < wizardStep) s.classList.add('done');
-    });
-    document.getElementById('step-1').style.display = wizardStep === 1 ? 'block' : 'none';
-    document.getElementById('step-2').style.display = wizardStep === 2 ? 'block' : 'none';
-    document.getElementById('step-3').style.display = wizardStep === 3 ? 'block' : 'none';
-    document.getElementById('btn-prev').style.display = wizardStep > 1 ? 'inline-flex' : 'none';
-}
-
-function updatePreview() {
-    var name = document.getElementById('task-name').value;
-    var source = document.getElementById('task-source');
-    var sourceText = source.options[source.selectedIndex].text;
-    var schedule = document.querySelector('.schedule-option.selected input').value;
-    var budget = document.getElementById('budget-min').value;
-    
-    var checkedTypes = [];
-    document.querySelectorAll('#info-types .checkbox-item input:checked').forEach(function(cb) {
-        var label = cb.parentElement.textContent.trim();
-        checkedTypes.push(label);
-    });
-    
-    document.getElementById('preview-name').textContent = name || '—';
-    document.getElementById('preview-source').textContent = sourceText;
-    document.getElementById('preview-keywords').textContent = keywords.length > 0 ? keywords.join(', ') : '无';
-    document.getElementById('preview-exclude').textContent = excludeKeywords.length > 0 ? excludeKeywords.join(', ') : '无';
-    document.getElementById('preview-types').textContent = checkedTypes.join(', ') || '全部';
-    document.getElementById('preview-schedule').textContent = {'manual': '手动执行', 'daily': '每天一次', 'hourly': '每小时'}[schedule];
-    document.getElementById('preview-budget').textContent = budget ? budget + ' 万元' : '不限';
-}
-
-async function createTask() {
-    var name = document.getElementById('task-name').value.trim();
-    var source = document.getElementById('task-source').value;
-    var schedule = document.querySelector('.schedule-option.selected input').value;
-    var budget = parseFloat(document.getElementById('budget-min').value) || null;
-    var priority = parseInt(document.getElementById('task-priority').value) || 5;
-    var maxConcurrency = parseInt(document.getElementById('max-concurrency').value) || 5;
-    var requestInterval = parseFloat(document.getElementById('request-interval').value) || 2.0;
-    var timeout = parseInt(document.getElementById('timeout-seconds').value) || 30;
-    
-    var infoTypes = [];
-    document.querySelectorAll('#info-types .checkbox-item input:checked').forEach(function(cb) {
-        infoTypes.push(cb.value);
-    });
-    
-    var payload = {
-        name: name,
-        source: source,
-        schedule_type: schedule,
-        keywords: keywords,
-        exclude_keywords: excludeKeywords,
-        info_types: infoTypes,
-        budget_min: budget,
-        priority: priority,
-        max_concurrency: maxConcurrency,
-        request_interval: requestInterval,
-        timeout_seconds: timeout
-    };
-    
-    var r = await authFetch('/api/tasks', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-    }).then(function(r) { return r.json(); });
-    
-    if (r.success) {
-        showToast('任务创建成功', 'success');
-        closeModal();
-        loadTasks();
-        loadStats();
-    } else {
-        showToast('创建失败: ' + (r.error || '未知错误'), 'error');
-    }
-}
-
-// ── Task Actions ────────────────────────────────────────────────────────────
-async function runTask(id) {
-    var r = await authFetch('/api/tasks/' + id + '/run', { method: 'POST' }).then(function(r) { return r.json(); });
-    if (r.success) {
-        showToast('任务已启动', 'info');
-        loadTasks();
-        loadStats();
-    } else {
-        showToast('启动失败: ' + (r.error || '未知错误'), 'error');
-    }
-}
-
-function watchTask(id, name) {
-    document.getElementById('status-task-name').textContent = name;
-    document.getElementById('modal-status').classList.add('active');
-    document.getElementById('status-logs').innerHTML = '';
-    document.getElementById('progress-fill').style.width = '0%';
-    document.getElementById('progress-text').textContent = '0%';
-    document.getElementById('progress-items').textContent = '找到 0 条 · 新增 0 条';
-    
-    if (runningSSE) runningSSE.close();
-    
-    runningSSE = new EventSource('/api/tasks/' + id + '/stream');
-    runningSSE.onmessage = function(e) {
-        var data = JSON.parse(e.data);
-        updateStatusPanel(data);
-        if (data.status === 'completed' || data.status === 'failed') {
-            setTimeout(function() { runningSSE.close(); loadTasks(); loadStats(); }, 2000);
-        }
-    };
-}
-
-function updateStatusPanel(data) {
-    document.getElementById('progress-fill').style.width = (data.progress || 0) + '%';
-    document.getElementById('progress-text').textContent = (data.progress || 0) + '%';
-    document.getElementById('progress-items').textContent = '找到 ' + (data.items_found || 0) + ' 条 · 新增 ' + (data.items_new || 0) + ' 条';
-    
-    var logsEl = document.getElementById('status-logs');
-    var logs = data.logs || [];
-    logsEl.innerHTML = logs.map(function(l) {
-        var cls = l.includes('失败') || l.includes('error') ? 'error' : l.includes('完成') ? 'success' : l.includes('⚠') ? 'warning' : '';
-        var time = l.substring(1, 9) || '';
-        return '<div class="log-line ' + cls + '"><span class="time">' + time + '</span>' + escHtml(l.substring(10)) + '</div>';
-    }).join('');
-    logsEl.scrollTop = logsEl.scrollHeight;
-}
-
-function closeStatusModal() {
-    document.getElementById('modal-status').classList.remove('active');
-    if (runningSSE) { runningSSE.close(); runningSSE = null; }
-}
-
-function editTask(id) {
-    showToast('编辑功能开发中', 'info');
-}
-
-async function deleteTask(id) {
-    if (!confirm('确认删除此任务？')) return;
-    var r = await authFetch('/api/tasks/' + id, { method: 'DELETE' }).then(function(r) { return r.json(); });
-    if (r.success) {
-        showToast('任务已删除', 'success');
-        loadTasks();
-        loadStats();
-    } else {
-        showToast('删除失败', 'error');
-    }
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-function showToast(msg, type) {
-    type = type || 'info';
-    var container = document.getElementById('toastContainer');
-    var el = document.createElement('div');
-    el.className = 'toast ' + type;
-    el.textContent = msg;
-    container.appendChild(el);
-    setTimeout(function() { el.style.opacity = '0'; el.style.transform = 'translateX(100%)'; setTimeout(function() { el.remove(); }, 300); }, 3000);
-}
-
-function escHtml(s) {
-    if (s == null) return '';
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-function escAttr(s) {
-    if (s == null) return '';
-    return String(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
-}
+loadTasks();
 </script>
 {% endblock %}

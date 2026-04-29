@@ -1,15 +1,16 @@
-"""分析统计路由 - 基于收藏项目分析"""
+"""分析统计路由 - 基于所有项目分析"""
 
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
+from pathlib import Path
+import json
 import re
 from collections import Counter
 
-from app.database import get_db
-from app.database.db import USE_PG
-from app.api.dependencies import get_current_user
-from app.services.health_monitor import get_health_monitor
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+SYS_PATH = Path('/app') if Path('/.dockerenv').exists() else Path(__file__).parent.parent.parent
 
 router = APIRouter(prefix="/api/analytics", tags=["分析"])
 
@@ -20,181 +21,137 @@ STOP_WORDS = {
 }
 
 
-@router.get("")
-def get_analytics(
-    days: int = Query(30, ge=1, le=365),
-    user_id: str = Depends(get_current_user),
-):
-    """获取收藏项目分析数据"""
-    db = get_db()
-    conn = db._get_conn()
+def _load_projects():
+    """从 latest.json 加载项目数据"""
+    data_file = SYS_PATH / "output" / "latest.json"
+    if data_file.exists():
+        try:
+            with open(data_file, encoding="utf-8") as f:
+                d = json.load(f)
+            return d.get("projects", []), d.get("total", 0)
+        except Exception:
+            pass
+    return [], 0
+
+
+def get_analytics(days: int = Query(365, ge=1, le=3650)):
+    """获取分析数据"""
+    projects, total = _load_projects()
     
-    table = "favorites"
-    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    # 过滤指定天数内的项目
+    try:
+        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    except:
+        start_date = "1970-01-01"
     
-    # 总数
-    total_row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
-    total = total_row[0] if total_row else 0
+    recent_projects = [
+        p for p in projects
+        if p.get("publish_date", "") >= start_date or not p.get("publish_date")
+    ]
     
-    # 待处理
-    pending_row = conn.execute(
-        f"SELECT COUNT(*) FROM {table} WHERE status = 'pending' OR status = '' OR status IS NULL"
-    ).fetchone()
-    pending = pending_row[0] if pending_row else 0
+    # 统计
+    matched_projects = [p for p in recent_projects if p.get("keywords_matched")]
     
-    # 有预算
-    budget_row = conn.execute(
-        f"SELECT COUNT(*) FROM {table} WHERE budget IS NOT NULL AND budget != ''"
-    ).fetchone()
-    matched = budget_row[0] if budget_row else 0
+    # 有预算的项目
+    budget_projects = [
+        p for p in recent_projects
+        if p.get("budget") and p.get("budget") != ""
+    ]
     
-    # 趋势
-    if USE_PG:
-        trends_sql = f"""
-            SELECT DATE(created_at) as date, COUNT(*) as count
-            FROM {table}
-            WHERE created_at >= %s
-            GROUP BY DATE(created_at)
-            ORDER BY date
-        """
-        trends = conn.execute(trends_sql, (start_date,)).fetchall()
-    else:
-        trends_sql = f"""
-            SELECT date(created_at) as date, COUNT(*) as count
-            FROM {table}
-            WHERE created_at >= ?
-            GROUP BY date(created_at)
-            ORDER BY date
-        """
-        trends = conn.execute(trends_sql, (start_date,)).fetchall()
-    
-    # 分类统计 (tender_type)
-    if USE_PG:
-        categories_sql = """
-            SELECT COALESCE(tender_type, '') as category, COUNT(*) as count
-            FROM favorites
-            GROUP BY tender_type
-            ORDER BY count DESC
-            LIMIT 10
-        """
-    else:
-        categories_sql = """
-            SELECT COALESCE(tender_type, '') as category, COUNT(*) as count
-            FROM favorites
-            GROUP BY tender_type
-            ORDER BY count DESC
-            LIMIT 10
-        """
-    categories = conn.execute(categories_sql).fetchall()
+    # 按类型统计
+    type_counter = Counter(p.get("tender_type", "未知") for p in recent_projects)
+    categories = [
+        {"name": k, "count": v}
+        for k, v in type_counter.most_common(10)
+    ]
     
     # 预算分布
-    if USE_PG:
-        budget_dist_sql = """
-            SELECT
-                CASE
-                    WHEN budget IS NULL OR budget = '' THEN '未填写'
-                    WHEN budget ~ '^[0-9.]+' AND CAST(regexp_replace(budget, '[^0-9.]', '', 'g') AS NUMERIC) < 100 THEN '100 万以下'
-                    WHEN budget ~ '^[0-9.]+' AND CAST(regexp_replace(budget, '[^0-9.]', '', 'g') AS NUMERIC) BETWEEN 100 AND 500 THEN '100-500 万'
-                    WHEN budget ~ '^[0-9.]+' AND CAST(regexp_replace(budget, '[^0-9.]', '', 'g') AS NUMERIC) BETWEEN 500 AND 1000 THEN '500-1000 万'
-                    WHEN budget ~ '^[0-9.]+' AND CAST(regexp_replace(budget, '[^0-9.]', '', 'g') AS NUMERIC) > 1000 THEN '1000 万以上'
-                    ELSE '未填写'
-                END as range,
-                COUNT(*) as count
-            FROM favorites
-            GROUP BY range
-            ORDER BY count DESC
-        """
-    else:
-        budget_dist_sql = """
-            SELECT
-                CASE
-                    WHEN budget IS NULL OR budget = '' THEN '未填写'
-                    WHEN CAST(replace(replace(budget, '万', ''), '元', '') AS REAL) < 100 THEN '100 万以下'
-                    WHEN CAST(replace(replace(budget, '万', ''), '元', '') AS REAL) BETWEEN 100 AND 500 THEN '100-500 万'
-                    WHEN CAST(replace(replace(budget, '万', ''), '元', '') AS REAL) BETWEEN 500 AND 1000 THEN '500-1000 万'
-                    WHEN CAST(replace(replace(budget, '万', ''), '元', '') AS REAL) > 1000 THEN '1000 万以上'
-                    ELSE '未填写'
-                END as range,
-                COUNT(*) as count
-            FROM favorites
-            GROUP BY range
-            ORDER BY count DESC
-        """
-    budget_dist = conn.execute(budget_dist_sql).fetchall()
+    budget_dist = []
+    for p in budget_projects[:50]:
+        try:
+            budget = float(re.sub(r'[^\d.]', '', str(p.get("budget", "0"))))
+            if budget > 0:
+                if budget < 100000:
+                    bucket = "10万以下"
+                elif budget < 500000:
+                    bucket = "10-50万"
+                elif budget < 1000000:
+                    bucket = "50-100万"
+                elif budget < 5000000:
+                    bucket = "100-500万"
+                else:
+                    bucket = "500万+"
+                budget_dist.append(bucket)
+        except:
+            pass
+    
+    budget_counter = Counter(budget_dist)
+    budget_distribution = [
+        {"range": k, "count": v}
+        for k, v in budget_counter.most_common(10)
+    ]
     
     # 来源分布
-    if USE_PG:
-        source_dist_sql = """
-            SELECT
-                CASE
-                    WHEN source_url LIKE '%ccgp%' THEN '政府采购网'
-                    WHEN source_url LIKE '%ggzy%' THEN '公共资源交易中心'
-                    WHEN source_url LIKE '%bidding%' THEN '招标投标平台'
-                    WHEN source_url IS NULL OR source_url = '' THEN '未知来源'
-                    ELSE '其他'
-                END as source,
-                COUNT(*) as count
-            FROM favorites
-            GROUP BY source
-            ORDER BY count DESC
-        """
-    else:
-        source_dist_sql = """
-            SELECT
-                CASE
-                    WHEN source_url LIKE '%ccgp%' THEN '政府采购网'
-                    WHEN source_url LIKE '%ggzy%' THEN '公共资源交易中心'
-                    WHEN source_url LIKE '%bidding%' THEN '招标投标平台'
-                    WHEN source_url IS NULL OR source_url = '' THEN '未知来源'
-                    ELSE '其他'
-                END as source,
-                COUNT(*) as count
-            FROM favorites
-            GROUP BY source
-            ORDER BY count DESC
-        """
-    source_dist = conn.execute(source_dist_sql).fetchall()
+    source_counter = Counter(p.get("source_name", "未知") for p in recent_projects)
+    source_distribution = [
+        {"source": k, "count": v}
+        for k, v in source_counter.most_common(10)
+    ]
     
     # 关键词热度
-    titles = conn.execute(f"SELECT title FROM {table} LIMIT 200").fetchall()
-    word_counter = Counter()
-    for (title,) in titles:
-        if title:
-            words = re.findall(r'[\u4e00-\u9fa5]{2,}', str(title))
-            for word in words:
-                if word not in STOP_WORDS:
-                    word_counter[word] += 1
-    keyword_heat = dict(word_counter.most_common(20))
+    keyword_heat = {}
+    for p in matched_projects:
+        kws = p.get("keywords_matched", "")
+        if kws:
+            for kw in kws.split(","):
+                kw = kw.strip()
+                if kw and kw not in STOP_WORDS:
+                    keyword_heat[kw] = keyword_heat.get(kw, 0) + 1
     
-    # Convert date objects to strings for JSON serialization
-    def serialize_row(row):
-        result = {}
-        for k, v in row.items():
-            if hasattr(v, 'isoformat'):
-                result[k] = v.isoformat()
-            else:
-                result[k] = v
-        return result
+    # 按热度排序
+    keyword_heat = dict(
+        sorted(keyword_heat.items(), key=lambda x: x[1], reverse=True)[:20]
+    )
+    
+    # 趋势数据（按天）
+    trends = []
+    days_list = sorted(set(p.get("publish_date", "") for p in recent_projects))
+    for day in days_list[-30:]:
+        day_projects = [p for p in recent_projects if p.get("publish_date", "") == day]
+        trends.append({
+            "date": day,
+            "count": len(day_projects),
+            "matched": len([p for p in day_projects if p.get("keywords_matched")])
+        })
     
     return JSONResponse({
         "summary": {
-            "total": total,
-            "pending": pending,
-            "matched": matched,
+            "total": len(recent_projects),
+            "pending": len([p for p in recent_projects if not p.get("keywords_matched")]),
+            "matched": len(matched_projects),
         },
-        "trends": [serialize_row(t) for t in trends],
-        "categories": [serialize_row(c) for c in categories],
-        "budget_dist": [serialize_row(b) for b in budget_dist],
-        "source_dist": [serialize_row(s) for s in source_dist],
+        "trends": trends,
+        "categories": categories,
+        "budget_dist": budget_distribution,
+        "source_dist": source_distribution,
         "keyword_heat": keyword_heat,
         "days": days,
     })
 
 
+# 注册路由
+router.get("")(get_analytics)
+
+
 @router.get("/health")
-def get_analytics_health(
-    user_id: str = Depends(get_current_user),
-):
-    """获取采集系统健康度数据（供仪表盘使用）"""
-    monitor = get_health_monitor()
-    return JSONResponse(monitor.get_current_status())
+def get_health():
+    """健康度仪表盘"""
+    try:
+        hm = get_health_monitor()
+        return JSONResponse(hm.get_status())
+    except:
+        return JSONResponse({
+            "status": "ok",
+            "services": {},
+            "message": "Health monitor not available"
+        })

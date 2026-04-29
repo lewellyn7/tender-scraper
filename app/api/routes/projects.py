@@ -39,7 +39,8 @@ def get_current_user_id_required(request) -> str:
     return user["user_id"]
 
 router = APIRouter(prefix="/api", tags=["项目"])
-SYS_PATH = Path(__file__).parent.parent.parent.parent
+# 检测是否在 Docker 容器内运行（/.dockerenv 存在即容器）
+SYS_PATH = Path('/app') if Path('/.dockerenv').exists() else Path(__file__).parent.parent.parent
 _cache = {"projects": [], "total": 0, "last_load": 0}
 
 # TF-IDF 缓存

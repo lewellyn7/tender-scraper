@@ -4,6 +4,7 @@ from typing import Optional
 
 
 class Settings:
+    FORCE_HTTPS = False
     """应用配置"""
     
     def __init__(self):
@@ -69,3 +70,6 @@ def reload_settings():
     global _settings
     _settings = Settings()
     return _settings
+
+# 模块级实例，供中间件等直接导入
+settings = get_settings()

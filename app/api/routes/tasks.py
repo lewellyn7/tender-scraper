@@ -30,7 +30,7 @@ async def list_tasks(
     status: str = None,
     source: str = None,
     limit: int = 50,
-    user_id: str = Depends(get_current_user),
+    user_id = Depends(get_current_user),
 ):
     """列出任务（支持按状态/来源筛选）"""
     loop = asyncio.get_event_loop()
@@ -44,7 +44,8 @@ async def list_tasks(
         FROM collection_tasks
         WHERE user_id = ?
     """
-    params = [user_id]
+    uid = user_id.get("user_id") if isinstance(user_id, dict) else user_id
+    params = [uid]
 
     if status:
         sql += " AND status = ?"
@@ -88,7 +89,7 @@ async def list_tasks(
 async def create_task(
     request: Request,
     task: dict = Body(...),
-    user_id: str = Depends(get_current_user),
+    user_id = Depends(get_current_user),
 ):
     """创建任务"""
     loop = asyncio.get_event_loop()
@@ -132,7 +133,7 @@ async def create_task(
 
 
 @router.get("/{task_id}")
-async def get_task(task_id: int, request: Request, user_id: str = Depends(get_current_user)):
+async def get_task(task_id: int, request: Request, user_id = Depends(get_current_user)):
     """获取任务详情"""
     loop = asyncio.get_event_loop()
     conn = await loop.run_in_executor(_executor, get_db()._get_conn)
@@ -180,7 +181,7 @@ async def get_task(task_id: int, request: Request, user_id: str = Depends(get_cu
 
 
 @router.put("/{task_id}")
-async def update_task(task_id: int, request: Request, task: dict = Body(...), user_id: str = Depends(get_current_user)):
+async def update_task(task_id: int, request: Request, task: dict = Body(...), user_id = Depends(get_current_user)):
     """更新任务"""
     loop = asyncio.get_event_loop()
     conn = await loop.run_in_executor(_executor, get_db()._get_conn)
@@ -219,7 +220,7 @@ async def update_task(task_id: int, request: Request, task: dict = Body(...), us
 
 
 @router.delete("/{task_id}")
-async def delete_task(task_id: int, request: Request, user_id: str = Depends(get_current_user)):
+async def delete_task(task_id: int, request: Request, user_id = Depends(get_current_user)):
     """删除任务"""
     loop = asyncio.get_event_loop()
     conn = await loop.run_in_executor(_executor, get_db()._get_conn)
@@ -243,7 +244,7 @@ async def delete_task(task_id: int, request: Request, user_id: str = Depends(get
 
 
 @router.post("/{task_id}/toggle")
-async def toggle_task(task_id: int, request: Request, user_id: str = Depends(get_current_user)):
+async def toggle_task(task_id: int, request: Request, user_id = Depends(get_current_user)):
     """启用/停用任务"""
     loop = asyncio.get_event_loop()
     conn = await loop.run_in_executor(_executor, get_db()._get_conn)
@@ -340,7 +341,7 @@ def _run_crawl_task(task_id: int, user_id: str):
 
 
 @router.post("/{task_id}/run")
-async def run_task(task_id: int, request: Request, user_id: str = Depends(get_current_user)):
+async def run_task(task_id: int, request: Request, user_id = Depends(get_current_user)):
     """立即执行任务（异步，后台运行）"""
     loop = asyncio.get_event_loop()
     conn = await loop.run_in_executor(_executor, get_db()._get_conn)
@@ -369,7 +370,7 @@ async def run_task(task_id: int, request: Request, user_id: str = Depends(get_cu
 
 
 @router.get("/{task_id}/status")
-async def get_task_status(task_id: int, request: Request, user_id: str = Depends(get_current_user)):
+async def get_task_status(task_id: int, request: Request, user_id = Depends(get_current_user)):
     """获取任务实时状态"""
     loop = asyncio.get_event_loop()
 
@@ -388,7 +389,7 @@ async def get_task_status(task_id: int, request: Request, user_id: str = Depends
 
 
 @router.get("/{task_id}/stream")
-async def stream_task_status(task_id: int, request: Request, user_id: str = Depends(get_current_user)):
+async def stream_task_status(task_id: int, request: Request, user_id = Depends(get_current_user)):
     """SSE 流式推送任务状态"""
     loop = asyncio.get_event_loop()
 
@@ -425,7 +426,7 @@ async def stream_task_status(task_id: int, request: Request, user_id: str = Depe
 
 
 @router.get("/{task_id}/executions")
-async def get_task_executions(task_id: int, request: Request, limit: int = 20, user_id: str = Depends(get_current_user)):
+async def get_task_executions(task_id: int, request: Request, limit: int = 20, user_id = Depends(get_current_user)):
     """获取任务执行历史"""
     loop = asyncio.get_event_loop()
     conn = await loop.run_in_executor(_executor, get_db()._get_conn)
@@ -458,7 +459,7 @@ async def get_task_executions(task_id: int, request: Request, limit: int = 20, u
 # ── Stats ───────────────────────────────────────────────────────────────────
 
 @router.get("/stats/summary")
-async def get_task_stats(request: Request, user_id: str = Depends(get_current_user)):
+async def get_task_stats(request: Request, user_id = Depends(get_current_user)):
     """获取任务统计摘要"""
     loop = asyncio.get_event_loop()
     conn = await loop.run_in_executor(_executor, get_db()._get_conn)

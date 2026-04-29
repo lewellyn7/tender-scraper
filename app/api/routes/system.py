@@ -1,10 +1,14 @@
 """系统管理路由 - 部署模式切换"""
 import os
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.config.settings import get_settings, reload_settings
 from app.api.dependencies import get_current_user
+
+# 项目根目录：容器内 /app，本地开发从 __file__ 推导
+_PROJECT_ROOT = Path('/app') if Path('/.dockerenv').exists() else Path(__file__).parent.parent.parent.parent
 
 router = APIRouter(prefix="/api/system", tags=["系统管理"])
 
@@ -63,10 +67,23 @@ async def switch_mode(
             message=f"当前已是 {req.mode} 模式，无需切换"
         )
     
-    # 写入环境变量（临时生效，重启后需重新设置）
+    # 持久化到 .env 文件
+    env_file = _PROJECT_ROOT / ".env"
+    env_lines = []
+    mode_written = False
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            if line.strip().startswith("DEPLOYMENT_MODE="):
+                env_lines.append(f"DEPLOYMENT_MODE={req.mode}")
+                mode_written = True
+            else:
+                env_lines.append(line)
+    if not mode_written:
+        env_lines.append(f"DEPLOYMENT_MODE={req.mode}")
+    env_file.write_text("\n".join(env_lines) + "\n")
+
+    # 写入环境变量 + 热重载
     os.environ["DEPLOYMENT_MODE"] = req.mode
-    
-    # 重新加载配置
     reload_settings()
     
     return ModeSwitchResponse(
