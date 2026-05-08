@@ -43,6 +43,10 @@ class TenderInfo:
     business_type: str = ""  # 业务类型：政府采购/工程招投标
     info_type: str = ""  # 信息类型：采购意向/采购公告/结果公告/招标公告等
 
+    # === 项目标识 (新增，用于项目关联) ===
+    project_name: str = ""  # 项目名称（规范化名称）
+    project_no: str = ""  # 项目编号/招标编号
+
     # === 详情页字段 ===
     content_preview: str = ""  # 内容摘要 (前 300 字)
     full_content: str = ""  # 完整内容
@@ -95,6 +99,8 @@ class TenderInfo:
             "region": self.region,
             "industry": self.industry,
             "tender_type": self.tender_type,
+            "project_name": self.project_name,
+            "project_no": self.project_no,
             "project_overview": self.project_overview,
             "bidder_requirements": self.bidder_requirements,
             "submission_deadline": self.submission_deadline,
@@ -127,6 +133,8 @@ class TenderInfo:
             region=data.get("region", ""),
             industry=data.get("industry", ""),
             tender_type=data.get("tender_type", ""),
+            project_name=data.get("project_name", ""),
+            project_no=data.get("project_no", ""),
             project_overview=data.get("project_overview", ""),
             bidder_requirements=data.get("bidder_requirements", ""),
             submission_deadline=data.get("submission_deadline", ""),
