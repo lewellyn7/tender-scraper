@@ -11,7 +11,7 @@
 import os
 import queue
 import re
-import sqlite3
+from contextlib import contextmanager
 import threading
 from pathlib import Path
 
@@ -82,7 +82,7 @@ def _pg_close_conn(conn):
 
 
 def _convert_placeholders(query: str) -> str:
-    """Convert SQLite ? placeholders to PostgreSQL %s"""
+    """Convert SQLite-style ? placeholders to PostgreSQL %s for query translation."""
     return query.replace("?", "%s")
 
 
@@ -241,7 +241,7 @@ class Database(
     ModalsMixin,
     KeywordsMixin,
 ):
-    """SQLite 数据库单例（混合了所有表操作Mixin）"""
+    """PostgreSQL 数据库单例（混合了所有表操作Mixin）"""
 
     _local = threading.local()
     _instance = None
@@ -274,21 +274,55 @@ class Database(
         logger.info(f"DB (singleton): {self.db_path} | PG={USE_PG}")
 
     def _get_conn(self):
-        if USE_PG:
-            if not hasattr(self._local, "pg_conn") or self._local.pg_conn is None:
-                self._local.pg_conn = _pg_conn()
-            return PGConnectionWrapper(self._local.pg_conn)
+        """Always returns PostgreSQL connection."""
+        if not hasattr(self._local, "pg_conn") or self._local.pg_conn is None:
+            self._local.pg_conn = _pg_conn()
+        return PGConnectionWrapper(self._local.pg_conn)
+
+    @contextmanager
+    def _pg_transaction(self):
+        """Context manager for PostgreSQL transactions."""
+        conn = self._get_conn().conn
+        try:
+            yield conn
+        except Exception:
+            conn.rollback()
+            raise
         else:
-            if not hasattr(self._local, "conn") or self._local.conn is None:
-                self._local.conn = sqlite3.connect(
-                    self.db_path, check_same_thread=False
-                )
-                self._local.conn.row_factory = sqlite3.Row
-                self._local.conn.execute("PRAGMA journal_mode=WAL")
-                self._local.conn.execute("PRAGMA synchronous=NORMAL")
-                self._local.conn.execute("PRAGMA cache_size=-64000")
-                self._local.conn.execute("PRAGMA temp_store=MEMORY")
-            return self._local.conn
+            conn.commit()
+
+    def upsert_projects(self, rows: list):
+        """批量 upsert 项目到 projects_cqggzy 表（URL 去重）"""
+        if not rows:
+            return
+        conn = self._get_conn().conn
+        try:
+            cols = [
+                "url", "title", "category", "info_type", "business_type",
+                "publish_date", "publish_date_raw", "content_preview", "full_content",
+                "budget", "bid_amount", "deadline", "region", "industry",
+                "tender_type", "project_overview", "bidder_requirements",
+                "submission_deadline", "contact_name", "contact_phone", "contact_email",
+                "attachments_count", "attachments", "keywords_matched",
+                "source_url", "scraped_at", "scraped_by",
+                "contract_amount", "planned_publish_date", "tender_content",
+            ]
+            placeholders = ",".join(["%s"] * len(cols))
+            set_clause = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols[1:])
+            insert_sql = f"""
+                INSERT INTO projects_cqggzy ({','.join(cols)})
+                VALUES ({placeholders})
+                ON CONFLICT (url) DO UPDATE SET
+                    {set_clause}
+            """
+            from psycopg2.extras import execute_batch
+            execute_batch(conn.cursor(), insert_sql, rows, page_size=500)
+            conn.commit()
+            logger.debug(f"upsert_projects: {len(rows)} rows")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"upsert_projects: {e}")
+
 
     def _init_tables(self):
         if USE_PG:
@@ -306,198 +340,7 @@ class Database(
                 except Exception as e:
                     logger.warning(f"PG favorites migration skipped: {e}")
             return
-        c = self._get_conn()
-        c.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS favorites(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL DEFAULT '',
-                project_url TEXT UNIQUE NOT NULL,
-                title TEXT NOT NULL,
-                source_url TEXT DEFAULT "",
-                tender_type TEXT DEFAULT "",
-                budget TEXT DEFAULT "",
-                publish_date TEXT DEFAULT "",
-                status TEXT DEFAULT "pending",
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
-            CREATE INDEX IF NOT EXISTS idx_favorites_title ON favorites(title);
-            CREATE INDEX IF NOT EXISTS idx_favorites_updated ON favorites(updated_at);
-            """
-        )
-        # Migration: add user_id column to existing favorites table (runs after CREATE TABLE)
-        try:
-            c.execute("SELECT user_id FROM favorites LIMIT 1")
-        except Exception:
-            c.execute("ALTER TABLE favorites ADD COLUMN user_id TEXT DEFAULT ''")
-            logger.info("Migrated favorites table: added user_id column")
-        c.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS annotations(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project_url TEXT NOT NULL,
-                note TEXT NOT NULL DEFAULT "",
-                priority TEXT DEFAULT "normal",
-                tags TEXT DEFAULT "[]",
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS filter_presets(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                preset_key TEXT UNIQUE NOT NULL,
-                filter_config TEXT NOT NULL,
-                is_default INTEGER DEFAULT 0,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS config_backups(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                version_label TEXT NOT NULL,
-                config_data TEXT NOT NULL,
-                description TEXT DEFAULT "",
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS scrape_logs(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                log_level TEXT NOT NULL,
-                message TEXT NOT NULL,
-                source TEXT DEFAULT "system",
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS duplicate_records(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                canonical_url TEXT NOT NULL,
-                duplicate_url TEXT NOT NULL,
-                duplicate_title TEXT DEFAULT "",
-                similarity_score REAL DEFAULT 0,
-                detected_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS data_cache(
-                cache_key TEXT PRIMARY KEY,
-                cache_value TEXT NOT NULL,
-                expires_at TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS crawler_configs(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                base_url TEXT NOT NULL,
-                list_selector TEXT DEFAULT "",
-                item_rules TEXT DEFAULT "{}",
-                pagination_type TEXT DEFAULT "none",
-                pagination_selector TEXT DEFAULT "",
-                pagination_param TEXT DEFAULT "",
-                filter_keyword TEXT DEFAULT "",
-                cookies TEXT DEFAULT "",
-                headers TEXT DEFAULT "{}",
-                status TEXT DEFAULT "active",
-                business_type TEXT DEFAULT "",
-                info_type TEXT DEFAULT "",
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS crawl_executions(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                config_id INTEGER NOT NULL,
-                status TEXT DEFAULT "running",
-                items_found INTEGER DEFAULT 0,
-                items_new INTEGER DEFAULT 0,
-                error_message TEXT DEFAULT "",
-                started_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                finished_at TEXT DEFAULT "",
-                FOREIGN KEY (config_id) REFERENCES crawler_configs(id)
-            );
-            CREATE TABLE IF NOT EXISTS schema_version(version INTEGER PRIMARY KEY);
-            CREATE TABLE IF NOT EXISTS users(
-                user_id TEXT PRIMARY KEY,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                password_salt TEXT NOT NULL,
-                display_name TEXT DEFAULT "",
-                role TEXT DEFAULT "viewer",
-                enabled INTEGER DEFAULT 1,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                last_login TEXT
-            );
-            CREATE TABLE IF NOT EXISTS bidder_qualifications(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name VARCHAR(200) NOT NULL,
-                category VARCHAR(50) DEFAULT '',
-                level VARCHAR(20) DEFAULT '',
-                certificate_no VARCHAR(100) DEFAULT '',
-                valid_from TEXT,
-                valid_to TEXT,
-                issuer VARCHAR(200) DEFAULT '',
-                file_path VARCHAR(500) DEFAULT '',
-                linked_tenders TEXT DEFAULT '[]',
-                status VARCHAR(20) DEFAULT '有效',
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS config(
-                config_key TEXT PRIMARY KEY,
-                config_value TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS audit_logs(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event VARCHAR(50) NOT NULL,
-                user_id VARCHAR(100),
-                ip_address VARCHAR(45),
-                user_agent TEXT,
-                resource VARCHAR(500),
-                result VARCHAR(20),
-                details TEXT DEFAULT '{}',
-                timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS collection_tasks(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id VARCHAR(100) NOT NULL,
-                name TEXT NOT NULL,
-                source TEXT NOT NULL,
-                status TEXT DEFAULT 'idle',
-                schedule_type TEXT DEFAULT 'manual',
-                schedule_cron TEXT DEFAULT '',
-                keywords TEXT DEFAULT '[]',
-                exclude_keywords TEXT DEFAULT '[]',
-                info_types TEXT DEFAULT '[]',
-                budget_min REAL,
-                priority INTEGER DEFAULT 5,
-                max_concurrency INTEGER DEFAULT 5,
-                request_interval REAL DEFAULT 2.0,
-                timeout_seconds INTEGER DEFAULT 30,
-                items_found INTEGER DEFAULT 0,
-                items_new INTEGER DEFAULT 0,
-                last_run_at TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS task_executions(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id INTEGER NOT NULL,
-                status TEXT DEFAULT 'running',
-                items_found INTEGER DEFAULT 0,
-                items_new INTEGER DEFAULT 0,
-                error_message TEXT DEFAULT '',
-                started_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                finished_at TEXT,
-                duration_ms INTEGER DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS keywords(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                keyword TEXT NOT NULL UNIQUE,
-                category TEXT DEFAULT 'include',
-                match_mode TEXT DEFAULT 'exact',
-                threshold REAL DEFAULT 0.8,
-                enabled INTEGER DEFAULT 1,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-        """
-        )
-        c.commit()
+            c.commit()
         self._init_indexes()
 
     def _init_indexes(self):
@@ -584,7 +427,7 @@ class Database(
             data = json.loads(row["config_data"])
             for key, value in data.items():
                 c.execute(
-                    "INSERT OR REPLACE INTO config(config_key, config_value) VALUES (?, ?)",
+                    "INSERT INTO config(config_key, config_value) VALUES (%s, %s) ON CONFLICT (config_key) DO UPDATE SET config_value=EXCLUDED.config_value",
                     (key, json.dumps(value, ensure_ascii=False)),
                 )
             c.commit()
@@ -628,21 +471,12 @@ class Database(
             return
         conn = self._get_conn()
         try:
-            if USE_PG:
-                conn.execute("BEGIN")
-                for sql, params in batch:
-                    conn.execute(_convert_placeholders(sql), params or None)
-                conn.commit()
-            else:
-                conn.execute("BEGIN")
-                for sql, params in batch:
-                    conn.execute(sql, params)
-                conn.execute("COMMIT")
+            conn.execute("BEGIN")
+            for sql, params in batch:
+                conn.execute(_convert_placeholders(sql), params or None)
+            conn.commit()
         except Exception as e:
-            if USE_PG:
-                conn.rollback()
-            else:
-                conn.execute("ROLLBACK")
+            conn.rollback()
             logger.error(f"_execute_batch: {e}")
 
     def _pg_execute(self, conn, sql, params=None):
@@ -653,18 +487,13 @@ class Database(
 
     def close(self):
         self._shutdown = True
-        if USE_PG:
-            if hasattr(self._local, "pg_conn") and self._local.pg_conn:
-                try:
-                    self._local.pg_conn.rollback()
-                except Exception:
-                    pass
-                _pg_close_conn(self._local.pg_conn)
-                self._local.pg_conn = None
-        else:
-            if hasattr(self._local, "conn") and self._local.conn:
-                self._local.conn.close()
-                self._local.conn = None
+        if hasattr(self._local, "pg_conn") and self._local.pg_conn:
+            try:
+                self._local.pg_conn.rollback()
+            except Exception:
+                pass
+            _pg_close_conn(self._local.pg_conn)
+            self._local.pg_conn = None
 
 
 _db_instance = None
