@@ -139,7 +139,7 @@ def get_duplicate_stats(request: Request):
 
 # ─── DELETE /duplicates ────────────────────────────────────────────
 
-@router.delete("")
+@router.delete("/all")
 def clear_duplicates(request: Request):
     """清空当前用户的重复记录"""
     user = get_current_user(request)
