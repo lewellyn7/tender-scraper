@@ -25,6 +25,7 @@ from app.database.tables import (
     QualificationsMixin,
     UsersMixin,
     KeywordsMixin,
+    ProjectsMixin,
 )
 
 DB_PATH = Path(__file__).parent.parent.parent / "config" / "tender_scraper.db"
@@ -240,6 +241,7 @@ class Database(
     UsersMixin,
     ModalsMixin,
     KeywordsMixin,
+    ProjectsMixin,
 ):
     """SQLite 数据库单例（混合了所有表操作Mixin）"""
 
@@ -305,6 +307,38 @@ class Database(
                     logger.info("Migrated PG favorites table: added user_id column and title index")
                 except Exception as e:
                     logger.warning(f"PG favorites migration skipped: {e}")
+            # Migration: create projects + project_records if not exists
+            try:
+                c.execute("SELECT id FROM projects LIMIT 1")
+            except Exception:
+                c.execute("""CREATE TABLE IF NOT EXISTS projects (
+                    id SERIAL PRIMARY KEY,
+                    project_name VARCHAR(500) NOT NULL,
+                    project_name_raw VARCHAR(500) NOT NULL,
+                    project_no VARCHAR(100) DEFAULT NULL UNIQUE,
+                    business_type VARCHAR(50) DEFAULT '',
+                    region VARCHAR(100) DEFAULT '',
+                    industry VARCHAR(100) DEFAULT '',
+                    budget VARCHAR(100) DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(project_name)")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at)")
+                c.execute("""CREATE TABLE IF NOT EXISTS project_records (
+                    id SERIAL PRIMARY KEY,
+                    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    record_url TEXT NOT NULL UNIQUE,
+                    record_type VARCHAR(50) DEFAULT '',
+                    title VARCHAR(500) DEFAULT '',
+                    publish_date TEXT DEFAULT '',
+                    budget VARCHAR(100) DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_project_records_project ON project_records(project_id)")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_project_records_url ON project_records(record_url)")
+                logger.info("Created projects + project_records tables")
+            c.commit()
             return
         c = self._get_conn()
         c.executescript(
@@ -495,10 +529,34 @@ class Database(
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS projects(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_name VARCHAR(500) NOT NULL,
+                project_name_raw VARCHAR(500) NOT NULL,
+                project_no VARCHAR(100) DEFAULT NULL UNIQUE,
+                business_type VARCHAR(50) DEFAULT '',
+                region VARCHAR(100) DEFAULT '',
+                industry VARCHAR(100) DEFAULT '',
+                budget VARCHAR(100) DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS project_records(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL,
+                record_url TEXT NOT NULL UNIQUE,
+                record_type VARCHAR(50) DEFAULT '',
+                title VARCHAR(500) DEFAULT '',
+                publish_date TEXT DEFAULT '',
+                budget VARCHAR(100) DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            );
         """
         )
         c.commit()
         self._init_indexes()
+        self._init_projects_table()
 
     def _init_indexes(self):
         c = self._get_conn()

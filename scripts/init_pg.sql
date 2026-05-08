@@ -274,6 +274,41 @@ CREATE TABLE IF NOT EXISTS schema_version(
 INSERT INTO schema_version (version) VALUES (1) ON CONFLICT DO NOTHING;
 
 -- ============================================================
+-- projects（项目主档 - 招标信息聚合）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS projects (
+    id SERIAL PRIMARY KEY,
+    project_name VARCHAR(500) NOT NULL,          -- 项目名称（规范化后）
+    project_name_raw VARCHAR(500) NOT NULL,      -- 原始项目名称（含"一期"等）
+    project_no VARCHAR(100) DEFAULT '',           -- 项目编号（招标编号）
+    business_type VARCHAR(50) DEFAULT '',         -- 业务类型：工程建设/政府采购
+    region VARCHAR(100) DEFAULT '',               -- 地区
+    industry VARCHAR(100) DEFAULT '',            -- 行业
+    budget VARCHAR(100) DEFAULT '',               -- 总预算（汇总）
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(project_name);
+CREATE INDEX IF NOT EXISTS idx_projects_no ON projects(project_no);
+CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at);
+
+-- ============================================================
+-- project_records（项目-记录关联表）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS project_records (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    record_url TEXT NOT NULL,                    -- 关联的 harvest_records 或 favorites url
+    record_type VARCHAR(50) DEFAULT '',          -- info_type：招标公告/答疑补遗/中标结果等
+    title VARCHAR(500) DEFAULT '',
+    publish_date TEXT DEFAULT '',
+    budget VARCHAR(100) DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_project_records_project ON project_records(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_records_url ON project_records(record_url);
+
+-- ============================================================
 -- 验证 pgvector
 -- ============================================================
 SELECT 'pgvector extension ready' AS status,
