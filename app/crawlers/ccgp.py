@@ -9,6 +9,7 @@ from loguru import logger
 
 from app.crawlers.base import BaseCrawler
 from app.models.tender import TenderInfo
+from app.utils.project_linker import normalize_project_name, extract_project_no
 
 
 class CCGPCrawlerV3(BaseCrawler):
@@ -204,6 +205,8 @@ class CCGPCrawlerV3(BaseCrawler):
 
             # 生成摘要
             tender.project_overview = self._summarize_content(tender)
+            tender.project_no = extract_project_no(tender.title, tender.full_content or "")
+            tender.project_name = normalize_project_name(tender.title)
 
             return tender
         except Exception as e:

@@ -12,6 +12,7 @@ from loguru import logger
 
 from app.crawlers.base import BaseCrawler
 from app.models.tender import TenderInfo
+from app.utils.project_linker import normalize_project_name, extract_project_no
 
 
 class CQGGZYCrawlerV2(BaseCrawler):
@@ -148,6 +149,8 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 page, ["投标文件递交截止时间", "递交截止时间", "投标截止时间"]
             )
             tender.bid_amount = self._extract_bid_amount(page)
+            tender.project_no = extract_project_no(tender.title, tender.full_content or "")
+            tender.project_name = normalize_project_name(tender.title)
 
             logger.info("  ✅ 详情页采集完成")
             return tender
