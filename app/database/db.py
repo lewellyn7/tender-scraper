@@ -380,19 +380,22 @@ class Database(
             CREATE TABLE IF NOT EXISTS favorites(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL DEFAULT '',
-                project_url TEXT UNIQUE NOT NULL,
+                project_url TEXT NOT NULL,
                 title TEXT NOT NULL,
-                source_url TEXT DEFAULT "",
-                tender_type TEXT DEFAULT "",
-                budget TEXT DEFAULT "",
-                publish_date TEXT DEFAULT "",
-                status TEXT DEFAULT "pending",
+                source_url TEXT DEFAULT '',
+                tender_type TEXT DEFAULT '',
+                budget TEXT DEFAULT '',
+                publish_date TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, project_url)
             );
             CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
+            CREATE INDEX IF NOT EXISTS idx_favorites_url ON favorites(project_url);
             CREATE INDEX IF NOT EXISTS idx_favorites_title ON favorites(title);
             CREATE INDEX IF NOT EXISTS idx_favorites_updated ON favorites(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_favorites_status ON favorites(status);
             """
         )
         # Migration: add user_id column to existing favorites table (runs after CREATE TABLE)
