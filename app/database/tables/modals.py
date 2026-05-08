@@ -121,14 +121,21 @@ class ModalsMixin:
     # ==================== duplicates ====================
 
     def add_duplicate(
-        self, canonical_url: str, duplicate_url: str, title: str = "", similarity: float = 0
+        self,
+        canonical_url: str,
+        duplicate_url: str,
+        title: str = "",
+        similarity: float = 0,
+        user_id: str = None,
     ) -> bool:
+        """写入单条重复记录（经批量队列）"""
         try:
             self._batch_queue.put(
                 (
                     """INSERT OR IGNORE INTO duplicate_records
-                   (canonical_url, duplicate_url, duplicate_title, similarity_score) VALUES (?,?,?,?)""",
-                    (canonical_url, duplicate_url, title, similarity),
+                   (user_id, canonical_url, duplicate_url, duplicate_title, similarity_score)
+                   VALUES (?,?,?,?,?)""",
+                    (user_id or "", canonical_url, duplicate_url, title, similarity),
                 )
             )
             return True
@@ -136,24 +143,89 @@ class ModalsMixin:
             logger.error(f"add_duplicate: {e}")
             return False
 
-    def get_duplicates(self, canonical_url: str = None, limit: int = 200) -> List[dict]:
+    def add_duplicates_batch(
+        self, pairs: List[dict], user_id: str = None
+    ) -> int:
+        """批量写入重复记录（事务）
+
+        pairs 格式: [{canonical_url, duplicate_url, title, similarity}, ...]
+        """
+        if not pairs:
+            return 0
+        uid = user_id or ""
+        conn = self._get_conn()
+        try:
+            conn.execute("BEGIN")
+            count = 0
+            for p in pairs:
+                conn.execute(
+                    """INSERT OR IGNORE INTO duplicate_records
+                       (user_id, canonical_url, duplicate_url, duplicate_title, similarity_score)
+                       VALUES (?,?,?,?,?)""",
+                    (uid, p.get("canonical_url", ""), p.get("duplicate_url", ""),
+                     p.get("title", ""), p.get("similarity", 0)),
+                )
+                count += 1
+            conn.commit()
+            return count
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"add_duplicates_batch: {e}")
+            return 0
+
+    def get_duplicates(
+        self,
+        user_id: str = None,
+        canonical_url: str = None,
+        limit: int = 200,
+    ) -> List[dict]:
+        """获取重复记录（支持用户/URL过滤）"""
+        uid = user_id or ""
         try:
             c = self._get_conn()
             if canonical_url:
                 rows = c.execute(
-                    """SELECT * FROM duplicate_records WHERE canonical_url=?
-                                   ORDER BY similarity_score DESC LIMIT ?""",
-                    (canonical_url, limit),
+                    """SELECT * FROM duplicate_records
+                       WHERE user_id=? AND canonical_url=?
+                       ORDER BY similarity_score DESC LIMIT ?""",
+                    (uid, canonical_url, limit),
                 ).fetchall()
             else:
                 rows = c.execute(
-                    "SELECT * FROM duplicate_records ORDER BY similarity_score DESC LIMIT ?",
-                    (limit,),
+                    """SELECT * FROM duplicate_records
+                       WHERE user_id=? ORDER BY similarity_score DESC LIMIT ?""",
+                    (uid, limit),
                 ).fetchall()
             return [dict(r) for r in rows]
         except Exception as e:
             logger.error(f"get_duplicates: {e}")
             return []
+
+    def get_computed_duplicates_count(self, user_id: str = None) -> int:
+        """获取已计算的重复组数量（按 canonical_url 去重）"""
+        uid = user_id or ""
+        try:
+            c = self._get_conn()
+            row = c.execute(
+                "SELECT COUNT(DISTINCT canonical_url) FROM duplicate_records WHERE user_id=?",
+                (uid,),
+            ).fetchone()
+            return row[0] if row else 0
+        except Exception as e:
+            logger.error(f"get_computed_duplicates_count: {e}")
+            return 0
+
+    def clear_duplicates(self, user_id: str = None) -> bool:
+        """清空用户的重复记录"""
+        uid = user_id or ""
+        try:
+            self._batch_queue.put(
+                ("DELETE FROM duplicate_records WHERE user_id=?", (uid,))
+            )
+            return True
+        except (queue.Full, OSError) as e:
+            logger.error(f"clear_duplicates: {e}")
+            return False
 
     # ==================== cache ====================
 

@@ -372,6 +372,17 @@ class Database(
                 c.execute("CREATE INDEX IF NOT EXISTS idx_project_records_project ON project_records(project_id)")
                 c.execute("CREATE INDEX IF NOT EXISTS idx_project_records_url ON project_records(record_url)")
                 logger.info("Created projects + project_records tables")
+            # Migration: add user_id to duplicate_records if missing
+            try:
+                c.execute("SELECT user_id FROM duplicate_records LIMIT 1")
+            except Exception:
+                try:
+                    c.execute("ALTER TABLE duplicate_records ADD COLUMN user_id TEXT DEFAULT ''")
+                    c.execute("DROP INDEX IF EXISTS idx_duplicates_canonical")
+                    c.execute("CREATE INDEX IF NOT EXISTS idx_duplicates_canonical ON duplicate_records(user_id, canonical_url)")
+                    logger.info("Migrated PG duplicate_records: added user_id column")
+                except Exception as e:
+                    logger.warning(f"PG duplicate_records migration skipped: {e}")
             c.commit()
             return
         c = self._get_conn()
@@ -404,6 +415,12 @@ class Database(
         except Exception:
             c.execute("ALTER TABLE favorites ADD COLUMN user_id TEXT DEFAULT ''")
             logger.info("Migrated favorites table: added user_id column")
+        # Migration: add user_id to duplicate_records
+        try:
+            c.execute("SELECT user_id FROM duplicate_records LIMIT 1")
+        except Exception:
+            c.execute("ALTER TABLE duplicate_records ADD COLUMN user_id TEXT DEFAULT ''")
+            logger.info("Migrated duplicate_records table: added user_id column")
         c.executescript(
             """
             CREATE TABLE IF NOT EXISTS annotations(
@@ -439,11 +456,13 @@ class Database(
             );
             CREATE TABLE IF NOT EXISTS duplicate_records(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL DEFAULT '',
                 canonical_url TEXT NOT NULL,
                 duplicate_url TEXT NOT NULL,
-                duplicate_title TEXT DEFAULT "",
+                duplicate_title TEXT DEFAULT '',
                 similarity_score REAL DEFAULT 0,
-                detected_at TEXT DEFAULT CURRENT_TIMESTAMP
+                detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, canonical_url, duplicate_url)
             );
             CREATE TABLE IF NOT EXISTS data_cache(
                 cache_key TEXT PRIMARY KEY,
@@ -604,7 +623,7 @@ class Database(
             "CREATE INDEX IF NOT EXISTS idx_annotations_url ON annotations(project_url);",
             "CREATE INDEX IF NOT EXISTS idx_logs_level ON scrape_logs(log_level);",
             "CREATE INDEX IF NOT EXISTS idx_logs_created ON scrape_logs(created_at);",
-            "CREATE INDEX IF NOT EXISTS idx_duplicates_canonical ON duplicate_records(canonical_url);",
+            "CREATE INDEX IF NOT EXISTS idx_duplicates_canonical ON duplicate_records(user_id, canonical_url);",
             "CREATE INDEX IF NOT EXISTS idx_cache_key ON data_cache(cache_key);",
             "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);",
             "CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);",
