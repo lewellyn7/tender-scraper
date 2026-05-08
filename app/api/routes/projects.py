@@ -300,3 +300,16 @@ def get_stats(request: Request):
             "db_stats": db.get_stats(),
         }
     )
+
+
+@router.get("/groups")
+def get_project_groups(request: Request, limit: int = Query(100, le=500)):
+    """获取按项目分组的聚合数据"""
+    user_id = get_current_user_id_required(request)
+    db = get_db()
+    try:
+        groups = db.get_projects_with_records(limit=limit)
+        return JSONResponse({"projects": groups})
+    except Exception as e:
+        logger.error(f"get_project_groups: {e}")
+        return JSONResponse({"projects": [], "error": str(e)}, status_code=500)

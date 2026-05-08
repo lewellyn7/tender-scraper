@@ -84,10 +84,26 @@ class MockElem:
     async def get_attribute(self, name):
         if name == "href":
             return self._href
+        if name == "title":
+            return self._text
         return None
 
     async def inner_text(self):
         return self._text
+
+    async def query_selector(self, selector):
+        """模拟 query_selector - 支持子选择器检查"""
+        # 检查是否是元素 tag（不区分大小写）
+        # e.g., selector="a" 匹配 tag="A" 或 "a"
+        if selector.lower() == self._tag.lower():
+            return self
+        # 对于复杂选择器（类名、属性等），返回 None 表示未匹配
+        # 这避免 MockElem 误导爬虫认为子元素存在
+        return None
+
+    async def query_selector_all(self, selector):
+        """模拟 query_selector_all - 返回包含自身的列表"""
+        return [self]
 
 
 # ─── 常量测试 ────────────────────────────────────────────────────────────────

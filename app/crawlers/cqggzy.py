@@ -11,7 +11,9 @@ from typing import List
 from loguru import logger
 
 from app.crawlers.base import BaseCrawler
+from app.database import get_db
 from app.models.tender import TenderInfo
+from app.utils.project_linker import normalize_project_name, extract_project_no
 
 
 class CQGGZYCrawlerV2(BaseCrawler):
@@ -148,6 +150,32 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 page, ["投标文件递交截止时间", "递交截止时间", "投标截止时间"]
             )
             tender.bid_amount = self._extract_bid_amount(page)
+            tender.project_no = extract_project_no(tender.title, tender.full_content or "")
+            tender.project_name = normalize_project_name(tender.title)
+
+            # 写入 projects 表
+            try:
+                db = get_db()
+                project_id = db.upsert_project(
+                    project_name=tender.project_name,
+                    project_name_raw=tender.project_name,
+                    project_no=tender.project_no or "",
+                    business_type=tender.business_type or "",
+                    region=tender.region or "",
+                    industry="",
+                    budget=tender.budget or "",
+                )
+                if project_id > 0:
+                    db.add_project_record(
+                        project_id=project_id,
+                        record_url=tender.url,
+                        record_type=tender.info_type or "",
+                        title=tender.title,
+                        publish_date=tender.publish_date or "",
+                        budget=tender.budget or "",
+                    )
+            except Exception as e:
+                logger.warning(f"⚠️ 写入 projects 表失败: {e}")
 
             logger.info("  ✅ 详情页采集完成")
             return tender

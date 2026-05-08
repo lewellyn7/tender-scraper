@@ -25,6 +25,7 @@ from app.database.tables import (
     QualificationsMixin,
     UsersMixin,
     KeywordsMixin,
+    ProjectsMixin,
 )
 
 DB_PATH = Path(__file__).parent.parent.parent / "config" / "tender_scraper.db"
@@ -240,6 +241,7 @@ class Database(
     UsersMixin,
     ModalsMixin,
     KeywordsMixin,
+    ProjectsMixin,
 ):
     """PostgreSQL 数据库单例（混合了所有表操作Mixin）"""
 
@@ -339,9 +341,256 @@ class Database(
                     logger.info("Migrated PG favorites table: added user_id column and title index")
                 except Exception as e:
                     logger.warning(f"PG favorites migration skipped: {e}")
-            return
+            # Migration: create projects + project_records if not exists
+            try:
+                c.execute("SELECT id FROM projects LIMIT 1")
+            except Exception:
+                c.execute("""CREATE TABLE IF NOT EXISTS projects (
+                    id SERIAL PRIMARY KEY,
+                    project_name VARCHAR(500) NOT NULL,
+                    project_name_raw VARCHAR(500) NOT NULL,
+                    project_no VARCHAR(100) DEFAULT NULL UNIQUE,
+                    business_type VARCHAR(50) DEFAULT '',
+                    region VARCHAR(100) DEFAULT '',
+                    industry VARCHAR(100) DEFAULT '',
+                    budget VARCHAR(100) DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(project_name)")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at)")
+                c.execute("""CREATE TABLE IF NOT EXISTS project_records (
+                    id SERIAL PRIMARY KEY,
+                    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    record_url TEXT NOT NULL UNIQUE,
+                    record_type VARCHAR(50) DEFAULT '',
+                    title VARCHAR(500) DEFAULT '',
+                    publish_date TEXT DEFAULT '',
+                    budget VARCHAR(100) DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_project_records_project ON project_records(project_id)")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_project_records_url ON project_records(record_url)")
+                logger.info("Created projects + project_records tables")
             c.commit()
+            return
+        c = self._get_conn()
+        c.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS favorites(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL DEFAULT '',
+                project_url TEXT UNIQUE NOT NULL,
+                title TEXT NOT NULL,
+                source_url TEXT DEFAULT "",
+                tender_type TEXT DEFAULT "",
+                budget TEXT DEFAULT "",
+                publish_date TEXT DEFAULT "",
+                status TEXT DEFAULT "pending",
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
+            CREATE INDEX IF NOT EXISTS idx_favorites_title ON favorites(title);
+            CREATE INDEX IF NOT EXISTS idx_favorites_updated ON favorites(updated_at);
+            """
+        )
+        # Migration: add user_id column to existing favorites table (runs after CREATE TABLE)
+        try:
+            c.execute("SELECT user_id FROM favorites LIMIT 1")
+        except Exception:
+            c.execute("ALTER TABLE favorites ADD COLUMN user_id TEXT DEFAULT ''")
+            logger.info("Migrated favorites table: added user_id column")
+        c.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS annotations(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_url TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT "",
+                priority TEXT DEFAULT "normal",
+                tags TEXT DEFAULT "[]",
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS filter_presets(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                preset_key TEXT UNIQUE NOT NULL,
+                filter_config TEXT NOT NULL,
+                is_default INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS config_backups(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                version_label TEXT NOT NULL,
+                config_data TEXT NOT NULL,
+                description TEXT DEFAULT "",
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS scrape_logs(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                log_level TEXT NOT NULL,
+                message TEXT NOT NULL,
+                source TEXT DEFAULT "system",
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS duplicate_records(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                canonical_url TEXT NOT NULL,
+                duplicate_url TEXT NOT NULL,
+                duplicate_title TEXT DEFAULT "",
+                similarity_score REAL DEFAULT 0,
+                detected_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS data_cache(
+                cache_key TEXT PRIMARY KEY,
+                cache_value TEXT NOT NULL,
+                expires_at TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS crawler_configs(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                list_selector TEXT DEFAULT "",
+                item_rules TEXT DEFAULT "{}",
+                pagination_type TEXT DEFAULT "none",
+                pagination_selector TEXT DEFAULT "",
+                pagination_param TEXT DEFAULT "",
+                filter_keyword TEXT DEFAULT "",
+                cookies TEXT DEFAULT "",
+                headers TEXT DEFAULT "{}",
+                status TEXT DEFAULT "active",
+                business_type TEXT DEFAULT "",
+                info_type TEXT DEFAULT "",
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS crawl_executions(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_id INTEGER NOT NULL,
+                status TEXT DEFAULT "running",
+                items_found INTEGER DEFAULT 0,
+                items_new INTEGER DEFAULT 0,
+                error_message TEXT DEFAULT "",
+                started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                finished_at TEXT DEFAULT "",
+                FOREIGN KEY (config_id) REFERENCES crawler_configs(id)
+            );
+            CREATE TABLE IF NOT EXISTS schema_version(version INTEGER PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS users(
+                user_id TEXT PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                password_salt TEXT NOT NULL,
+                display_name TEXT DEFAULT "",
+                role TEXT DEFAULT "viewer",
+                enabled INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                last_login TEXT
+            );
+            CREATE TABLE IF NOT EXISTS bidder_qualifications(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(200) NOT NULL,
+                category VARCHAR(50) DEFAULT '',
+                level VARCHAR(20) DEFAULT '',
+                certificate_no VARCHAR(100) DEFAULT '',
+                valid_from TEXT,
+                valid_to TEXT,
+                issuer VARCHAR(200) DEFAULT '',
+                file_path VARCHAR(500) DEFAULT '',
+                linked_tenders TEXT DEFAULT '[]',
+                status VARCHAR(20) DEFAULT '有效',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS config(
+                config_key TEXT PRIMARY KEY,
+                config_value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS audit_logs(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event VARCHAR(50) NOT NULL,
+                user_id VARCHAR(100),
+                ip_address VARCHAR(45),
+                user_agent TEXT,
+                resource VARCHAR(500),
+                result VARCHAR(20),
+                details TEXT DEFAULT '{}',
+                timestamp TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS collection_tasks(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id VARCHAR(100) NOT NULL,
+                name TEXT NOT NULL,
+                source TEXT NOT NULL,
+                status TEXT DEFAULT 'idle',
+                schedule_type TEXT DEFAULT 'manual',
+                schedule_cron TEXT DEFAULT '',
+                keywords TEXT DEFAULT '[]',
+                exclude_keywords TEXT DEFAULT '[]',
+                info_types TEXT DEFAULT '[]',
+                budget_min REAL,
+                priority INTEGER DEFAULT 5,
+                max_concurrency INTEGER DEFAULT 5,
+                request_interval REAL DEFAULT 2.0,
+                timeout_seconds INTEGER DEFAULT 30,
+                items_found INTEGER DEFAULT 0,
+                items_new INTEGER DEFAULT 0,
+                last_run_at TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS task_executions(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                status TEXT DEFAULT 'running',
+                items_found INTEGER DEFAULT 0,
+                items_new INTEGER DEFAULT 0,
+                error_message TEXT DEFAULT '',
+                started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                finished_at TEXT,
+                duration_ms INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS keywords(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                keyword TEXT NOT NULL UNIQUE,
+                category TEXT DEFAULT 'include',
+                match_mode TEXT DEFAULT 'exact',
+                threshold REAL DEFAULT 0.8,
+                enabled INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS projects(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_name VARCHAR(500) NOT NULL,
+                project_name_raw VARCHAR(500) NOT NULL,
+                project_no VARCHAR(100) DEFAULT NULL UNIQUE,
+                business_type VARCHAR(50) DEFAULT '',
+                region VARCHAR(100) DEFAULT '',
+                industry VARCHAR(100) DEFAULT '',
+                budget VARCHAR(100) DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS project_records(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL,
+                record_url TEXT NOT NULL UNIQUE,
+                record_type VARCHAR(50) DEFAULT '',
+                title VARCHAR(500) DEFAULT '',
+                publish_date TEXT DEFAULT '',
+                budget VARCHAR(100) DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            );
+        """
+        )
+        c.commit()
         self._init_indexes()
+        self._init_projects_table()
 
     def _init_indexes(self):
         c = self._get_conn()

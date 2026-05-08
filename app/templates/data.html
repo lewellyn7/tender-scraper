@@ -42,6 +42,11 @@
       <div class="flex-1 min-w-[200px]">
         <input type="text" id="searchKeyword" placeholder="搜索标题..." class="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600">
       </div>
+      <!-- 视图切换（逐条/按项目） -->
+      <div class="flex rounded-md overflow-hidden border border-gray-300">
+        <button type="button" id="view-item" class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white" onclick="switchProjectView('item')">逐条</button>
+        <button type="button" id="view-project" class="px-3 py-1.5 text-sm font-medium bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300" onclick="switchProjectView('project')">按项目</button>
+      </div>
       <!-- 类型筛选 -->
       <div class="w-36">
         <select id="filterType" class="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600">
@@ -84,6 +89,9 @@
     <div class="bg-white rounded-lg h-20 animate-pulse"></div>
     <div class="bg-white rounded-lg h-20 animate-pulse"></div>
   </div>
+
+  <!-- 项目分组视图 -->
+  <div id="projectsGrid" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
 
   <!-- 卡片视图 -->
   <div id="cardsList" class="space-y-2 hidden"></div>
@@ -163,7 +171,10 @@
     if (!str) return '';
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');
   }
-
+  function escAttr(str) {
+    if (!str) return '';
+    return String(str).replace(/"/g, '&quot;');
+  }
   function truncate(str, len) {
     if (!str) return '';
     str = String(str);
@@ -177,6 +188,96 @@
     localStorage.setItem('dataView', view);
     render();
   }
+
+  var currentProjectView = 'item';
+
+  function switchProjectView(view) {
+    currentProjectView = view;
+    document.getElementById('view-item').className = 'px-3 py-1.5 text-sm font-medium ' + (view === 'item' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300');
+    document.getElementById('view-project').className = 'px-3 py-1.5 text-sm font-medium ' + (view === 'project' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300');
+    if (view === 'project') {
+      loadProjectGroups();
+    } else {
+      var projectsGrid = document.getElementById('projectsGrid');
+      projectsGrid.classList.add('hidden');
+      cardsEl.classList.remove('hidden');
+      tableEl.classList.add('hidden');
+    }
+  }
+
+  async function loadProjectGroups() {
+    showSkeleton(true);
+    try {
+      var res = await authFetch('/api/projects/groups');
+      if (!res.ok) throw new Error('请求失败');
+      var data = await res.json();
+      var groups = data.groups || data.data || [];
+      renderProjectGroups(groups);
+    } catch(e) {
+      console.error('加载项目分组失败:', e);
+      var projectsGrid = document.getElementById('projectsGrid');
+      projectsGrid.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">加载失败，请重试</div>';
+      projectsGrid.classList.remove('hidden');
+      cardsEl.classList.add('hidden');
+      tableEl.classList.add('hidden');
+      skeletonEl.classList.add('hidden');
+    }
+  }
+
+  function renderProjectGroups(groups) {
+    showSkeleton(false);
+    var projectsGrid = document.getElementById('projectsGrid');
+    if (!groups || groups.length === 0) {
+      projectsGrid.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">暂无数据</div>';
+      projectsGrid.classList.remove('hidden');
+      cardsEl.classList.add('hidden');
+      tableEl.classList.add('hidden');
+      paginationEl.classList.add('hidden');
+      return;
+    }
+    projectsGrid.classList.remove('hidden');
+    cardsEl.classList.add('hidden');
+    tableEl.classList.add('hidden');
+    projectsGrid.innerHTML = groups.map(function(group) {
+      var name = group.name || group.project_name || '-';
+      var originalName = group.original_name || '';
+      var code = group.code || group.project_code || '-';
+      var bizType = group.business_type || group.biz_type || group.type || '-';
+      var updateTime = group.updated_at || group.update_time || group.latest_date || '-';
+      if (updateTime && updateTime.length > 10) updateTime = updateTime.slice(0, 10);
+      var recordTypes = group.record_types || group.info_types || [];
+      var count = group.count || group.record_count || 0;
+      var typeBadges = recordTypes.map(function(t) {
+        return '<span class="px-2 py-0.5 text-xs rounded bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">' + escHtml(t) + '</span>';
+      }).join('');
+      return (
+        '<div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer">' +
+          '<div class="flex items-start justify-between mb-2">' +
+            '<div class="flex-1 min-w-0">' +
+              '<h3 class="text-sm font-semibold text-gray-900 dark:text-white truncate" title="' + escHtml(name) + '">' + escHtml(name) + '</h3>' +
+              (originalName && originalName !== name ? '<p class="text-xs text-gray-400 truncate mt-0.5" title="原始名称">原始: ' + escHtml(originalName) + '</p>' : '') +
+            '</div>' +
+            '<span class="ml-2 shrink-0 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 font-medium">' + count + '条</span>' +
+          '</div>' +
+          '<div class="space-y-1.5">' +
+            '<div class="flex items-center gap-2 text-xs text-gray-500">' +
+              '<span class="font-medium">编号:</span><span class="text-gray-700 dark:text-gray-300 truncate" title="' + escHtml(code) + '">' + escHtml(code) + '</span>' +
+            '</div>' +
+            '<div class="flex items-center gap-2 text-xs text-gray-500">' +
+              '<span class="font-medium">业务:</span><span class="text-gray-700 dark:text-gray-300">' + escHtml(bizType) + '</span>' +
+            '</div>' +
+            (typeBadges ? '<div class="flex flex-wrap gap-1 mt-2">' + typeBadges + '</div>' : '') +
+            '<div class="flex items-center gap-2 text-xs text-gray-400 mt-2">' +
+              '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' +
+              '<span>更新: ' + escHtml(updateTime) + '</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+  }
+
+  window.switchProjectView = switchProjectView;
 
   function getStatusClass(status) {
     var map = {
