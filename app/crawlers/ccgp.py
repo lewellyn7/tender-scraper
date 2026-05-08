@@ -246,23 +246,23 @@ class CCGPCrawlerV3(BaseCrawler):
     async def _extract_intention_fields(self, page, tender: TenderInfo) -> None:
         """提取采购意向专用字段"""
         text = await page.inner_text("body")
-        name_match = re.search(r"采购项目 [名称]*[：:]\s*([^\n]+)", text)
+        name_match = re.search(r"采购项目[名称]*[：:]\s*([^\n]+)", text)
         if name_match:
             tender.title = name_match.group(1).strip()
 
         tender.budget = await self._extract_field(
             page,
             [
-                r"预算金额 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
-                r"采购预算 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
+                r"预算金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
+                r"采购预算[：:]\s*([\d,\.]+)\s*(?:万元|元)",
             ],
         )
 
-        time_match = re.search(r"预计采购时间 [：:]\s*([^\n]+)", text)
+        time_match = re.search(r"预计采购时间[：:]\s*([^\n]+)", text)
         if time_match:
             tender.bidder_requirements = f"预计采购时间：{time_match.group(1).strip()}"
 
-        needs_match = re.search(r"采购需求概况 [：:]\s*([^\n]+(?:\n(?! 采购) [^\n]+)*)", text)
+        needs_match = re.search(r"采购需求概况[：:]\s*([^\n]+(?:\n(?! 采购) [^\n]+)*)", text)
         if needs_match:
             tender.project_overview = needs_match.group(1).strip()
 
@@ -270,9 +270,9 @@ class CCGPCrawlerV3(BaseCrawler):
         """提取采购公告专用字段"""
         text = await page.inner_text("body")
         overview_patterns = [
-            r"项目概况 [：:]\s*([^\n]+)",
-            r"采购内容 [：:]\s*([^\n]+)",
-            r"项目简介 [：:]\s*([^\n]+)",
+            r"项目概况[：:]\s*([^\n]+)",
+            r"采购内容[：:]\s*([^\n]+)",
+            r"项目简介[：:]\s*([^\n]+)",
         ]
         for pattern in overview_patterns:
             match = re.search(pattern, text)
@@ -283,13 +283,13 @@ class CCGPCrawlerV3(BaseCrawler):
         tender.budget = await self._extract_field(
             page,
             [
-                r"预算金额 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
-                r"采购预算 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
-                r"项目预算 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
+                r"预算金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
+                r"采购预算[：:]\s*([\d,\.]+)\s*(?:万元|元)",
+                r"项目预算[：:]\s*([\d,\.]+)\s*(?:万元|元)",
             ],
         )
 
-        req_match = re.search(r"资格要求 [：:]\s*([^\n]+)", text)
+        req_match = re.search(r"资格要求[：:]\s*([^\n]+)", text)
         if req_match:
             tender.bidder_requirements = req_match.group(1).strip()[:500]
 
@@ -301,7 +301,7 @@ class CCGPCrawlerV3(BaseCrawler):
         else:
             tender.submission_deadline = deadline_raw
 
-        opening_match = re.search(r"开标时间 [：:]\s*([^\n]+)", text)
+        opening_match = re.search(r"开标时间[：:]\s*([^\n]+)", text)
         if opening_match:
             tender.opening_date = self._parse_datetime(opening_match.group(1))
 
@@ -309,9 +309,9 @@ class CCGPCrawlerV3(BaseCrawler):
         """提取结果公告专用字段"""
         text = await page.inner_text("body")
         supplier_patterns = [
-            r"中标 (?:[（(]?成交 [）)?])?供应商 [名称]*[：:]\s*([^\n]+)",
-            r"中标人 [：:]\s*([^\n]+)",
-            r"成交供应商 [：:]\s*([^\n]+)",
+            r"中标供应商[：:]\s*([^\n]+)",
+            r"中标人[：:]\s*([^\n]+)",
+            r"成交供应商[：:]\s*([^\n]+)",
         ]
         for pattern in supplier_patterns:
             match = re.search(pattern, text)
@@ -322,21 +322,21 @@ class CCGPCrawlerV3(BaseCrawler):
         tender.bid_amount = await self._extract_field(
             page,
             [
-                r"中标金额 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
-                r"成交金额 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
-                r"合同金额 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
+                r"中标金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
+                r"成交金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
+                r"合同金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
             ],
         )
 
         tender.budget = await self._extract_field(
             page,
             [
-                r"预算金额 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
-                r"项目预算 [：:]\s*([\d,\.]+)\s*(?:万元 | 元)",
+                r"预算金额[：:]\s*([\d,\.]+)\s*(?:万元|元)",
+                r"项目预算[：:]\s*([\d,\.]+)\s*(?:万元|元)",
             ],
         )
 
-        date_match = re.search(r"公告日期 [：:]\s*([^\n]+)", text)
+        date_match = re.search(r"公告日期[：:]\s*([^\n]+)", text)
         if date_match:
             tender.publish_date_raw = date_match.group(1).strip()
 
