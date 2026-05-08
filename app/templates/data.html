@@ -208,7 +208,7 @@
   async function loadProjectGroups() {
     showSkeleton(true);
     try {
-      var res = await authFetch('/api/projects/grouped');
+      var res = await authFetch('/api/projects/groups');
       if (!res.ok) throw new Error('请求失败');
       var data = await res.json();
       var groups = data.groups || data.data || [];
