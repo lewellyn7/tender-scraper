@@ -1,6 +1,8 @@
 """重庆市政府采购网采集器 V3 - 继承 BaseCrawler - 复用通用字段提取、日期解析、附件解析 - 三类信息：采购意向 / 采购公告 / 结果公告 """
 
 import asyncio
+import json
+from datetime import datetime
 import re
 from typing import List
 from urllib.parse import urljoin
@@ -10,6 +12,7 @@ from loguru import logger
 from app.crawlers.base import BaseCrawler
 from app.database import get_db
 from app.models.tender import TenderInfo
+from app.utils.summarize import summarize as make_summary
 from app.utils.project_linker import normalize_project_name, extract_project_no
 
 
@@ -39,10 +42,14 @@ class CCGPCrawlerV3(BaseCrawler):
         try:
             page = await self.browser.new_page()
             logger.info(f"📄 采集 [{info_type}] 列表 第{page_num}页：{url}")
-            await page.goto(url, wait_until="networkidle", timeout=60000)
-            await asyncio.sleep(2)
+            await page.goto(url, wait_until="commit", timeout=30000)
+            await asyncio.sleep(3)
+            items = await page.query_selector_all(".block-item")
+            if not items:
+                await asyncio.sleep(5)
+                items = await page.query_selector_all(".block-item")
 
-            # 新版重庆政府采购网使用 .block-item 选择器
+            items = []
             list_item_selectors = [
                 ".block-item",
                 ".item-title",
@@ -55,8 +62,6 @@ class CCGPCrawlerV3(BaseCrawler):
                 "table tr",
                 ".data-list tr",
             ]
-
-            items = []
             for selector in list_item_selectors:
                 items = await page.query_selector_all(selector)
                 if items:
@@ -126,9 +131,6 @@ class CCGPCrawlerV3(BaseCrawler):
                         title_hash = hashlib.md5(title.encode('utf-8')).hexdigest()[:8]
                         full_url = f"{self.BASE_URL}/gkw/web/portal/{info_type}/{title_hash}"
 
-                    if not await self._mark_visited(full_url, source="ccgp-chongqing"):
-                        continue
-
                     tender = TenderInfo(
                         title=title,
                         url=full_url,
@@ -157,10 +159,7 @@ class CCGPCrawlerV3(BaseCrawler):
                 await page.close()
 
     async def fetch_detail(self, tender: TenderInfo) -> TenderInfo:
-        """采集详情页"""
-        if not await self._mark_visited(tender.url, source="ccgp-chongqing"):
-            logger.info(f"⏭️ URL 已采集，跳过：{tender.url}")
-            return tender
+        """采集详情页（URL 是否已访问由 fetch_list 统一管理）"""
         return await self._fetch_detail_page(tender)
 
     async def _fetch_detail_page(self, tender: TenderInfo) -> TenderInfo:
@@ -169,7 +168,7 @@ class CCGPCrawlerV3(BaseCrawler):
         try:
             page = await self.browser.new_page()
             logger.info(f"📄 采集详情：{tender.title[:40]}...")
-            await page.goto(tender.url, wait_until="networkidle", timeout=30000)
+            await page.goto(tender.url, wait_until="domcontentloaded", timeout=15000)
             await asyncio.sleep(1)
 
             # 提取正文
@@ -204,34 +203,70 @@ class CCGPCrawlerV3(BaseCrawler):
             tender.contact_info = await self._extract_contact_info(page)
             tender.attachments = await self._extract_attachments(page)
 
-            # 生成摘要
-            tender.project_overview = self._summarize_content(tender)
+            # 生成结构化摘要（按 info_type 规则）
+            tender.project_overview = make_summary(
+                info_type=tender.info_type or "",
+                budget=tender.budget or "",
+                bid_amount=tender.bid_amount or "",
+                submission_deadline=tender.submission_deadline or "",
+                contact_name=tender.contact_info.name if tender.contact_info else "",
+                contact_phone=tender.contact_info.phone if tender.contact_info else "",
+                region="",
+                full_content=tender.full_content or "",
+            )
+
+            # 提取项目编号和名称
             tender.project_no = extract_project_no(tender.title, tender.full_content or "")
             tender.project_name = normalize_project_name(tender.title)
 
-            # 写入 projects 表
+            # 写入 projects_ccgp 表（与 cqggzy.py 相同的格式）
             try:
                 db = get_db()
-                project_id = db.upsert_project(
-                    project_name=tender.project_name,
-                    project_name_raw=tender.project_name,
-                    project_no=tender.project_no or "",
-                    business_type=tender.business_type or "",
-                    region="",
-                    industry="",
-                    budget=tender.budget or "",
-                )
-                if project_id > 0:
-                    db.add_project_record(
-                        project_id=project_id,
-                        record_url=tender.url,
-                        record_type=tender.info_type or "",
-                        title=tender.title,
-                        publish_date=tender.publish_date or "",
-                        budget=tender.budget or "",
-                    )
+                att_count = len(tender.attachments) if tender.attachments else 0
+                att_list = [a.name for a in tender.attachments] if tender.attachments else []
+
+                def _v(val):
+                    """Ensure value is string, detect coroutines"""
+                    if asyncio.iscoroutine(val):
+                        logger.warning(f"⚠️ coroutine in field: {type(val)}")
+                        return ""
+                    return str(val) if val is not None else ""
+
+                row = {
+                    "url": _v(tender.url),
+                    "title": _v(tender.title),
+                    "category": _v(tender.tender_type or ""),
+                    "info_type": _v(tender.info_type or ""),
+                    "publish_date": tender.publish_date or None,
+                    "publish_date_raw": _v(tender.publish_date or ""),
+                    "content_preview": _v((tender.content_preview or "")[:500]),
+                    "full_content": _v(tender.full_content or ""),
+                    "budget": _v(tender.budget or ""),
+                    "bid_amount": _v(tender.bid_amount or ""),
+                    "deadline": tender.deadline if isinstance(tender.deadline, datetime) else None,
+                    "region": _v(tender.region or ""),
+                    "industry": "",
+                    "tender_type": _v(tender.tender_type or ""),
+                    "project_overview": _v(tender.project_overview),
+                    "bidder_requirements": _v(tender.bidder_requirements or ""),
+                    "submission_deadline": _v(tender.submission_deadline or ""),
+                    "contact_name": _v(tender.contact_info.name if tender.contact_info else ""),
+                    "contact_phone": _v(tender.contact_info.phone if tender.contact_info else ""),
+                    "contact_email": _v(tender.contact_info.email if tender.contact_info else ""),
+                    "attachments_count": att_count,
+                    "attachments": json.dumps(att_list) if att_list else "[]",
+                    "keywords_matched": ",".join(tender.keywords_matched) if tender.keywords_matched else "",
+                    "source_url": _v(tender.source_url or tender.url),
+                    "scraped_at": None,
+                    "scraped_by": "",
+                    "contract_amount": "",
+                    "planned_publish_date": "",
+                    "tender_content": "",
+                    "project_no": _v(tender.project_no or ""),
+                }
+                db.upsert_projects_ccgp([row])
             except Exception as e:
-                logger.warning(f"⚠️ 写入 projects 表失败: {e}")
+                logger.warning(f"⚠️ 写入 projects_ccgp 失败: {e}")
 
             return tender
         except Exception as e:
@@ -343,8 +378,8 @@ class CCGPCrawlerV3(BaseCrawler):
     # ─── 内容摘要 ────────────────────────────────────────────────
 
     def _summarize_content(self, tender: TenderInfo) -> str:
-        """智能总结采集内容"""
-        parts = [f"【{tender.info_type}】{tender.title}"]
+        """智能总结采集内容（不重复标题）"""
+        parts = [f"【{tender.info_type}】"]  # 不再附标题，标题已在【】前体现
 
         if tender.info_type == "采购意向":
             if tender.budget:
@@ -353,7 +388,13 @@ class CCGPCrawlerV3(BaseCrawler):
                 parts.append(tender.bidder_requirements)
         elif tender.info_type == "采购公告":
             if tender.project_overview:
-                parts.append(f"项目概况：{tender.project_overview[:100]}")
+                # project_overview 可能是标题兜底，避免重复
+                overview_text = tender.project_overview
+                if tender.title and overview_text.startswith(tender.title):
+                    overview_text = overview_text[len(tender.title):].strip()
+                    if overview_text and overview_text[:2] in ('：', ':', '】'):
+                        overview_text = overview_text[2:].strip()
+                parts.append(f"项目概况：{overview_text[:100]}")
             if tender.budget:
                 parts.append(f"预算：{tender.budget}")
             if tender.submission_deadline:
