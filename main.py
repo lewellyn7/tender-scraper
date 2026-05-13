@@ -15,6 +15,7 @@ from app.core.browser import StealthBrowser
 from app.core.harvest.smart_scheduler import CrawlTask, SmartScheduler, TaskStatus
 from app.core.session_memory import SessionMemory, SessionMemoryConfig
 from app.crawlers.cqggzy import CQGGZYCrawlerV2
+from app.crawlers.ccgp import CCGPCrawlerV3
 from app.services.vector_store import get_vector_store_indexed
 from app.utils.filter import TenderFilter
 from app.utils.report import ReportGenerator
@@ -119,18 +120,20 @@ async def run_collection():
 
         # 2. 创建采集器 V2
         crawler = CQGGZYCrawlerV2(browser)
+        ccgp_crawler = CCGPCrawlerV3(browser)
 
         # 3. 采集数据 (列表页，并行两路)
         all_items = []
 
-        logger.info("📋 开始采集政府采购公告 + 工程招投标（并行）...")
-        gov_items, eng_items = await asyncio.gather(
+        logger.info("📋 开始采集政府采购公告 + 工程招投标（CCGP 已禁用）...")
+        gathered = await asyncio.gather(
             crawler.fetch_list(category="gov_purchase"),
             crawler.fetch_list(category="engineering"),
         )
+        gov_items = gathered[0]
+        eng_items = gathered[1]
         all_items.extend(gov_items)
         all_items.extend(eng_items)
-
         logger.info(f"📥 列表页数据总计：{len(all_items)} 条（政府采购 {len(gov_items)} 条，工程招投标 {len(eng_items)} 条）")
 
         if not all_items:
@@ -155,9 +158,21 @@ async def run_collection():
 
         logger.info(f"✅ 匹配关键词的项目：{len(matched_items)}/{len(all_items)} 条")
 
-        # 5. 使用 SmartScheduler 并行采集详情页
-        detail_limit = min(10, len(matched_items))
-        detail_items = matched_items[:detail_limit]
+        # 5. 使用 SmartScheduler 并行采集详情页（来源均衡采样，确保 CCGP 也有机会）
+        detail_limit = min(30, len(matched_items))
+        # 按来源均衡选择，避免单一来源占满限额
+        from collections import defaultdict
+        by_source = defaultdict(list)
+        for item in matched_items:
+            src = "ccgp" if (hasattr(item, "source_url") and "ccgp" in (item.source_url or "")) else "cqggzy"
+            by_source[src].append(item)
+        # 轮询从每个来源取，确保都有机会
+        detail_items = []
+        sources = list(by_source.keys())
+        max_per_source = max(5, detail_limit // len(sources)) if sources else detail_limit
+        for src in sources:
+            detail_items.extend(by_source[src][:max_per_source])
+        detail_items = detail_items[:detail_limit]
 
         if detail_items:
             logger.info(f"📄 使用 SmartScheduler 并行采集 {len(detail_items)} 个详情页...")
@@ -182,8 +197,10 @@ async def run_collection():
                 item = task_id_item_map.get(task.task_id)
                 if item is None:
                     return False
+                # 根据来源选择采集器
+                detail_crawler = ccgp_crawler if task.source == "ccgp" else crawler
                 try:
-                    detail_item = await crawler.fetch_detail(item)
+                    detail_item = await detail_crawler.fetch_detail(item)
                     # 更新原始 matched_items 中的对应项
                     for mi in matched_items:
                         if mi.url == detail_item.url:
