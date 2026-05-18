@@ -97,16 +97,16 @@ def job_run_collection():
 def main():
     scheduler = BlockingScheduler(timezone="Asia/Shanghai")
 
-    # 默认：每天 08:00 / 12:00 / 18:00 执行
+    # 每 2 小时执行一次（00:00 / 02:00 / ... / 22:00）
     scheduler.add_job(
         job_run_collection,
-        CronTrigger(hour="08,12,18", minute="0"),
+        CronTrigger(minute="0", hour="9,11,13,15,17,19"),
         id="daily_collection",
         replace_existing=True,
         misfire_grace_time=3600,
     )
 
-    logger.info("[Scheduler] 定时采集调度器已启动 (08:00 / 12:00 / 18:00)")
+    logger.info("[Scheduler] 定时采集调度器已启动 (每 2 小时一次: 00/02/04/06/08/10/12/14/16/18/20/22:00)")
 
     job = scheduler.get_job("daily_collection")
     if job:

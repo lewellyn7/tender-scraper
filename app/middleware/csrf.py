@@ -19,7 +19,7 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
 
     SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
     # Public auth endpoints: no CSRF check needed (no session exists yet)
-    PUBLIC_AUTH_PATHS = {"/api/users/login", "/api/users/register", "/login", "/register"}
+    PUBLIC_AUTH_PATHS = {"/api/users/login", "/api/users/register", "/login", "/register", "/api/cache/clear"}
 
     async def dispatch(self, request: Request, call_next):
         # Safe methods don't need CSRF check

@@ -22,8 +22,8 @@ class FavoritesMixin:
             self._batch_queue.put(
                 (
                     """INSERT OR REPLACE INTO favorites
-                       (user_id, project_url, title, source_url, tender_type, budget, publish_date, updated_at)
-                       VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
+                       (user_id, project_url, title, source_url, tender_type, budget, publish_date, content_preview, updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
                     (
                         user_id or "",
                         project.get("url", ""),
@@ -31,6 +31,7 @@ class FavoritesMixin:
                         project.get("source_url", ""),
                         project.get("tender_type", ""),
                         project.get("budget", ""),
+                        project.get("content_preview", ""),
                         project.get("publish_date", ""),
                     ),
                 )
@@ -50,15 +51,16 @@ class FavoritesMixin:
             with self._get_conn() as conn:
                 conn.execute(
                     """INSERT INTO favorites
-                       (user_id, project_url, title, source_url, tender_type, budget, publish_date, updated_at)
-                       VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                       (user_id, project_url, title, source_url, tender_type, budget, publish_date, content_preview, updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
                        ON CONFLICT(user_id, project_url) DO UPDATE SET
                        title=EXCLUDED.title, source_url=EXCLUDED.source_url,
                        tender_type=EXCLUDED.tender_type, budget=EXCLUDED.budget,
-                       publish_date=EXCLUDED.publish_date, updated_at=CURRENT_TIMESTAMP""",
+                       publish_date=EXCLUDED.publish_date,
+                       content_preview=EXCLUDED.content_preview, updated_at=CURRENT_TIMESTAMP""",
                     (uid, url, project.get("title", ""), project.get("source_url", ""),
                      project.get("tender_type", ""), project.get("budget", ""),
-                     project.get("publish_date", "")),
+                     project.get("publish_date", ""), project.get("content_preview", "")),
                 )
                 conn.commit()
             return True
@@ -67,7 +69,7 @@ class FavoritesMixin:
             return False
 
     def remove_favorite(self, project_url: str, user_id: str = None) -> bool:
-        """删除指定用户的收藏"""
+        """删除指定用户的收藏（经队列）"""
         uid = user_id or ""
         try:
             self._batch_queue.put(
@@ -76,6 +78,41 @@ class FavoritesMixin:
             return True
         except (queue.Full, OSError) as e:
             logger.error(f"remove_favorite: {e}")
+            return False
+
+    def remove_favorite_sync(self, project_url: str, user_id: str = None) -> bool:
+        """同步删除指定用户的收藏（直接执行 DELETE）"""
+        uid = user_id or ""
+        url = project_url
+        if not url:
+            logger.warning("remove_favorite_sync: empty url")
+            return False
+        logger.info(f"remove_favorite_sync: DELETE FROM favorites WHERE project_url={repr(url)} AND user_id={repr(uid)}")
+        try:
+            with self._get_conn() as conn:
+                conn.execute(
+                    "DELETE FROM favorites WHERE project_url=? AND user_id=?",
+                    (url, uid)
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"remove_favorite_sync: {e}")
+            return False
+
+    def remove_favorite_by_id(self, fav_id: int, user_id: str = None) -> bool:
+        """按 ID 同步删除收藏"""
+        uid = user_id or ""
+        try:
+            with self._get_conn() as conn:
+                conn.execute(
+                    "DELETE FROM favorites WHERE id=? AND user_id=?",
+                    (fav_id, uid)
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"remove_favorite_by_id: {e}")
             return False
 
     def update_favorite_status(self, project_url: str, status: str, user_id: str = None) -> bool:
@@ -109,11 +146,14 @@ class FavoritesMixin:
                 conn.execute(
                     """INSERT INTO favorites
                                (user_id, project_url, title, source_url, tender_type, budget, publish_date, updated_at)
-                               VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                               VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
                                ON CONFLICT(user_id, project_url) DO UPDATE SET
-                               title=EXCLUDED.title, updated_at=CURRENT_TIMESTAMP""",
+                               title=EXCLUDED.title, source_url=EXCLUDED.source_url,
+                               tender_type=EXCLUDED.tender_type, budget=EXCLUDED.budget,
+                               publish_date=EXCLUDED.publish_date,
+                               content_preview=EXCLUDED.content_preview, updated_at=CURRENT_TIMESTAMP""",
                     (uid, url, p.get("title", ""), p.get("source_url", ""),
-                     p.get("tender_type", ""), p.get("budget", ""), p.get("publish_date", "")),
+                     p.get("tender_type", ""), p.get("budget", ""), p.get("publish_date", ""), p.get("content_preview", "")),
                 )
                 count += 1
             conn.commit()

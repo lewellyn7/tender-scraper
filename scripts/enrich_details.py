@@ -31,6 +31,7 @@ from app.core.browser import StealthBrowser
 from app.crawlers.cqggzy import CQGGZYCrawlerV2
 from app.crawlers.ccgp import CCGPCrawlerV3
 from app.models.tender import TenderInfo
+from app.utils.summarize import summarize as make_summary
 
 OUTPUT_FILE = Path("/app/output/latest.json")
 
@@ -88,8 +89,19 @@ async def enrich_item(browser: StealthBrowser, item: dict, semaphore: asyncio.Se
                 item["contact_phone"] = result.contact_info.phone
             if not item.get("contact_email") and result.contact_info and result.contact_info.email:
                 item["contact_email"] = result.contact_info.email
-            if not item.get("project_overview") and result.project_overview:
-                item["project_overview"] = result.project_overview
+            # 用规则化摘要替代原始字段
+            item["project_overview"] = make_summary(
+                info_type=item.get("info_type") or result.info_type or "",
+                title=item.get("title") or result.title or "",
+                budget=item.get("budget") or result.budget or "",
+                bid_amount=item.get("bid_amount") or result.bid_amount or "",
+                submission_deadline=item.get("submission_deadline") or result.submission_deadline or "",
+                contact_name=item.get("contact_name") or (result.contact_info.name if result.contact_info else "") or "",
+                contact_phone=item.get("contact_phone") or (result.contact_info.phone if result.contact_info else "") or "",
+                region=item.get("region") or result.region or "",
+                full_content=item.get("full_content") or result.full_content or "",
+                bidder_requirements=item.get("bidder_requirements") or result.bidder_requirements or "",
+            )
             if not item.get("bidder_requirements") and result.bidder_requirements:
                 item["bidder_requirements"] = result.bidder_requirements
             if not item.get("submission_deadline") and result.submission_deadline:

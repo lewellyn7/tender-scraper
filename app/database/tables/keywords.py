@@ -8,19 +8,45 @@ class KeywordsMixin:
 
     def _init_keywords_table(self):
         """初始化关键词表"""
+        from app.database.db import USE_PG  # local import to avoid circular
         c = self._get_conn()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS keywords (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                keyword TEXT NOT NULL UNIQUE,
-                category TEXT DEFAULT 'include',
-                match_mode TEXT DEFAULT 'exact',
-                threshold REAL DEFAULT 0.8,
-                enabled INTEGER DEFAULT 1,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        if USE_PG:
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS keywords (
+                    id SERIAL PRIMARY KEY,
+                    keyword VARCHAR(500) NOT NULL,
+                    category VARCHAR(100) DEFAULT 'include',
+                    match_mode VARCHAR(50) DEFAULT 'exact',
+                    threshold REAL DEFAULT 0.8,
+                    enabled INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            # Add unique constraint if not exists (table may already exist without it)
+            c.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'keywords_keyword_unique'
+                    ) THEN
+                        ALTER TABLE keywords ADD CONSTRAINT keywords_keyword_unique UNIQUE (keyword);
+                    END IF;
+                END $$
+            """)
+        else:
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS keywords (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    keyword TEXT NOT NULL UNIQUE,
+                    category TEXT DEFAULT 'include',
+                    match_mode TEXT DEFAULT 'exact',
+                    threshold REAL DEFAULT 0.8,
+                    enabled INTEGER DEFAULT 1,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_keywords_category ON keywords(category)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_keywords_enabled ON keywords(enabled)")
 
@@ -45,11 +71,20 @@ class KeywordsMixin:
                     match_mode: str = "exact", threshold: float = 0.8) -> bool:
         """添加关键词"""
         try:
+            from app.database.db import USE_PG  # local import to avoid circular import
             c = self._get_conn()
-            c.execute(
-                "INSERT OR IGNORE INTO keywords (keyword, category, match_mode, threshold, enabled) VALUES (?, ?, ?, ?, 1)",
-                (keyword, category, match_mode, threshold)
-            )
+            # PostgreSQL: use ON CONFLICT DO NOTHING (no SQLite OR IGNORE)
+            if USE_PG:
+                c.execute(
+                    "INSERT INTO keywords (keyword, category, match_mode, threshold, enabled) "
+                    "VALUES (%s, %s, %s, %s, 1) ON CONFLICT (keyword) DO NOTHING",
+                    (keyword, category, match_mode, threshold)
+                )
+            else:
+                c.execute(
+                    "INSERT OR IGNORE INTO keywords (keyword, category, match_mode, threshold, enabled) VALUES (?, ?, ?, ?, 1)",
+                    (keyword, category, match_mode, threshold)
+                )
             return True
         except Exception as e:
             logger.warning(f"[Keywords] 添加失败: {e}")

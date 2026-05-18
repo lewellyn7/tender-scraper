@@ -22,7 +22,7 @@ OUTPUT_DIR = "/home/lewellyn/.openclaw/workspace/logs/procurement"
 KEYWORDS = ["智能化", "音视频", "AI", "人工智能", "智能体", "大模型"]
 EXCLUDE_KEYWORDS = ["流标", "终止", "废标", "中标公告", "成交公告", "结果公告"]
 
-logger.add("logs/ccgp_scraper.log", rotation="1 day", retention="7 days", level="INFO")
+# logger disabled (no write access in container)
 
 
 async def run_collection():
@@ -54,8 +54,7 @@ async def run_collection():
                 all_items.extend(items)
                 # 短暂延迟，避免请求过快
                 await asyncio.sleep(1)
-            if not items:
-                break
+            # 注意：不使用 break，允许后续类型继续采集（空列表是正常的）
 
         logger.info(f"\n📥 总计获取：{len(all_items)} 条")
 

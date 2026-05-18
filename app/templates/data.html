@@ -52,21 +52,14 @@
         <select id="filterType" class="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600">
           <option value="">全类型</option>
           <option value="政府采购">政府采购</option>
-          <option value="工程建设">工程建设</option>
-          <option value="产权交易">产权交易</option>
-          <option value="土地交易">土地交易</option>
+          <option value="工程招投标">工程招投标</option>
+
         </select>
       </div>
       <!-- 信息类型筛选 -->
       <div class="w-36">
         <select id="filterInfoType" class="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600">
           <option value="">全部公示</option>
-          <option value="采购公告">采购公告</option>
-          <option value="更正公告">更正公告</option>
-          <option value="结果公告">结果公告</option>
-          <option value="废标公告">废标公告</option>
-          <option value="合同公告">合同公告</option>
-          <option value="其他">其他</option>
         </select>
       </div>
       <!-- 日期筛选 -->
@@ -103,12 +96,12 @@
         <thead class="bg-gray-50">
           <tr>
             <th class="w-12 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">收藏</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">标题</th>
-            <th class="w-20 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">类型</th>
-            <th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">公示</th>
+            <th class="w-80 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">标题</th>
+            <th class="w-24 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">业务类型</th>
+            <th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">信息类型</th>
             <th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">日期</th>
             <th class="w-24 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">关键词</th>
-          <th class="w-40 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">内容摘要</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">内容摘要</th>
             <th class="w-20 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
           </tr>
         </thead>
@@ -127,10 +120,19 @@
 
   <!-- 分页 -->
   <div id="pagination" class="hidden flex flex-wrap justify-between items-center gap-3 px-4 py-3 bg-white rounded-lg shadow">
+    <div class="flex items-center gap-2">
+      <span class="text-xs text-gray-500">每页</span>
+      <select id="pageSizeSelect" class="px-2 py-1 text-sm border rounded hover:bg-gray-50">
+        <option value="10">10</option>
+        <option value="20">20</option>
+        <option value="50">50</option>
+      </select>
+      <span class="text-xs text-gray-500">条</span>
+    </div>
     <p id="paginationInfo" class="text-xs text-gray-500"></p>
     <div class="flex items-center gap-2">
       <button type="button" id="prevPage" class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 disabled:opacity-50" disabled>上一页</button>
-      <span id="pageIndicator" class="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400"></span>
+      <span id="pageIndicator" class="px-1.5 py-1.5 text-sm text-gray-600 dark:text-gray-400"></span>
       <button type="button" id="nextPage" class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 disabled:opacity-50" disabled>下一页</button>
     </div>
   </div>
@@ -140,7 +142,7 @@
 (function() {
   var currentView = 'card';
   var currentPage = 1;
-  var pageSize = 20;
+  var pageSize = parseInt(document.getElementById('pageSizeSelect').value, 10) || 20;
   var totalItems = 0;
   var totalPages = 0;
   var allItems = [];
@@ -208,10 +210,20 @@
   async function loadProjectGroups() {
     showSkeleton(true);
     try {
-      var res = await authFetch('/api/projects/groups');
+      // 传递当前筛选条件
+      var typeFilter = document.getElementById('filterType').value || '';
+      var qs = '?limit=200' + (typeFilter ? '&biz_type=' + encodeURIComponent(typeFilter) : '');
+      var res = await authFetch('/api/projects/groups' + qs);
       if (!res.ok) throw new Error('请求失败');
       var data = await res.json();
       var groups = data.groups || data.data || [];
+      // 前端按 info_type 进一步筛选
+      var infoTypeFilter = document.getElementById('filterInfoType').value || '';
+      if (infoTypeFilter) {
+        groups = groups.filter(function(g) {
+          return g.record_types && g.record_types.includes(infoTypeFilter);
+        });
+      }
       renderProjectGroups(groups);
     } catch(e) {
       console.error('加载项目分组失败:', e);
@@ -247,11 +259,16 @@
       if (updateTime && updateTime.length > 10) updateTime = updateTime.slice(0, 10);
       var recordTypes = group.record_types || group.info_types || [];
       var count = group.count || group.record_count || 0;
+      var overview = group.overview || '';
+      var url = group.url || '';
       var typeBadges = recordTypes.map(function(t) {
         return '<span class="px-2 py-0.5 text-xs rounded bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">' + escHtml(t) + '</span>';
       }).join('');
-      return (
-        '<div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer">' +
+      // Hover tooltip: 优先用 title 属性（兼容所有浏览器），截断过长内容
+      var titleText = overview ? overview.replace(/<[^>]+>/g, '').slice(0, 300) : '';
+      var card = (
+        '<div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer relative group"' +
+        (titleText ? ' title="' + escHtml(titleText.replace(/"/g, '"')) + '"' : '') + '>' +
           '<div class="flex items-start justify-between mb-2">' +
             '<div class="flex-1 min-w-0">' +
               '<h3 class="text-sm font-semibold text-gray-900 dark:text-white truncate" title="' + escHtml(name) + '">' + escHtml(name) + '</h3>' +
@@ -261,19 +278,24 @@
           '</div>' +
           '<div class="space-y-1.5">' +
             '<div class="flex items-center gap-2 text-xs text-gray-500">' +
-              '<span class="font-medium">编号:</span><span class="text-gray-700 dark:text-gray-300 truncate" title="' + escHtml(code) + '">' + escHtml(code) + '</span>' +
+              '<span class="font-medium">编号:</span><span class="text-gray-700 dark:text-gray-300 truncate font-mono" title="' + escHtml(code) + '">' + escHtml(code) + '</span>' +
             '</div>' +
             '<div class="flex items-center gap-2 text-xs text-gray-500">' +
               '<span class="font-medium">业务:</span><span class="text-gray-700 dark:text-gray-300">' + escHtml(bizType) + '</span>' +
             '</div>' +
             (typeBadges ? '<div class="flex flex-wrap gap-1 mt-2">' + typeBadges + '</div>' : '') +
             '<div class="flex items-center gap-2 text-xs text-gray-400 mt-2">' +
-              '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' +
+              '<svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' +
               '<span>更新: ' + escHtml(updateTime) + '</span>' +
             '</div>' +
           '</div>' +
         '</div>'
       );
+      // 有 URL 的卡片可点击（用 data 属性传递，JS 处理跳转）
+      if (url) {
+        return '<a href="' + escHtml(url) + '" target="_blank" rel="noopener noreferrer" class="block hover:no-underline" title="' + escHtml(titleText) + '">' + card + '</a>';
+      }
+      return card;
     }).join('');
   }
 
@@ -301,7 +323,7 @@
     var pageItems = filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize);
     cardsEl.innerHTML = pageItems.map(function(item) {
       var badges = '';
-      var infoType = getInfoType(item.url) || item.info_type || '-';
+      var infoType = item.info_type || '-';
       var typeBadge = item.type || item.tender_type || '-';
       badges += '<span class="px-2 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 rounded font-medium text-xs">' + escHtml(typeBadge) + '</span>';
       if (infoType && infoType !== '-') badges += '<span class="px-2 py-0.5 bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 rounded text-xs">' + escHtml(infoType) + '</span>';
@@ -319,9 +341,14 @@
       var favBtn = item.is_favorite
         ? '<button type="button" onclick="toggleFav(event, \'' + escHtml(item.url) + '\', true)" class="text-red-500 hover:text-red-700 shrink-0" title="取消收藏"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>'
         : '<button type="button" onclick="toggleFav(event, \'' + escHtml(item.url) + '\', false)" class="text-gray-400 hover:text-red-500 shrink-0" title="添加收藏"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>';
+      var overview = (item.project_overview || item.content_preview || '').replace(/<[^>]+>/g, '').slice(0, 300);
+      var cardTitle = item.url ? (`<a href="${escHtml(item.url)}" target="_blank" rel="noopener noreferrer" class="block hover:no-underline"${overview ? ` title="${escHtml(overview)}"` : ""}>`) : "<div>";
+
+
+      var cardClose = '';
 
       return (
-        '<div class="group flex items-center gap-3 px-4 py-3 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100 cursor-pointer">' +
+        cardTitle + '<div class="group flex items-center gap-3 px-4 py-3 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100 cursor-pointer">' +
           '<span class="w-2 h-2 rounded-full flex-shrink-0 ' + (item.tender_type === '政府采购' ? 'bg-blue-400' : 'bg-emerald-400') + '"></span>' +
           '<div class="flex-1 min-w-0">' +
             '<div class="text-sm font-medium text-gray-900 dark:text-white truncate mb-0.5">' + escHtml(item.title) + '</div>' +
@@ -330,11 +357,11 @@
           '<div class="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-100">' +
             (item.budget ? '<span class="text-xs text-orange-600 font-medium">' + escHtml(item.budget) + '</span>' : '') +
             favBtn +
-            '<a href="' + escHtml(item.url) + '" target="_blank" class="text-gray-400 hover:text-blue-500 p-1" title="查看原文">' +
+            '<span class="text-gray-400 hover:text-blue-500 p-1" title="查看原文">' +
               '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>' +
-            '</a>' +
+            '</span>' +
           '</div>' +
-        '</div>'
+        '</div>' + cardClose
       );
     }).join('');
   }
@@ -349,17 +376,21 @@
       var favBtn = item.is_favorite
         ? '<button type="button" onclick="toggleFav(event, \'' + escHtml(item.url) + '\', true)" class="text-red-500"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>'
         : '<button type="button" onclick="toggleFav(event, \'' + escHtml(item.url) + '\', false)" class="text-gray-400 hover:text-red-500"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>';
-      var infoType = getInfoType(item.url) || '-';
+      var infoType = item.info_type || '-';
       var infoBadge = infoType !== '-' ? '<span class="px-1.5 py-0.5 text-xs rounded bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">' + escHtml(infoType) + '</span>' : '-';
+      var overviewRaw = ((item.project_overview || item.content_preview) || '').replace(/<[^>]+>/g, '');
+      var overviewText = overviewRaw.length > 200 ? overviewRaw.slice(0, 200) + '\u2026' : overviewRaw;
+      var titleAttr = overviewRaw ? ' title="' + overviewRaw.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '"' : '';
+      var overviewCell = '<div class="line-clamp-3"' + titleAttr + '>' + escHtml(overviewText || '\u65e0\u5185\u5bb9') + '</div>';
       return '<tr class="hover:bg-gray-50">' +
         '<td class="px-4 py-3">' + favBtn + '</td>' +
-        '<td class="px-4 py-3 text-sm font-medium text-gray-900 truncate" title="' + escHtml(item.title) + '">' + escHtml(item.title) + '</td>' +
-        '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(item.category || item.tender_type || '-') + '</td>' +
-        '<td class="px-4 py-3">' + infoBadge + '</td>' +
-        '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(item.publish_date || '-') + '</td>' +
-        '<td class="px-4 py-3 text-sm text-gray-500">' + escHtml(item.keywords_matched || '-') + '</td>' +
- '<td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-xs truncate">' + escHtml(truncate((item.content_preview || item.project_overview || '无内容'), 50)) + '</td>' +
-        '<td class="px-4 py-3"><a href="' + escHtml(item.url) + '" target="_blank" class="text-blue-600 hover:text-blue-800 text-sm">原文</a></td>' +
+        '<td class="w-80 px-4 py-3 text-sm font-medium text-gray-900 align-top" style="max-width:20rem;overflow-wrap:break-word;white-space:pre-wrap;">' + escHtml(item.title) + '</td>' +
+        '<td class="w-24 px-4 py-3 text-sm text-gray-500 align-top truncate">' + escHtml(item.business_type || item.category || '-') + '</td>' +
+        '<td class="w-28 px-4 py-3 align-top">' + infoBadge + '</td>' +
+        '<td class="w-28 px-4 py-3 text-sm text-gray-500 align-top">' + escHtml(item.publish_date || '-') + '</td>' +
+        '<td class="w-24 px-4 py-3 text-sm text-gray-500 align-top truncate">' + escHtml(item.keywords_matched || '-') + '</td>' +
+        '<td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-md">' + overviewCell + '</td>' +
+        '<td class="w-20 px-4 py-3"><a href="' + escHtml(item.url) + '" target="_blank" class="text-blue-600 hover:text-blue-800 text-sm">\u539f\u6587</a></td>' +
       '</tr>';
     }).join('');
   }
@@ -370,10 +401,34 @@
     var start = (currentPage - 1) * pageSize + 1;
     var end = Math.min(currentPage * pageSize, totalItems);
     document.getElementById('paginationInfo').textContent = '显示 ' + start + '-' + end + ' / 共 ' + totalItems + ' 条';
-    document.getElementById('pageIndicator').textContent = currentPage + ' / ' + totalPages;
     document.getElementById('prevPage').disabled = currentPage <= 1;
     document.getElementById('nextPage').disabled = currentPage >= totalPages;
+    // Build page number buttons
+    var pageIndicator = document.getElementById('pageIndicator');
+    var maxShow = 7;
+    var pages = [];
+    if (totalPages <= maxShow) {
+      for (var i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      if (currentPage <= 4) {
+        for (var i = 1; i <= 5; i++) pages.push(i);
+        pages.push('...'); pages.push(totalPages);
+      } else if (currentPage >= totalPages - 3) {
+        pages.push(1); pages.push('...');
+        for (var i = totalPages - 4; i <= totalPages; i++) pages.push(i);
+      } else {
+        pages.push(1); pages.push('...');
+        for (var i = currentPage - 1; i <= currentPage + 1; i++) pages.push(i);
+        pages.push('...'); pages.push(totalPages);
+      }
+    }
+    pageIndicator.innerHTML = pages.map(function(p) {
+      if (p === '...') return '<span class="px-1.5 py-1.5 text-sm text-gray-400">…</span>';
+      if (p === currentPage) return '<button type="button" class="px-2.5 py-1.5 text-sm font-medium bg-blue-600 text-white rounded" onclick="goPage(' + p + ')">' + p + '</button>';
+      return '<button type="button" class="px-2.5 py-1.5 text-sm border rounded hover:bg-gray-50" onclick="goPage(' + p + ')">' + p + '</button>';
+    }).join('');
   }
+  window.goPage = function(n) { currentPage = n; render(); window.scrollTo({top: 0, behavior: 'smooth'}); }
 
   function render() {
     if (currentView === 'card') {
@@ -432,8 +487,8 @@
     var infoType = document.getElementById('filterInfoType').value;
     filteredItems = allItems.filter(function(item) {
       if (kw && !(item.title || '').toLowerCase().includes(kw) && !(item.keywords_matched || '').toLowerCase().includes(kw)) return false;
-      if (type && (item.category || item.tender_type || '') !== type) return false;
-      if (infoType && getInfoType(item.url) !== infoType) return false;
+      if (type && (item.business_type || item.type || item.tender_type || '') !== type) return false;
+      if (infoType && (item.info_type || '') !== infoType) return false;
       if (selectedKeyword && !(item.keywords_matched || '').includes(selectedKeyword)) return false;
       return true;
     });
@@ -446,7 +501,7 @@
   async function loadData() {
     showSkeleton(true);
     try {
-      var qs = '?page_size=500';
+      var qs = '?page_size=20000';
       var res = await authFetch('/api/projects' + qs);
       var data = await res.json();
       allItems = data.projects || data.data || [];
@@ -479,19 +534,22 @@
   window.toggleFav = async function(e, url, isFav) {
     e.preventDefault();
     e.stopPropagation();
+    var item = allItems.find(function(f) { return f.url === url; });
+    if (!item) item = filteredItems.find(function(f) { return f.url === url; });
     try {
       if (isFav) {
-        await authFetch("/api/favorites?project_url=" + encodeURIComponent(url), {method: "DELETE"});
+        var id = item && (item._fid || item.id);
+        if (id) {
+          await authFetch("/api/favorites/id/" + id, {method: "DELETE"});
+        } else {
+          await authFetch("/api/favorites?project_url=" + encodeURIComponent(url), {method: "DELETE"});
+        }
       } else {
         await authFetch("/api/favorites", {
           method: "POST",
           body: JSON.stringify({project_url: url, title: "", url: url})
         });
       }
-      // Update local state
-      var item = allItems.find(function(f) { return f.url === url; });
-      if (item) item.is_favorite = !isFav;
-      item = filteredItems.find(function(f) { return f.url === url; });
       if (item) item.is_favorite = !isFav;
       render();
     } catch(err) { console.error('收藏操作失败', err); }
@@ -499,9 +557,70 @@
 
   window.switchView = switchView;
 
-  document.getElementById('searchKeyword').addEventListener('input', applyFilters);
-  document.getElementById('filterType').addEventListener('change', applyFilters);
-  document.getElementById('filterInfoType').addEventListener('change', applyFilters);
+  // 信息类型选项随业务类型联动
+  var INFO_OPTIONS = {
+    '政府采购': [
+      {value: '采购公告', label: '采购公告'},
+      {value: '答疑变更', label: '答疑变更'},
+      {value: '采购结果公告', label: '采购结果公告'},
+      {value: '相关公告', label: '相关公告'},
+
+    ],
+    '工程招投标': [
+      {value: '招标公告', label: '招标公告'},
+      {value: '答疑补遗', label: '答疑补遗'},
+      {value: '中标候选人公示', label: '中标候选人公示'},
+      {value: '中标结果公示', label: '中标结果公示'},
+      {value: '招标计划', label: '招标计划'},
+      {value: '相关公告', label: '相关公告'},
+      {value: '终止公告', label: '终止公告'},
+
+    ]
+  };
+  function updateInfoTypeOptions() {
+    var bizType = document.getElementById('filterType').value;
+    var sel = document.getElementById('filterInfoType');
+    // Reset to empty (全部公示) when switching business type
+    sel.innerHTML = '<option value="">全部公示</option>';
+    if (bizType && INFO_OPTIONS[bizType]) {
+      INFO_OPTIONS[bizType].forEach(function(opt) {
+        var o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label;
+        sel.appendChild(o);
+      });
+    }
+    sel.value = ''; // Always reset to 全部公示 on business type change
+  }
+  document.getElementById('filterType').addEventListener('change', function() {
+    updateInfoTypeOptions();
+    applyFilters();
+    // 按项目视图下也重载分组
+    if (currentProjectView === 'project') {
+      loadProjectGroups();
+    }
+  });
+  document.getElementById('pageSizeSelect').addEventListener('change', function() {
+    currentPage = 1;
+    pageSize = parseInt(document.getElementById('pageSizeSelect').value, 10) || 20;
+    totalPages = Math.ceil(totalItems / pageSize) || 1;
+    if (currentPage > totalPages) currentPage = totalPages;
+    render();
+  });
+  document.getElementById('filterInfoType').addEventListener('change', function() {
+    if (currentProjectView === 'project') {
+      loadProjectGroups();
+    } else {
+      applyFilters();
+    }
+  });
+  // 回车触发关键词搜索
+  document.getElementById('searchKeyword').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyFilters();
+    }
+  });
   document.getElementById('exportBtn').addEventListener('click', function() { var token = localStorage.getItem('session_token') || ''; window.location.href = '/api/export/csv?session_token=' + encodeURIComponent(token); });
   document.getElementById('prevPage').addEventListener('click', function() { if (currentPage > 1) { currentPage--; render(); } });
   document.getElementById('nextPage').addEventListener('click', function() { if (currentPage < totalPages) { currentPage++; render(); } });

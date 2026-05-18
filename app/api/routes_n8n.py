@@ -153,43 +153,100 @@ async def get_latest_data(
     date_start: str = Query(None, description="YYYY-MM-DD"),
     date_end: str = Query(None, description="YYYY-MM-DD"),
 ):
-    """获取最新采集数据 (供 n8n 消费)"""
-    data_file = Path(sys_path) / "output" / "latest.json"
-    if not data_file.exists():
-        return {"data": [], "total": 0}
-
-    with open(data_file, encoding="utf-8") as f:
-        data = json.load(f)
-
-    projects = data.get("projects", [])
-    if matched_only:
-        projects = [p for p in projects if p.get("keywords_matched")]
-
-    # 日期过滤
-    if date_start or date_end:
-        filtered = []
-        for p in projects:
-            pd = p.get("publish_date", "")
-            if isinstance(pd, list):
-                pd = pd[0] if pd else ""
-            if isinstance(pd, str):
-                pd = pd.replace("[", "").replace("]", "").replace("'", "")
-            if pd:
-                pd = pd[:10]
-                if date_start and pd < date_start:
-                    continue
-                if date_end and pd > date_end:
-                    continue
-            filtered.append(p)
-        projects = filtered
-
-    return {
-        "data": projects[offset : offset + limit],
-        "total": len(projects),
-        "offset": offset,
-        "limit": limit,
-        "last_run": data.get("last_run", ""),
-    }
+    """获取最新采集数据 (供 n8n 消费) - 从 PostgreSQL 读取"""
+    from app.database import get_db
+    
+    try:
+        db = get_db()
+        conn = db._get_conn()
+        
+        # 构建查询
+        where_clauses = []
+        params = []
+        
+        # 只查询有 url 的有效记录
+        where_clauses.append("url IS NOT NULL AND url != '' AND url LIKE 'http%%'")
+        
+        if matched_only:
+            where_clauses.append("keywords_matched IS NOT NULL AND keywords_matched != ''")
+        
+        if date_start:
+            where_clauses.append("publish_date >= ?")
+            params.append(date_start)
+        if date_end:
+            where_clauses.append("publish_date <= ?")
+            params.append(date_end)
+        
+        where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+        
+        # 查询总数
+        total_row = conn.execute(f"SELECT COUNT(*) FROM projects_cqggzy WHERE {where_sql}", params).fetchone()
+        total_cqg = total_row[0] if total_row else 0
+        total_row2 = conn.execute(f"SELECT COUNT(*) FROM projects_ccgp WHERE {where_sql}", params).fetchone()
+        total_ccgp = total_row2[0] if total_row2 else 0
+        total = total_cqg + total_ccgp
+        
+        # 分页查询（合并两个表）
+        # 用 OFFSET/FETCH 对整个结果集分页比较复杂，改用应用层合并
+        all_projects = []
+        
+        for table in ("projects_cqggzy", "projects_ccgp"):
+            try:
+                rows = conn.execute(
+                    f"SELECT title, category, tender_type, business_type, info_type, publish_date, budget, bid_amount, deadline, region, industry, project_overview, bidder_requirements, submission_deadline, contact_name, contact_phone, keywords_matched, source_url, url, scraped_at FROM {table} WHERE {where_sql} ORDER BY publish_date DESC NULLS LAST, scraped_at DESC LIMIT ?",
+                    params + [500]  # 最多取 500 条
+                ).fetchall()
+                for row in rows:
+                    all_projects.append({
+                        "title": row[0] or "",
+                        "category": row[1] or "",
+                        "tender_type": row[2] or "",
+                        "business_type": row[3] or "",
+                        "info_type": row[4] or "",
+                        "publish_date": str(row[5]) if row[5] else "",
+                        "budget": row[6] or "",
+                        "bid_amount": row[7] or "",
+                        "deadline": str(row[8]) if row[8] else "",
+                        "region": row[9] or "",
+                        "industry": row[10] or "",
+                        "project_overview": row[11] or "",
+                        "bidder_requirements": row[12] or "",
+                        "submission_deadline": row[13] or "",
+                        "contact_name": row[14] or "",
+                        "contact_phone": row[15] or "",
+                        "keywords_matched": row[16] or "",
+                        "source_url": row[17] or "",
+                        "url": row[18] or "",
+                        "scraped_at": str(row[19]) if row[19] else "",
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to load from {table}: {e}")
+        
+        # 按时间排序
+        all_projects.sort(key=lambda p: p.get("publish_date", "") or "", reverse=True)
+        
+        # 应用分页
+        paginated = all_projects[offset : offset + limit]
+        
+        # 获取最近采集时间
+        last_run = "-"
+        try:
+            row = conn.execute("SELECT MAX(last_run_at) FROM collection_tasks WHERE last_run_at IS NOT NULL").fetchone()
+            if row and row[0]:
+                last_run = str(row[0])
+        except Exception:
+            pass
+        
+        return {
+            "data": paginated,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "last_run": last_run,
+        }
+    except Exception as e:
+        logger.error(f"get_latest_data error: {e}")
+        return {"data": [], "total": 0, "offset": offset, "limit": limit, "last_run": "-"}
 
 
 # ========== 推送数据到 n8n ==========
@@ -198,7 +255,7 @@ async def push_to_n8n(
     project_urls: List[str] = Body(..., description="要推送的项目 URL 列表"),
     n8n_url: str = Body(..., description="n8n webhook URL"),
 ):
-    """推送指定项目到 n8n workflow"""
+    """推送指定项目到 n8n workflow - 从 PostgreSQL 读取"""
     # SSRF protection: validate target URL
     if not _is_url_safe(n8n_url):
         raise HTTPException(
@@ -206,16 +263,44 @@ async def push_to_n8n(
             detail="n8n_url 指向不允许的地址（内网/危险端口/无效 URL）",
         )
 
-    data_file = Path(sys_path) / "output" / "latest.json"
-    with open(data_file, encoding="utf-8") as f:
-        data = json.load(f)
+    # 从 PostgreSQL 查询项目
+    from app.database import get_db
+    db = get_db()
+    conn = db._get_conn()
+    projects_map = {}
+    
+    for table in ("projects_cqggzy", "projects_ccgp"):
+        try:
+            rows = conn.execute(f'SELECT title, category, tender_type, business_type, info_type, publish_date, budget, bid_amount, deadline, region, industry, project_overview, bidder_requirements, submission_deadline, contact_name, contact_phone, keywords_matched, source_url, url, scraped_at FROM {table}').fetchall()
+            for row in rows:
+                url = row[18]
+                if url:
+                    projects_map[url] = {
+                        "title": row[0] or "",
+                        "category": row[1] or "",
+                        "tender_type": row[2] or "",
+                        "business_type": row[3] or "",
+                        "info_type": row[4] or "",
+                        "publish_date": str(row[5]) if row[5] else "",
+                        "budget": row[6] or "",
+                        "bid_amount": row[7] or "",
+                        "deadline": str(row[8]) if row[8] else "",
+                        "region": row[9] or "",
+                        "industry": row[10] or "",
+                        "project_overview": row[11] or "",
+                        "bidder_requirements": row[12] or "",
+                        "submission_deadline": row[13] or "",
+                        "contact_name": row[14] or "",
+                        "contact_phone": row[15] or "",
+                        "keywords_matched": row[16] or "",
+                        "source_url": row[17] or "",
+                        "url": row[18] or "",
+                        "scraped_at": str(row[19]) if row[19] else "",
+                    }
+        except Exception as e:
+            logger.warning(f"Failed to load from {table}: {e}")
 
-    projects = {p.get("url"): p for p in data.get("projects", [])}
-
-    results = []
-    for url in project_urls:
-        if url in projects:
-            results.append(projects[url])
+    results = [projects_map[url] for url in project_urls if url in projects_map]
 
     # 发送到 n8n
     try:

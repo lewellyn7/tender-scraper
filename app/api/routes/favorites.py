@@ -9,8 +9,44 @@ from fastapi.responses import JSONResponse
 from app.api.dependencies import get_current_user
 from app.database import get_db
 from app.security.audit import write_audit_log, EVENT_DATA_DELETE
+from loguru import logger
 
 router = APIRouter(prefix="/api/favorites", tags=["收藏"])
+
+
+import re
+import os
+import psycopg2
+from psycopg2 import pool
+
+_pg_pool = None
+
+def _get_pg_pool():
+    global _pg_pool
+    if _pg_pool is None:
+        db_url = os.getenv("DATABASE_URL", "")
+        if db_url.startswith("postgresql://"):
+            _pg_pool = pool.ThreadedConnectionPool(1, 5, dsn=db_url)
+    return _pg_pool
+
+def _get_project_overview(url: str) -> str:
+    """从 projects_cqggzy 查 project_overview 用于补充 favorites content_preview"""
+    p = _get_pg_pool()
+    if not p:
+        return ""
+    try:
+        conn = p.getconn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT project_overview FROM projects_cqggzy WHERE url = %s AND project_overview IS NOT NULL AND project_overview != '' LIMIT 1",
+            (url,)
+        )
+        row = cur.fetchone()
+        cur.close()
+        p.putconn(conn)
+        return row[0] if row else ""
+    except Exception:
+        return ""
 
 
 def _serialize(obj):
@@ -37,8 +73,17 @@ def get_favorites(
     db = get_db()
     total = db.get_favorite_count(user_id=user["user_id"], status=status)
     favorites = db.get_favorites(user_id=user["user_id"], status=status, limit=limit, offset=offset)
+    rows = []
+    for f in favorites:
+        fr = _serialize_row(f)
+        # 补充 project_overview（优先用 content_preview，没有则从 projects_cqggzy 查）
+        if not fr.get("content_preview"):
+            overview = _get_project_overview(fr.get("project_url", ""))
+            if overview:
+                fr["content_preview"] = overview
+        rows.append(fr)
     return JSONResponse({
-        "favorites": [_serialize_row(f) for f in favorites],
+        "favorites": rows,
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -105,7 +150,8 @@ def remove_favorite(request: Request, project_url: str):
     """删除收藏"""
     user = get_current_user(request)
     db = get_db()
-    success = db.remove_favorite(project_url, user_id=user["user_id"])
+    success = db.remove_favorite_sync(project_url, user_id=user["user_id"])
+    logger.info(f"remove_favorite: project_url={repr(project_url)}, user_id={user['user_id']}, success={success}")
     write_audit_log(
         EVENT_DATA_DELETE,
         user_id=user["user_id"],
@@ -114,6 +160,29 @@ def remove_favorite(request: Request, project_url: str):
         resource=project_url,
         result="success" if success else "failure",
         details={"operation": "remove_favorite"},
+    )
+    if success:
+        return JSONResponse({"success": True})
+    return JSONResponse({"success": False}, status_code=500)
+
+
+# ─── DELETE /favorites/id/{fav_id} ─────────────────────────────
+
+@router.delete("/id/{fav_id}")
+def remove_favorite_by_id(request: Request, fav_id: int):
+    """按 ID 删除收藏（绕 URL 编码问题）"""
+    user = get_current_user(request)
+    db = get_db()
+    success = db.remove_favorite_by_id(fav_id, user_id=user["user_id"])
+    logger.info(f"remove_favorite_by_id: fav_id={fav_id}, user_id={user['user_id']}, success={success}")
+    write_audit_log(
+        EVENT_DATA_DELETE,
+        user_id=user["user_id"],
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        resource=str(fav_id),
+        result="success" if success else "failure",
+        details={"operation": "remove_favorite_by_id"},
     )
     if success:
         return JSONResponse({"success": True})

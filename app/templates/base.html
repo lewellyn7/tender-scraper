@@ -110,7 +110,9 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
             return headers;
         }
         function authFetch(u, o) {
-            return fetch(u, Object.assign({headers: Object.assign({'Content-Type': 'application/json'}, authHeaders())}, o || {}));
+            o = o || {};
+            var headers = Object.assign({'Content-Type': 'application/json'}, authHeaders(), o.headers || {});
+            return fetch(u, Object.assign({headers: headers}, o));
         }
         function show(el) { if (el) el.classList.remove('hidden'); }
         function hide(el) { if (el) el.classList.add('hidden'); }
@@ -152,7 +154,7 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
                 </a>
                 <!-- Primary nav -->
                 <div class="hidden md:flex items-center gap-0.5">
-                    <a href="/" class="nav-item">Dashboard</a>
+                    <a href="/dashboard" class="nav-item">Dashboard</a>
                     <a href="/data" class="nav-item">采集内容</a>
                     <a href="/favorites" class="nav-item">收藏<span class="ml-1.5 text-xs text-gray-400"></span></a>
                     <a href="/analytics" class="nav-item">分析</a>
@@ -198,7 +200,7 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
         </div>
         <!-- Mobile nav -->
         <div id="mobileNav" class="md:hidden hidden border-t border-gray-100 dark:border-white/5 py-2 px-4 space-y-0.5">
-            <a href="/" class="mobile-nav-item">Dashboard</a>
+            <a href="/dashboard" class="mobile-nav-item">Dashboard</a>
             <a href="/data" class="mobile-nav-item">采集内容</a>
             <a href="/favorites" class="mobile-nav-item">收藏</a>
             <a href="/analytics" class="mobile-nav-item">分析</a>

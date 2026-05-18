@@ -130,8 +130,8 @@ SITES: List[Dict] = [
         "auth": "cookie",
         "entry_url": "https://www.ccgp-chongqing.gov.cn/",
         "list_urls": [
-            "https://www.ccgp-chongqing.gov.cn/zfcms/channel.shtml?siteId=1&chan_catalog_id=2",
-            "https://www.ccgp-chongqing.gov.cn/zfcms/channel.shtml?siteId=1&chan_catalog_id=3",
+            "https://www.ccgp-chongqing.gov.cn/info-notice/notice-list",
+            "https://www.ccgp-chongqing.gov.cn/info-notice/intention-list",
         ],
         "selectors": {
             "list_item": "a[href]",

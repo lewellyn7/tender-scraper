@@ -446,7 +446,10 @@ class SmartScheduler:
             # 检查是否应跳过（间隔保护）
             if await self.interval_manager.should_skip(task):
                 results["skipped"] += 1
-                logger.debug(f"[SmartScheduler] 跳过任务 {task_id}（间隔保护）")
+                logger.debug(f"[SmartScheduler] 跳过任务 {task_id}（间隔保护），重新入队")
+                # 重新入队（稍后重试，不丢弃）
+                await self._queue.put((task.priority_dynamic, task_id))
+                await asyncio.sleep(0.1)
                 continue
 
             # 并发控制

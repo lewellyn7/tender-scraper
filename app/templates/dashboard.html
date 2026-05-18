@@ -116,6 +116,8 @@
     var dateStart = '';
     var dateEnd = '';
     var dateRangePreset = null;
+    var impPageSize = 6;
+    var impPages = {};  // { sourceName: pageNumber }
 
     // ── Init ──────────────────────────────────────────────────────────
     function initData() {
@@ -263,11 +265,32 @@
 
         sourceNames.forEach(function(sourceName) {
             var source = bySource[sourceName];
-            var important = source.important.slice(0, 6);
+            var allImportant = source.important;
+            var totalImp = allImportant.length;
+            var pageSize = impPageSize;
+            var page = impPages[sourceName] || 1;
+            var totalImpPages = Math.max(1, Math.ceil(totalImp / pageSize));
+            if (page > totalImpPages) { page = totalImpPages; impPages[sourceName] = page; }
+            var start = (page - 1) * pageSize;
+            var pageItems = allImportant.slice(start, start + pageSize);
 
-            var cardsHtml = important.map(function(project) {
+            var cardsHtml = pageItems.map(function(project) {
                 return buildProjectCard(project);
             }).join('');
+
+            var paginationHtml = '';
+            if (totalImpPages > 1) {
+                paginationHtml =
+                    '<div class="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">' +
+                        '<span class="text-xs text-gray-400">第 ' + page + ' / ' + totalImpPages + ' 页，共 ' + totalImp + ' 条</span>' +
+                        '<div class="flex items-center gap-2">' +
+                            '<button type="button" onclick="impPrev(\'' + escHtml(sourceName) + '\')" class="px-2 py-1 text-xs border rounded hover:bg-gray-50 ' + (page <= 1 ? 'opacity-30 pointer-events-none' : '') + '">‹</button>' +
+                            '<input type="number" id="impPage_' + escHtml(sourceName.replace(/[^a-zA-Z0-9]/g, '_')) + '" value="' + page + '" min="1" max="' + totalImpPages + '" class="w-12 text-center text-xs border rounded py-1" onchange="impGo(\' + escHtml(sourceName) + \',this.value)" onkeydown="if(event.key=="Enter"){event.preventDefault();impGo(\' + escHtml(sourceName) + \',this.value);}" />' +
+                            '<span class="text-xs text-gray-400">/' + totalImpPages + '</span>' +
+                            '<button type="button" onclick="impNext(\'' + escHtml(sourceName) + '\')" class="px-2 py-1 text-xs border rounded hover:bg-gray-50 ' + (page >= totalImpPages ? 'opacity-30 pointer-events-none' : '') + '">›</button>' +
+                        '</div>' +
+                    '</div>';
+            }
 
             var budgetSection = '';
             if (source.budgetTotal) {
@@ -302,7 +325,7 @@
                     '<div class="p-6">' +
                         '<h4 class="text-sm font-medium text-gray-500 mb-4">📌 重要项目摘要</h4>' +
                         '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">' + cardsHtml + '</div>' +
-                        budgetSection +
+                        budgetSection + paginationHtml +
                     '</div>' +
                 '</div>';
         });
@@ -438,6 +461,33 @@
             .replace(/"/g, '&quot;');
     }
 
+    // ── Important projects pagination ─────────────────────────────
+    window.impPrev = function(sourceName) {
+        var page = impPages[sourceName] || 1;
+        if (page <= 1) return;
+        impPages[sourceName] = page - 1;
+        renderSourceGroups();
+    };
+    window.impGo = function(sourceName, val) {
+        var source = bySource[sourceName];
+        if (!source) return;
+        var page = parseInt(val, 10);
+        if (isNaN(page) || page < 1) page = 1;
+        var totalImpPages = Math.max(1, Math.ceil(source.important.length / impPageSize));
+        if (page > totalImpPages) page = totalImpPages;
+        impPages[sourceName] = page;
+        renderSourceGroups();
+    };
+    window.impNext = function(sourceName) {
+        var source = bySource[sourceName];
+        if (!source) return;
+        var total = source.important.length;
+        var page = impPages[sourceName] || 1;
+        if (page >= Math.ceil(total / impPageSize)) return;
+        impPages[sourceName] = page + 1;
+        renderSourceGroups();
+    };
+
     function clearDateFilter() {
         dateStart = '';
         dateEnd = '';
@@ -531,7 +581,7 @@
 
     async function checkHealth() {
         try {
-            var r = await fetch('/health/extended');
+            var r = await fetch('/api/health/extended');
             if (!r.ok) throw new Error('health check failed');
             var d = await r.json();
             var comps = d.components || {};

@@ -309,12 +309,18 @@
 
   <!-- Duplicates Tab -->
   <div id="tab-duplicates" class="tab-content space-y-4 hidden">
+    <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-2">
+      <p class="text-sm text-blue-700 dark:text-blue-300"><strong>功能说明：</strong>按招标编号/项目编号查重。同一 <code>project_no</code> 的多条记录视为重复项目（如同一项目多次招标）。</p>
+    </div>
     <div class="flex justify-between items-center">
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white">重复项目检测</h2>
       <div class="flex gap-3 items-center">
-        <label class="text-sm text-gray-600 dark:text-gray-400">相似度阈值:</label>
-        <input type="range" id="dup-threshold" min="0.1" max="1.0" step="0.05" value="0.5" class="w-32">
-        <span id="dup-threshold-display" class="text-sm font-mono w-12">0.5</span>
+        <label class="text-sm text-gray-600 dark:text-gray-400">来源:</label>
+        <select id="dup-source" class="border rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-700 dark:border-gray-600">
+          <option value="all">全部</option>
+          <option value="cqggzy">工程招投标</option>
+          <option value="ccgp">政府采购</option>
+        </select>
         <button type="button" id="btn-find-dup" class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">检测</button>
       </div>
     </div>
@@ -485,7 +491,7 @@
   </div>
 
   <!-- DB Backup Tab -->
-  <div id="tab-dbbakcup" class="tab-content space-y-4 hidden">
+  <div id="tab-dbbackup" class="tab-content space-y-4 hidden">
     <div class="flex justify-between items-center">
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white">💾 数据库文件备份</h2>
       <div class="flex gap-2">
@@ -539,8 +545,8 @@
     // Backups
     backups: [],
     // Duplicates
-    dupThreshold: 0.5,
     dupGroups: [],
+    dupSource: "all",
     dupLoading: false,
     // Account
     accountForm: { username: '', display_name: '', role: '', old_password: '', new_password: '' },
@@ -973,7 +979,7 @@
     hide($('dup-empty'));
     hide($('dup-results'));
     try {
-      var r = await authFetch('/api/duplicates?threshold=' + state.dupThreshold);
+      var r = await fetch('/api/dedup?source=' + (state.dupSource || 'all'));
       var d = await r.json();
       state.dupGroups = d.duplicates || [];
       renderDuplicates();
@@ -985,19 +991,20 @@
   }
 
   // 字段中文映射 + 权重
-  var DUP_FIELD_LABELS = {
-    title: { label: '标题', weight: 0.40, icon: '📄' },
-    budget: { label: '预算', weight: 0.20, icon: '💰' },
-    tender_type: { label: '项目类型', weight: 0.15, icon: '🏷️' },
-    url: { label: 'URL', weight: 0.15, icon: '🔗' },
-    publish_date: { label: '发布日期', weight: 0.10, icon: '📅' },
-  };
-
-  function _dupFieldBadge(score, label, icon) {
-    if (score >= 0.8) return '<span class="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200">' + icon + ' ' + label + ' ' + (score * 100).toFixed(0) + '%</span>';
-    if (score >= 0.4) return '<span class="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200">' + icon + ' ' + label + ' ' + (score * 100).toFixed(0) + '%</span>';
-    if (score > 0) return '<span class="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">' + icon + ' ' + label + ' ' + (score * 100).toFixed(0) + '%</span>';
-    return '<span class="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-gray-50 text-gray-300 dark:bg-gray-800 dark:text-gray-600">' + icon + ' ' + label + ' —</span>';
+  function renderDupItem(item) {
+    var srcBadge = '';
+    if (item.source) {
+      var srcLabel = item.source === 'cqggzy' ? '工程招投标' : (item.source === 'ccgp' ? '政府采购' : item.source);
+      srcBadge = '<span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">' + srcLabel + '</span>';
+    }
+    return '<div class="text-sm">' +
+      '<div class="flex items-center gap-2 mb-1">' +
+        srcBadge +
+        '<span class="flex-1 text-gray-900 dark:text-gray-200 truncate font-medium">' + escapeHtml(item.title || '') + '</span>' +
+        '<a href="' + escapeHtml(item.url || '#') + '" target="_blank" class="text-blue-500 hover:text-blue-700 text-xs shrink-0">查看 →</a>' +
+      '</div>' +
+      '<div class="text-xs text-gray-400 ml-2">编号: <code class="text-orange-500">' + escapeHtml(item.project_no || '') + '</code> · 发布: ' + escapeHtml(item.publish_date || '') + '</div>' +
+    '</div>';
   }
 
   function renderDuplicates() {
@@ -1010,59 +1017,24 @@
     }
     show(resultsEl);
     hide(emptyEl);
-    var html = '<p class="text-sm text-gray-500 dark:text-gray-400 mb-3">发现 <span class="font-bold text-red-500">' + state.dupGroups.length + '</span> 组重复项目（阈值 ' + (state.dupThreshold * 100).toFixed(0) + '%）</p>';
+    var html = '<p class="text-sm text-gray-500 dark:text-gray-400 mb-3">发现 <span class="font-bold text-red-500">' + state.dupGroups.length + '</span> 组重复项目（共 ' + state.dupGroups.reduce(function(s, g){ return s + g.length; }, 0) + ' 条记录）</p>';
     state.dupGroups.forEach(function(group, gi) {
-      var primary = group[0];
       html += '<div class="anim-card bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 mb-3">';
       html += '<div class="flex items-center justify-between mb-3">';
-      html += '<p class="text-sm font-medium text-gray-700 dark:text-gray-300">重复组 #' + (gi + 1) + ' · <span class="text-gray-400">' + group.length + ' 个项目</span></p>';
-      html += '<div class="flex gap-1 flex-wrap justify-end">';
-      // 显示汇总 badge（从第一个重复项取字段得分）
-      if (group.length > 1 && group[1].fields) {
-        for (var fk in DUP_FIELD_LABELS) {
-          var f = group[1].fields[fk];
-          if (f && f.matched) html += _dupFieldBadge(f.score, DUP_FIELD_LABELS[fk].label, DUP_FIELD_LABELS[fk].icon);
-        }
-      }
-      html += '</div></div>';
+      html += '<p class="text-sm font-medium text-gray-700 dark:text-gray-300">编号: <code class="text-orange-500">' + escapeHtml(group[0].project_no || '') + '</code></p>';
+      html += '<span class="text-xs text-gray-400">' + group.length + ' 条记录</span>';
+      html += '</div>';
       html += '<div class="space-y-2">';
       group.forEach(function(item, ii) {
-        var labelClass = ii === 0 ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200';
-        var label = ii === 0 ? '原始' : '重复';
-        var simTag = ii > 0 ? '<span class="ml-2 text-xs font-mono px-2 py-0.5 rounded bg-red-50 text-red-600 dark:bg-red-900 dark:text-red-300">' + (item.sim * 100).toFixed(0) + '%</span>' : '';
         var indent = ii > 0 ? 'ml-4 pl-4 border-l-2 border-yellow-300 dark:border-yellow-700' : '';
+        var details = [];
         html += '<div class="text-sm ' + indent + '">';
-        html += '<div class="flex items-center gap-2 mb-1">' +
-          '<span class="text-xs px-2 py-0.5 rounded ' + labelClass + '">' + label + '</span>' +
-          '<span class="flex-1 text-gray-900 dark:text-gray-200 truncate font-medium">' + escapeHtml(item.title) + '</span>' +
-          simTag +
-          '<a href="' + escapeHtml(item.url) + '" target="_blank" class="text-blue-500 hover:text-blue-700 text-xs shrink-0">查看 →</a>';
+        html += renderDupItem(item);
         html += '</div>';
-        // 显示字段详情行（重复项才有）
-        if (ii > 0 && item.fields) {
-          html += '<div class="flex flex-wrap gap-1 ml-6 mt-1">';
-          for (var fk in DUP_FIELD_LABELS) {
-            var f = item.fields[fk];
-            if (f) html += _dupFieldBadge(f.score, DUP_FIELD_LABELS[fk].label, DUP_FIELD_LABELS[fk].icon);
-          }
-          html += '</div>';
-          // 详细值对比
-          if (item.budget || item.tender_type || item.publish_date) {
-            var details = [];
-            if (item.budget) details.push('💰 ' + item.budget);
-            if (item.tender_type) details.push('🏷️ ' + item.tender_type);
-            if (item.publish_date) details.push('📅 ' + item.publish_date);
-            html += '<div class="text-xs text-gray-400 ml-6 mt-0.5">' + details.join(' · ') + '</div>';
-          }
-        } else if (ii === 0) {
-          // 原始项显示基本信息
-          var details = [];
-          if (item.budget) details.push('💰 ' + item.budget);
-          if (item.tender_type) details.push('🏷️ ' + item.tender_type);
-          if (item.publish_date) details.push('📅 ' + item.publish_date);
-          if (details.length) html += '<div class="text-xs text-gray-400 ml-6 mt-0.5">' + details.join(' · ') + '</div>';
-        }
-        html += '</div>';
+        if (item.budget) details.push('💰 ' + item.budget);
+        if (item.tender_type) details.push('🏷️ ' + item.tender_type);
+        if (item.publish_date) details.push('📅 ' + item.publish_date);
+        if (details.length) html += '<div class="text-xs text-gray-400 ml-6 mt-0.5">' + details.join(' · ') + '</div>';
       });
       html += '</div></div>';
     });
@@ -1081,9 +1053,9 @@
   }
 
   async function loadDeploymentMode() {
-    if (!state.isAdmin) return;
+    // Always load mode (GET /api/system/mode is now public)
     try {
-      var d = await authFetch('/api/system/mode').then(function(r) { return r.json(); });
+      var d = await fetch('/api/system/mode').then(function(r) { return r.json(); });
       var mode = d.mode || 'team';
       $('cur-deploy-mode').textContent = mode === 'self' ? '自用模式 (免登录)' : '团队模式 (需登录)';
       $('btn-mode-self').classList.toggle('border-blue-500', mode === 'self');
@@ -1091,7 +1063,7 @@
       $('btn-mode-team').classList.toggle('border-blue-500', mode === 'team');
       $('btn-mode-team').classList.toggle('text-blue-600', mode === 'team');
       document.getElementById('deploy-mode-card').classList.remove('hidden');
-    } catch (e) { /* ignore */ }
+    } catch (e) { /* ignore - non-critical */ }
   }
 
   async function switchDeployMode(mode) {
@@ -1310,9 +1282,9 @@
         '<td class="px-4 py-3 text-gray-500">' + b.size_mb + ' MB</td>' +
         '<td class="px-4 py-3 text-gray-500 text-xs">' + createdAt + '</td>' +
         '<td class="px-4 py-3 text-right">' +
-          '<button type="button" data-restore-dbbakcup="' + escapeHtml(b.path) + '" class="text-blue-600 hover:text-blue-800 text-xs mr-2">恢复</button>' +
-          '<button type="button" data-download-dbbakcup="' + escapeHtml(b.path) + '" class="text-green-600 hover:text-green-800 text-xs mr-2">下载</button>' +
-          '<button type="button" data-delete-dbbakcup="' + escapeHtml(b.path) + '" class="text-red-600 hover:text-red-800 text-xs">删除</button>' +
+          '<button type="button" data-restore-dbbackup="' + escapeHtml(b.path) + '" class="text-blue-600 hover:text-blue-800 text-xs mr-2">恢复</button>' +
+          '<button type="button" data-download-dbbackup="' + escapeHtml(b.path) + '" class="text-green-600 hover:text-green-800 text-xs mr-2">下载</button>' +
+          '<button type="button" data-delete-dbbackup="' + escapeHtml(b.path) + '" class="text-red-600 hover:text-red-800 text-xs">删除</button>' +
         '</td></tr>';
     });
     tbody.innerHTML = html;
@@ -1434,10 +1406,12 @@
     });
 
     // Duplicates
-    $('dup-threshold').addEventListener('input', function(e) {
-      state.dupThreshold = parseFloat(e.target.value);
-      $('dup-threshold-display').textContent = state.dupThreshold.toFixed(1);
-    });
+    var dupSourceSelect = $('dup-source');
+    if (dupSourceSelect) {
+      dupSourceSelect.addEventListener('change', function(e) {
+        state.dupSource = e.target.value;
+      });
+    }
     $('btn-find-dup').addEventListener('click', findDuplicates);
 
     // Account
@@ -1474,12 +1448,12 @@
     $('btn-create-db-backup').addEventListener('click', createDbBackup);
     $('btn-cleanup-db-backups').addEventListener('click', cleanupDbBackups);
     $('dbbackups-tbody').addEventListener('click', function(e) {
-      var btn = e.target.closest('button[data-restore-dbbakcup]');
-      if (btn) restoreDbBackup(btn.dataset.restoreDbbakcup);
-      btn = e.target.closest('button[data-download-dbbakcup]');
-      if (btn) downloadDbBackup(state.dbBackups.find(function(b) { return b.path === btn.dataset.downloadDbbakcup; }));
-      btn = e.target.closest('button[data-delete-dbbakcup]');
-      if (btn) deleteDbBackup(btn.dataset.deleteDbbakcup);
+      var btn = e.target.closest('button[data-restore-dbbackup]');
+      if (btn) restoreDbBackup(btn.dataset.restoreDbbackup);
+      btn = e.target.closest('button[data-download-dbbackup]');
+      if (btn) downloadDbBackup(state.dbBackups.find(function(b) { return b.path === btn.dataset.downloadDbbackup; }));
+      btn = e.target.closest('button[data-delete-dbbackup]');
+      if (btn) deleteDbBackup(btn.dataset.deleteDbbackup);
     });
   }
 
@@ -1498,27 +1472,32 @@
       el.classList.toggle('hidden', !state.isAdmin);
     });
 
-    // Load data
-    await Promise.all([
-      loadNotifConfig(),
-      loadPresets(),
-      loadBackups(),
-      loadUserInfo()
-    ]);
+    // Load data — wrap each in catch so one failure doesn't block others
+    var loadPromises = [
+      loadNotifConfig().catch(function(e) { console.error('loadNotifConfig failed:', e); }),
+      loadPresets().catch(function(e) { console.error('loadPresets failed:', e); }),
+      loadBackups().catch(function(e) { console.error('loadBackups failed:', e); }),
+      loadUserInfo().catch(function(e) { console.error('loadUserInfo failed:', e); })
+    ];
+    await Promise.all(loadPromises);
 
     if (state.isAdmin) {
       await Promise.all([
-        loadUsers(),
-        loadDbBackups(),
-        loadDeploymentMode()
+        loadUsers().catch(function(e) { console.error('loadUsers failed:', e); }),
+        loadDbBackups().catch(function(e) { console.error('loadDbBackups failed:', e); })
       ]);
     }
+    // Always load deployment mode (even for non-logged-in users)
+    await loadDeploymentMode().catch(function(e) { console.error('loadDeploymentMode failed:', e); });
 
-    // Setup events
+    // Setup events — ALWAYS run this regardless of load errors
     setupEventListeners();
   }
 
-  init();
+  window.switchTab = switchTab;
+  window.switchDeployMode = switchDeployMode;
+
+  init().catch(function(e) { console.error('init failed:', e); });
 })();
 
 

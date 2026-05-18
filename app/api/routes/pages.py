@@ -58,6 +58,15 @@ async def get_login_page(request: Request):
 
 # ── 需要认证的页面 ─────────────────────────────────────────────
 
+@router.get("/dashboard")
+async def dashboard_page(request: Request):
+    """仪表盘页面"""
+    user = _get_user_info(request)
+    if user.get("role") == "guest":
+        return RedirectResponse(url="/login?redirect=/dashboard", status_code=302)
+    return _render(request, "dashboard.html")
+
+
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """首页 — 已登录则跳转数据页，未登录跳转登录页"""

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.config.settings import get_settings, reload_settings
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_current_user, get_optional_user
 
 # 项目根目录：容器内 /app，本地开发从 __file__ 推导
 _PROJECT_ROOT = Path('/app') if Path('/.dockerenv').exists() else Path(__file__).parent.parent.parent.parent
@@ -29,8 +29,8 @@ class ModeSwitchResponse(BaseModel):
 
 
 @router.get("/mode", response_model=ModeResponse, summary="获取当前部署模式")
-async def get_mode(current_user: dict = Depends(get_current_user)):
-    """获取当前部署模式
+async def get_mode(current_user: dict = Depends(get_optional_user)):
+    """获取当前部署模式（无需登录即可查看）
     
     - 自用模式 (self): 免登录，所有功能开放
     - 团队模式 (team): 完整认证和用户管理
@@ -50,7 +50,7 @@ async def switch_mode(
 ):
     """切换部署模式
     
-    仅 admin 角色可执行。切换后需重启服务生效。
+    仅 admin 角色可执行。切换后立即生效（无需重启）。
     """
     # 检查是否为 admin
     if current_user.get("role") != "admin":
@@ -88,7 +88,7 @@ async def switch_mode(
     
     return ModeSwitchResponse(
         mode=req.mode,
-        message=f"模式已切换为 {req.mode}，重启服务后生效"
+        message=f"模式已切换为 {req.mode}，立即生效"
     )
 
 

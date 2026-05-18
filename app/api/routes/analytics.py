@@ -1,70 +1,141 @@
-"""分析统计路由 - 基于所有项目分析"""
+"""分析统计路由 - 基于 PostgreSQL 项目数据分析"""
 
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
-from pathlib import Path
-import json
 import re
 from collections import Counter
 
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-SYS_PATH = Path('/app') if Path('/.dockerenv').exists() else Path(__file__).parent.parent.parent
+from app.database.db import get_db
 
 router = APIRouter(prefix="/api/analytics", tags=["分析"])
 
 STOP_WORDS = {
-    '的', '了', '和', '与', '或', '及', '在', '为', '于', '对', '等',
+    '的', '了', '和', '与', '及', '在', '为', '于', '对', '等',
     '由', '以', '被', '将', '把', '给', '向', '从', '通过', '关于',
     '项目', '采购', '招标', '公告', '进行中', '公告的', '一', '二', '三'
 }
 
 
-def _load_projects():
-    """从 latest.json 加载项目数据"""
-    data_file = SYS_PATH / "output" / "latest.json"
-    if data_file.exists():
+def _load_projects_pg():
+    """从 PostgreSQL 加载项目数据（projects_cqggzy + projects_ccgp）"""
+    try:
+        db = get_db()
+        conn = db._get_conn()
+        cur = conn.cursor()
+
+        # 从 projects_cqggzy 读取（主数据源，886条）
+        cur.execute("""
+            SELECT title, category, info_type, business_type, publish_date,
+                   budget, bid_amount, deadline, region, industry,
+                   tender_type, project_overview, bidder_requirements,
+                   submission_deadline, contact_name, contact_phone,
+                   keywords_matched, source_url, url, scraped_at
+            FROM projects_cqggzy
+            ORDER BY publish_date DESC NULLS LAST, scraped_at DESC
+        """)
+        cols = [d[0] for d in cur.description]
+        rows_cqggzy = cur.fetchall()
+
+        # projects_ccgp 如有数据也合并
         try:
-            with open(data_file, encoding="utf-8") as f:
-                d = json.load(f)
-            return d.get("projects", []), d.get("total", 0)
+            cur.execute("""
+                SELECT title, category, info_type, business_type, publish_date,
+                       budget, bid_amount, deadline, region, industry,
+                       tender_type, project_overview, bidder_requirements,
+                       submission_deadline, contact_name, contact_phone,
+                       keywords_matched, source_url, url, scraped_at
+                FROM projects_ccgp
+                ORDER BY publish_date DESC NULLS LAST, scraped_at DESC
+            """)
+            rows_ccgp = cur.fetchall()
         except Exception:
-            pass
-    return [], 0
+            rows_ccgp = []
+
+        cur.close()
+        return rows_cqggzy + rows_ccgp, cols
+    except Exception as e:
+        print(f"[analytics] _load_projects_pg error: {e}")
+        return [], []
+
+
+def _row_to_project(row, cols):
+    d = dict(zip(cols, row))
+    return {
+        "title": d.get("title", "") or "",
+        "category": d.get("category", "") or "",
+        "tender_type": d.get("tender_type", "") or d.get("business_type", "") or "",
+        "business_type": d.get("business_type", "") or "",
+        "info_type": d.get("info_type", "") or "",
+        "publish_date": str(d.get("publish_date", "")) if d.get("publish_date") else "",
+        "budget": d.get("budget", "") or "",
+        "bid_amount": d.get("bid_amount", "") or "",
+        "deadline": str(d.get("deadline", "")) if d.get("deadline") else "",
+        "region": d.get("region", "") or "",
+        "industry": d.get("industry", "") or "",
+        "project_overview": d.get("project_overview", "") or "",
+        "bidder_requirements": d.get("bidder_requirements", "") or "",
+        "submission_deadline": d.get("submission_deadline", "") or "",
+        "contact_name": d.get("contact_name", "") or "",
+        "contact_phone": d.get("contact_phone", "") or "",
+        "keywords_matched": d.get("keywords_matched", "") or "",
+        "source_name": d.get("source_url", "") or "",
+        "url": d.get("url", "") or "",
+        "scraped_at": str(d.get("scraped_at", "")) if d.get("scraped_at") else "",
+    }
+
+
+def _get_last_run():
+    """获取最近一次采集时间"""
+    try:
+        db = get_db()
+        conn = db._get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT MAX(last_run_at) FROM collection_tasks
+            WHERE last_run_at IS NOT NULL
+        """)
+        row = cur.fetchone()
+        cur.close()
+        if row and row[0]:
+            return str(row[0])
+    except Exception:
+        pass
+    return "-"
 
 
 def get_analytics(days: int = Query(365, ge=1, le=3650)):
     """获取分析数据"""
-    projects, total = _load_projects()
-    
+    rows, cols = _load_projects_pg()
+    projects = [_row_to_project(r, cols) for r in rows]
+
     # 过滤指定天数内的项目
     try:
         start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-    except:
+    except Exception:
         start_date = "1970-01-01"
-    
+
     recent_projects = [
         p for p in projects
         if p.get("publish_date", "") >= start_date or not p.get("publish_date")
     ]
-    
+
     # 统计
     matched_projects = [p for p in recent_projects if p.get("keywords_matched")]
-    
+
     # 有预算的项目
     budget_projects = [
         p for p in recent_projects
         if p.get("budget") and p.get("budget") != ""
     ]
-    
+
     # 按类型统计
     type_counter = Counter(p.get("tender_type", "未知") for p in recent_projects)
     categories = [
         {"name": k, "count": v}
         for k, v in type_counter.most_common(10)
     ]
-    
+
     # 预算分布
     budget_dist = []
     for p in budget_projects[:50]:
@@ -82,22 +153,22 @@ def get_analytics(days: int = Query(365, ge=1, le=3650)):
                 else:
                     bucket = "500万+"
                 budget_dist.append(bucket)
-        except:
+        except Exception:
             pass
-    
+
     budget_counter = Counter(budget_dist)
     budget_distribution = [
         {"range": k, "count": v}
         for k, v in budget_counter.most_common(10)
     ]
-    
+
     # 来源分布
     source_counter = Counter(p.get("source_name", "未知") for p in recent_projects)
     source_distribution = [
         {"source": k, "count": v}
         for k, v in source_counter.most_common(10)
     ]
-    
+
     # 关键词热度
     keyword_heat = {}
     for p in matched_projects:
@@ -107,12 +178,12 @@ def get_analytics(days: int = Query(365, ge=1, le=3650)):
                 kw = kw.strip()
                 if kw and kw not in STOP_WORDS:
                     keyword_heat[kw] = keyword_heat.get(kw, 0) + 1
-    
+
     # 按热度排序
     keyword_heat = dict(
         sorted(keyword_heat.items(), key=lambda x: x[1], reverse=True)[:20]
     )
-    
+
     # 趋势数据（按天）
     trends = []
     days_list = sorted(set(p.get("publish_date", "") for p in recent_projects))
@@ -123,7 +194,7 @@ def get_analytics(days: int = Query(365, ge=1, le=3650)):
             "count": len(day_projects),
             "matched": len([p for p in day_projects if p.get("keywords_matched")])
         })
-    
+
     return JSONResponse({
         "summary": {
             "total": len(recent_projects),
@@ -136,6 +207,7 @@ def get_analytics(days: int = Query(365, ge=1, le=3650)):
         "source_dist": source_distribution,
         "keyword_heat": keyword_heat,
         "days": days,
+        "last_run": _get_last_run(),
     })
 
 
@@ -147,9 +219,10 @@ router.get("")(get_analytics)
 def get_health():
     """健康度仪表盘"""
     try:
+        from app.services.health_monitor import get_health_monitor
         hm = get_health_monitor()
         return JSONResponse(hm.get_status())
-    except:
+    except Exception:
         return JSONResponse({
             "status": "ok",
             "services": {},

@@ -35,6 +35,13 @@ def _get_user_info(request) -> dict:
 # ========== 页面渲染 ==========
 
 
+@router.get("/dashboard")
+async def dashboard_redirect(request: Request):
+    """Dashboard 别名 -> 301 重定向到 /"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/", status_code=301)
+
+
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """首页/仪表盘"""
@@ -45,21 +52,18 @@ async def index(request: Request):
     projects, total = _load_projects()
     std = {
         "total": total,
-        "last_run": "-",
         "matched": len([p for p in projects if p.get("keywords_matched")]),
+        "last_run": "-",
     }
-
-    data_file = Path(sys_path) / "output" / "latest.json"
-    if data_file.exists():
-        try:
-            with open(data_file, encoding="utf-8") as f:
-                d = json.load(f)
-                std["last_run"] = d.get("last_run", "-")
-        except Exception:
-            pass
-
-    user_info = _get_user_info(request)
+    try:
+        conn = db._get_conn()
+        row = conn.execute("SELECT MAX(last_run_at) FROM collection_tasks WHERE last_run_at IS NOT NULL").fetchone()
+        if row and row[0]:
+            std["last_run"] = str(row[0])
+    except Exception:
+        pass
     std["db_stats"] = db.get_stats()
+    user_info = _get_user_info(request)
     return _templates.TemplateResponse(
         request, "dashboard.html", {"request": request, "stats": std, "user_info": user_info}
     )

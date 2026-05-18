@@ -1,12 +1,14 @@
 """重庆市政府采购网采集器 V3 - 继承 BaseCrawler - 复用通用字段提取、日期解析、附件解析 - 三类信息：采购意向 / 采购公告 / 结果公告 """
 
 import asyncio
+import os
 import json
 from datetime import datetime
 import re
 from typing import List
 from urllib.parse import urljoin
 
+import httpx
 from loguru import logger
 
 from app.crawlers.base import BaseCrawler
@@ -27,8 +29,11 @@ class CCGPCrawlerV3(BaseCrawler):
         "结果公告": "https://www.ccgp-chongqing.gov.cn/gkw/web/portal/result/list",
     }
 
-    async def fetch_list(self, info_type: str = "采购公告", page_num: int = 1) -> List[TenderInfo]:
-        """采集列表页"""
+    async def fetch_list(
+        self, info_type: str = "采购公告", page_num: int = 1,
+        start_date: datetime = None, end_date: datetime = None
+    ) -> List[TenderInfo]:
+        """采集列表页，可按日期范围过滤"""
         results = []
         if info_type not in self.LIST_URLS:
             logger.error(f"❌ 不支持的信息类型：{info_type}")
@@ -42,31 +47,29 @@ class CCGPCrawlerV3(BaseCrawler):
         try:
             page = await self.browser.new_page()
             logger.info(f"📄 采集 [{info_type}] 列表 第{page_num}页：{url}")
-            await page.goto(url, wait_until="commit", timeout=30000)
-            await asyncio.sleep(3)
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await asyncio.sleep(2)
+
+            # 主选择器：.block-item（新版 React/Angular 页面）
             items = await page.query_selector_all(".block-item")
             if not items:
-                await asyncio.sleep(5)
-                items = await page.query_selector_all(".block-item")
-
-            items = []
-            list_item_selectors = [
-                ".block-item",
-                ".item-title",
-                "[class*=TitleCol]",
-                "[class*=ListItem]",
-                ".notice-item",
-                ".list-item",
-                ".item",
-                "ul.list li",
-                "table tr",
-                ".data-list tr",
-            ]
-            for selector in list_item_selectors:
-                items = await page.query_selector_all(selector)
-                if items:
-                    logger.debug(f"使用选择器：{selector}, 找到 {len(items)} 项")
-                    break
+                # 兜底选择器
+                list_item_selectors = [
+                    ".item-title",
+                    "[class*=TitleCol]",
+                    "[class*=ListItem]",
+                    ".notice-item",
+                    ".list-item",
+                    ".item",
+                    "ul.list li",
+                    "table tr",
+                    ".data-list tr",
+                ]
+                for selector in list_item_selectors:
+                    items = await page.query_selector_all(selector)
+                    if items:
+                        logger.debug(f"使用选择器：{selector}, 找到 {len(items)} 项")
+                        break
 
             if not items:
                 items = await page.query_selector_all('a[href*="detail"], a[href*="view"]')
@@ -143,6 +146,15 @@ class CCGPCrawlerV3(BaseCrawler):
                     )
                     if date_text:
                         tender.publish_date = self._parse_date(date_text)
+
+                    # 日期过滤（列表页通常按时间倒序，发现早于起始日期即可停止）
+                    effective_date = tender.publish_date
+                    if start_date and effective_date and effective_date < start_date:
+                        logger.debug(f"  ⏹  [{tender.title[:30]}...] 日期 {effective_date.date()} < {start_date.date()}，停止本页")
+                        break
+                    if end_date and effective_date and effective_date > end_date:
+                        continue
+
                     results.append(tender)
                 except Exception as e:
                     logger.debug(f"提取列表项失败：{e}")
@@ -171,7 +183,20 @@ class CCGPCrawlerV3(BaseCrawler):
             await page.goto(tender.url, wait_until="domcontentloaded", timeout=15000)
             await asyncio.sleep(1)
 
-            # 提取正文
+            # 提取正文（滚动加载完整内容）
+            try:
+                for _ in range(8):
+                    await page.evaluate(
+                        """() => {
+                            const el = document.querySelector('.content,.article-content,.detail-content,#content,.main-content,.text-content,article,.body');
+                            if (el) { el.scrollTop = el.scrollHeight; }
+                            else { window.scrollTo(0, document.body.scrollHeight); }
+                        }"""
+                    )
+                    await asyncio.sleep(0.5)
+            except Exception:
+                pass
+
             content_selectors = [
                 ".content",
                 ".article-content",
@@ -185,6 +210,11 @@ class CCGPCrawlerV3(BaseCrawler):
             for selector in content_selectors:
                 elem = await page.query_selector(selector)
                 if elem:
+                    try:
+                        await page.evaluate("(el) => { el.scrollTop = el.scrollHeight; }", elem)
+                        await asyncio.sleep(0.3)
+                    except Exception:
+                        pass
                     full = await elem.inner_text()
                     if len(full) > 50:
                         tender.full_content = full
@@ -213,6 +243,7 @@ class CCGPCrawlerV3(BaseCrawler):
                 contact_phone=tender.contact_info.phone if tender.contact_info else "",
                 region="",
                 full_content=tender.full_content or "",
+                business_type=tender.business_type or "",
             )
 
             # 提取项目编号和名称
@@ -265,12 +296,20 @@ class CCGPCrawlerV3(BaseCrawler):
                     "project_no": _v(tender.project_no or ""),
                 }
                 db.upsert_projects_ccgp([row])
+
+                # 清除 API 缓存，确保新数据立即可见
+                web_url = os.getenv("WEB_URL", "http://tender-scraper-web:8000")
+                cache_key = os.getenv("INTERNAL_CACHE_CLEAR_KEY", "")
+                try:
+                    httpx.post(f"{web_url}/api/cache/clear", json={"internal_key": cache_key}, timeout=5)
+                except Exception:
+                    pass
             except Exception as e:
                 logger.warning(f"⚠️ 写入 projects_ccgp 失败: {e}")
 
             return tender
         except Exception as e:
-            logger.warning(f"⚠️ 详情页采集失败：{e}")
+            import traceback; logger.warning(f"⚠️ 详情页采集失败: {e}\n{traceback.format_exc()}")
             return tender
         finally:
             if page:

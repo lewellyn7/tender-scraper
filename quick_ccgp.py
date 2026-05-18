@@ -40,7 +40,7 @@ async def main():
 
         # 采集采购公告
         print("📋 采集 [采购公告]...")
-        await page.goto('https://www.ccgp-chongqing.gov.cn/gkw/web/portal/notice/list', timeout=60000)
+        await page.goto('https://www.ccgp-chongqing.gov.cn/info-notice/notice-list', timeout=60000)
         await asyncio.sleep(5)
 
         items = await page.query_selector_all('.block-item')
@@ -63,12 +63,12 @@ async def main():
                         print(f"    ✅ 关键词匹配!")
                         results.append({
                             'title': title,
-                            'url': f'https://www.ccgp-chongqing.gov.cn/gkw/web/portal/notice/list',
+                            'url': f'https://www.ccgp-chongqing.gov.cn/info-notice/notice-list',
                             'business_type': '政府采购',
                             'info_type': '采购公告',
                             'publish_date': date,
                             'publish_date_raw': date,
-                            'source_url': 'https://www.ccgp-chongqing.gov.cn/gkw/web/portal/notice/list',
+                            'source_url': 'https://www.ccgp-chongqing.gov.cn/info-notice/notice-list',
                             'tender_type': '采购公告',
                             'budget': '',
                             'project_overview': title,
@@ -82,7 +82,7 @@ async def main():
 
         # 采集采购意向
         print("\n📋 采集 [采购意向]...")
-        await page.goto('https://www.ccgp-chongqing.gov.cn/gkw/web/portal/intention/list', timeout=60000)
+        await page.goto('https://www.ccgp-chongqing.gov.cn/info-notice/intention-list', timeout=60000)
         await asyncio.sleep(5)
 
         items = await page.query_selector_all('.block-item')
@@ -105,12 +105,12 @@ async def main():
                         print(f"    ✅ 关键词匹配!")
                         results.append({
                             'title': title,
-                            'url': f'https://www.ccgp-chongqing.gov.cn/gkw/web/portal/intention/list',
+                            'url': f'https://www.ccgp-chongqing.gov.cn/info-notice/intention-list',
                             'business_type': '政府采购',
                             'info_type': '采购意向',
                             'publish_date': date,
                             'publish_date_raw': date,
-                            'source_url': 'https://www.ccgp-chongqing.gov.cn/gkw/web/portal/intention/list',
+                            'source_url': 'https://www.ccgp-chongqing.gov.cn/info-notice/intention-list',
                             'tender_type': '采购意向',
                             'budget': '',
                             'project_overview': title,
@@ -123,7 +123,7 @@ async def main():
 
         # 采集结果公告
         print("\n📋 采集 [结果公告]...")
-        await page.goto('https://www.ccgp-chongqing.gov.cn/gkw/web/portal/result/list', timeout=60000)
+        await page.goto('https://www.ccgp-chongqing.gov.cn/info-notice/result-list', timeout=60000)
         await asyncio.sleep(5)
 
         items = await page.query_selector_all('.block-item')
@@ -146,12 +146,12 @@ async def main():
                         print(f"    ✅ 关键词匹配!")
                         results.append({
                             'title': title,
-                            'url': f'https://www.ccgp-chongqing.gov.cn/gkw/web/portal/result/list',
+                            'url': f'https://www.ccgp-chongqing.gov.cn/info-notice/result-list',
                             'business_type': '政府采购',
                             'info_type': '结果公告',
                             'publish_date': date,
                             'publish_date_raw': date,
-                            'source_url': 'https://www.ccgp-chongqing.gov.cn/gkw/web/portal/result/list',
+                            'source_url': 'https://www.ccgp-chongqing.gov.cn/info-notice/result-list',
                             'tender_type': '结果公告',
                             'budget': '',
                             'project_overview': title,

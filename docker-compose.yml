@@ -70,6 +70,9 @@ services:
     - DB_PORT=5432
     - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}
     - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+    - PROJECTS_CACHE_TTL=30
+    - INTERNAL_CACHE_CLEAR_KEY=cache_clear_10dc6901049c3c860fdbded525024a06
+    - WEB_URL=http://tender-scraper-web:8000
     - RAGFLOW_MCP_URL=http://host.docker.internal:9382
     - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-YOUR_RAGFLOW_API_KEY_HERE}
     - RAGFLOW_BASE_URL=http://host.docker.internal:8088
@@ -94,15 +97,11 @@ services:
         max-file: '5'
         labels: service,app
     healthcheck:
-      test:
-      - CMD-SHELL
-      - python -c "import httpx; r=httpx.get('http://localhost:8000/health', timeout=5);
-        assert r.status_code==200, f'status={r.status_code}'" 2>/dev/null || exit
-        1
+      test: ["CMD-SHELL", "python -c \"import redis; r=redis.from_url('redis://:CHANGE_ME_redis_password@redis:6379/0'); r.ping(); exit(0)\" || exit 1"]
       interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 90s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     networks:
     - tender-net
     depends_on:
@@ -184,6 +183,9 @@ services:
     - DB_PORT=5432
     - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}
     - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+    - PROJECTS_CACHE_TTL=30
+    - INTERNAL_CACHE_CLEAR_KEY=cache_clear_10dc6901049c3c860fdbded525024a06
+    - WEB_URL=http://tender-scraper-web:8000
     - RAGFLOW_MCP_URL=http://host.docker.internal:9382
     - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-YOUR_RAGFLOW_API_KEY_HERE}
     - RAGFLOW_BASE_URL=http://host.docker.internal:8088
@@ -236,6 +238,9 @@ services:
     - DB_PORT=5432
     - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}
     - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+    - PROJECTS_CACHE_TTL=30
+    - INTERNAL_CACHE_CLEAR_KEY=cache_clear_10dc6901049c3c860fdbded525024a06
+    - WEB_URL=http://tender-scraper-web:8000
     - RAGFLOW_MCP_URL=http://host.docker.internal:9382
     - RAGFLOW_API_KEY=${RAGFLOW_API_KEY:-YOUR_RAGFLOW_API_KEY_HERE}
     - RAGFLOW_BASE_URL=http://host.docker.internal:8088
@@ -257,6 +262,12 @@ services:
       options:
         max-size: 100m
         max-file: "5"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import redis; r=redis.from_url('redis://:CHANGE_ME_redis_password@redis:6379/0'); r.ping(); exit(0)\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     networks:
     - tender-net
     depends_on:

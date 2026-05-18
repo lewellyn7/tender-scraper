@@ -293,8 +293,39 @@ class Database(
         else:
             conn.commit()
 
+    def upsert_project_overview(self, url: str, project_overview: str) -> None:
+        """按 URL 更新 project_overview（采集流程调用）"""
+        if not url or not project_overview:
+            return
+        try:
+            conn = self._get_conn()
+            conn.execute(
+                "UPDATE projects_cqggzy SET project_overview = %s WHERE url = %s",
+                (project_overview, url),
+            )
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"upsert_project_overview: {e}")
+
+    def update_full_content(self, url: str, full_content: str, content_preview: str) -> None:
+        """按 URL 更新 full_content 和 content_preview（补采脚本用）"""
+        if not url or not full_content:
+            return
+        try:
+            conn = self._get_conn()
+            conn.execute(
+                "UPDATE projects_cqggzy SET full_content = %s, content_preview = %s WHERE url = %s",
+                (full_content, content_preview, url),
+            )
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"update_full_content: {e}")
+
     def upsert_projects(self, rows: list):
-        """批量 upsert 项目到 projects_cqggzy 表（URL 去重）"""
+        """批量 upsert 项目到 projects_cqggzy 表（URL 去重）
+        
+        rows: list of dict or list of tuple. dicts are converted to tuples using col order.
+        """
         if not rows:
             return
         conn = self._get_conn().conn
@@ -318,12 +349,67 @@ class Database(
                     {set_clause}
             """
             from psycopg2.extras import execute_batch
+
+            # Convert dict rows to tuples if needed, preserving None for NULL columns
+            if rows and isinstance(rows[0], dict):
+                # Columns that allow NULL (datetime, date, integer)
+                null_cols = {'deadline', 'publish_date', 'attachments_count', 'opening_date', 'scraped_at'}
+                def _to_val(r, c):
+                    v = r.get(c)
+                    if v is None:
+                        return None
+                    return v if c in null_cols else (v or "")
+                rows = [[_to_val(r, c) for c in cols] for r in rows]
+
             execute_batch(conn.cursor(), insert_sql, rows, page_size=500)
             conn.commit()
             logger.debug(f"upsert_projects: {len(rows)} rows")
         except Exception as e:
             conn.rollback()
             logger.error(f"upsert_projects: {e}")
+
+
+    def upsert_projects_ccgp(self, rows: list):
+        """批量 upsert 项目到 projects_ccgp 表（URL 去重）"""
+        if not rows:
+            return
+        conn = self._get_conn().conn
+        try:
+            cols = [
+                "url", "title", "category", "info_type", "publish_date", "publish_date_raw",
+                "content_preview", "full_content", "budget", "bid_amount", "deadline",
+                "region", "industry", "tender_type", "project_overview", "bidder_requirements",
+                "submission_deadline", "contact_name", "contact_phone", "contact_email",
+                "attachments_count", "attachments", "keywords_matched",
+                "source_url", "scraped_at", "scraped_by",
+                "contract_amount", "planned_publish_date", "tender_content",
+                "project_no",
+            ]
+            placeholders = ",".join(["%s"] * len(cols))
+            set_clause = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols[1:])
+            insert_sql = f"""
+                INSERT INTO projects_ccgp ({','.join(cols)})
+                VALUES ({placeholders})
+                ON CONFLICT (url) DO UPDATE SET
+                    {set_clause}
+            """
+            from psycopg2.extras import execute_batch
+
+            if rows and isinstance(rows[0], dict):
+                null_cols = {'deadline', 'publish_date', 'attachments_count', 'opening_date', 'scraped_at'}
+                def _to_val(r, c):
+                    v = r.get(c)
+                    if v is None:
+                        return None
+                    return v if c in null_cols else (v or "")
+                rows = [[_to_val(r, c) for c in cols] for r in rows]
+
+            execute_batch(conn.cursor(), insert_sql, rows, page_size=500)
+            conn.commit()
+            logger.debug(f"upsert_projects_ccgp: {len(rows)} rows")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"upsert_projects_ccgp: {e}")
 
 
     def _init_tables(self):
