@@ -176,6 +176,8 @@ def _load_projects():
                 "bidder_requirements": d.get("bidder_requirements", ""),
                 "submission_deadline": d.get("submission_deadline", ""),
                 "bid_amount": d.get("bid_amount", ""),
+                "full_content": d.get("full_content", "") or "",
+                "tender_content": d.get("tender_content", "") or "",
             }
 
         for table in ("projects_cqggzy", "projects_ccgp"):
