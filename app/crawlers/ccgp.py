@@ -75,30 +75,44 @@ class CCGPCrawlerV3(BaseCrawler):
                 items = await page.query_selector_all('a[href*="detail"], a[href*="view"]')
 
             # 从 React fiber 提取每个 block-item 的 data id（用于构造详情页 URL）
+            # 方法：拦截 window.open，点击每个标题，捕获 SPA 导航 URL
             item_ids = []
             try:
-                item_ids = await page.evaluate('''() => {
-                    const items = document.querySelectorAll(".block-item");
-                    return Array.from(items).map(item => {
-                        const fiberKey = Object.keys(item).find(k => k.startsWith("__reactFiber"));
-                        if (!fiberKey) return null;
-                        let fiber = item[fiberKey];
-                        // 向上走到 Fa 组件（depth~7）获取 data
-                        for (let i = 0; i < 8 && fiber; i++) fiber = fiber.return;
-                        if (fiber && fiber.memoizedProps && fiber.memoizedProps.data) {
-                            // data 是数组，取第一个（对应当前 item）
-                            const d = fiber.memoizedProps.data[0];
-                            if (d && d.id) return d.id;
-                        }
+                await page.evaluate("""() => {
+                    window.__ccgpItemUrls = window.__ccgpItemUrls || [];
+                    if (!window.__ccgpOriginalOpen) {
+                        window.__ccgpOriginalOpen = window.open.bind(window);
+                    }
+                    window.open = function(url) {
+                        window.__ccgpItemUrls.push(url);
                         return null;
-                    });
-                }''')
-                # 过滤掉 null 值
-                item_ids = [x for x in item_ids if x]
+                    };
+                }""")
+                logger.debug("window.open intercepted")
+
+                title_elements = await page.query_selector_all(".block-item .item-title")
+                logger.debug(f"Title elements: {len(title_elements)}, block items: {len(items)}")
+
+                for title_el in title_elements:
+                    try:
+                        await title_el.click()
+                        await asyncio.sleep(0.3)
+                    except Exception as e:
+                        logger.debug(f"click title error: {e}")
+                logger.debug(f"After clicks, checking urls")
+
+                urls = await page.evaluate("window.__ccgpItemUrls || []")
+                logger.debug(f"Captured {len(urls)} urls: {urls[:2]}")
+                item_ids = [url.split("/")[-1] for url in urls if "/info-notice/" in url and url.split("/")[-1]]
+                logger.debug(f"Extracted {len(item_ids)} ids: {item_ids[:2]}")
+
+                if item_ids:
+                    await page.evaluate("if(window.__ccgpOriginalOpen){window.open=window.__ccgpOriginalOpen}")
             except Exception as e:
-                logger.debug(f"提取 item IDs 失败：{e}")
+                import traceback
+                logger.error(f"提取 item IDs 失败：{e}\n{traceback.format_exc()}")
                 item_ids = []
-            logger.info(f"Block items: {len(items)}, item IDs: {len(item_ids)}")
+            logger.info(f"Block items: {len(items)}, item IDs: {len(item_ids)}, ids: {item_ids[:3]}")
 
             for item_idx, item in enumerate(items):
                 try:
@@ -160,6 +174,12 @@ class CCGPCrawlerV3(BaseCrawler):
                         # noticeType 200 -> procument-notice-detail, 300 -> result-notice-detail
                         info_type_route = "procument-notice-detail" if info_type == "采购公告" else "result-notice-detail"
                         full_url = f"{self.BASE_URL}/info-notice/{info_type_route}/{item_id}"
+                    else:
+                        # 兜底：使用标题哈希生成唯一 URL（避免相同列表 URL 导致去重失败）
+                        import hashlib
+                        title_hash = hashlib.md5(title.encode("utf-8")).hexdigest()[:8]
+                        full_url = f"{self.BASE_URL}/gkw/web/portal/{info_type}/{title_hash}"
+                        logger.warning(f"无 item_id，使用标题哈希 URL：{full_url}")
 
                     tender = TenderInfo(
                         title=title,
