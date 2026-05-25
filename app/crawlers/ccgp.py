@@ -47,10 +47,10 @@ class CCGPCrawlerV3(BaseCrawler):
         try:
             page = await self.browser.new_page()
             logger.info(f"📄 采集 [{info_type}] 列表 第{page_num}页：{url}")
-            await page.goto(url, wait_until="networkidle", timeout=30000)
-            await asyncio.sleep(2)
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await asyncio.sleep(6)
 
-            # 主选择器：.block-item（新版 React/Angular 页面）
+            # 主选择器：.block-item（React SPA 页面 - 等待 SPA 渲染后再采集）
             items = await page.query_selector_all(".block-item")
             if not items:
                 # 兜底选择器
@@ -74,7 +74,33 @@ class CCGPCrawlerV3(BaseCrawler):
             if not items:
                 items = await page.query_selector_all('a[href*="detail"], a[href*="view"]')
 
-            for item in items:
+            # 从 React fiber 提取每个 block-item 的 data id（用于构造详情页 URL）
+            item_ids = []
+            try:
+                item_ids = await page.evaluate('''() => {
+                    const items = document.querySelectorAll(".block-item");
+                    return Array.from(items).map(item => {
+                        const fiberKey = Object.keys(item).find(k => k.startsWith("__reactFiber"));
+                        if (!fiberKey) return null;
+                        let fiber = item[fiberKey];
+                        // 向上走到 Fa 组件（depth~7）获取 data
+                        for (let i = 0; i < 8 && fiber; i++) fiber = fiber.return;
+                        if (fiber && fiber.memoizedProps && fiber.memoizedProps.data) {
+                            // data 是数组，取第一个（对应当前 item）
+                            const d = fiber.memoizedProps.data[0];
+                            if (d && d.id) return d.id;
+                        }
+                        return null;
+                    });
+                }''')
+                # 过滤掉 null 值
+                item_ids = [x for x in item_ids if x]
+            except Exception as e:
+                logger.debug(f"提取 item IDs 失败：{e}")
+                item_ids = []
+            logger.info(f"Block items: {len(items)}, item IDs: {len(item_ids)}")
+
+            for item_idx, item in enumerate(items):
                 try:
                     tag = "A"
                     link_elem = item
@@ -125,14 +151,15 @@ class CCGPCrawlerV3(BaseCrawler):
                     except (AttributeError, TypeError):
                         pass
 
-                    # 如果没有 href，生成唯一 URL（使用标题哈希避免重复）
+                    # 如果没有 href，使用 React fiber 中提取的 data id 构造详情页 URL
                     if href:
                         full_url = urljoin(self.BASE_URL, href)
-                    else:
-                        # 使用标题生成唯一标识，避免相同列表 URL 导致去重失败
-                        import hashlib
-                        title_hash = hashlib.md5(title.encode('utf-8')).hexdigest()[:8]
-                        full_url = f"{self.BASE_URL}/gkw/web/portal/{info_type}/{title_hash}"
+                    elif item_idx < len(item_ids):
+                        # 使用 React fiber 中提取的 id 构造详情页 URL
+                        item_id = item_ids[item_idx]
+                        # noticeType 200 -> procument-notice-detail, 300 -> result-notice-detail
+                        info_type_route = "procument-notice-detail" if info_type == "采购公告" else "result-notice-detail"
+                        full_url = f"{self.BASE_URL}/info-notice/{info_type_route}/{item_id}"
 
                     tender = TenderInfo(
                         title=title,
@@ -181,7 +208,7 @@ class CCGPCrawlerV3(BaseCrawler):
             page = await self.browser.new_page()
             logger.info(f"📄 采集详情：{tender.title[:40]}...")
             await page.goto(tender.url, wait_until="domcontentloaded", timeout=15000)
-            await asyncio.sleep(1)
+            await asyncio.sleep(8)  # 等待 SPA 渲染详情页内容
 
             # 提取正文（滚动加载完整内容）
             try:
@@ -197,6 +224,7 @@ class CCGPCrawlerV3(BaseCrawler):
             except Exception:
                 pass
 
+            # 先尝试专用选择器，再尝试 body.innerText（SPA 页面的内容在 body 层级）
             content_selectors = [
                 ".content",
                 ".article-content",
@@ -205,8 +233,8 @@ class CCGPCrawlerV3(BaseCrawler):
                 ".main-content",
                 ".text-content",
                 "article",
-                ".body",
             ]
+            full = ""
             for selector in content_selectors:
                 elem = await page.query_selector(selector)
                 if elem:
@@ -215,11 +243,19 @@ class CCGPCrawlerV3(BaseCrawler):
                         await asyncio.sleep(0.3)
                     except Exception:
                         pass
-                    full = await elem.inner_text()
-                    if len(full) > 50:
-                        tender.full_content = full
-                        tender.content_preview = full[:300] + "..." if len(full) > 300 else full
-                    break
+                    candidate = await elem.inner_text()
+                    if len(candidate) > 100 and "项目概况" in candidate:
+                        full = candidate
+                        break
+            if not full:
+                # SPA 页面：直接从 body.innerText 提取（等待 8 秒后 SPA 已渲染完毕）
+                body_text = await page.evaluate("document.body.innerText")
+                if "项目概况" in body_text or "项目基本情况" in body_text:
+                    full = body_text
+
+            if full:
+                tender.full_content = full
+                tender.content_preview = full[:300] + "..." if len(full) > 300 else full
 
             # 按信息类型提取专用字段
             if tender.info_type == "采购意向":
