@@ -1,7 +1,8 @@
 """标注路由"""
 
-from fastapi import APIRouter, Body, Query, Depends
+from fastapi import APIRouter, Body, Query, Depends, Request
 from fastapi.responses import JSONResponse
+from loguru import logger
 
 from app.database import get_db
 from app.api.dependencies import get_current_user
@@ -29,14 +30,20 @@ def get_annotation(project_url: str, user_id: str = Depends(get_current_user)):
 
 @router.post("")
 def add_annotation(
+    request: Request,
     project_url: str = Body(...),
     note: str = Body(""),
     priority: str = Body("normal"),
     tags: list = Body([]),
 ):
     """添加/更新标注"""
+    user = get_current_user(request)
     db = get_db()
-    success = db.add_annotation(project_url, note, priority, tags)
-    if success:
-        return JSONResponse({"success": True})
-    return JSONResponse({"success": False}, status_code=500)
+    try:
+        success = db.add_annotation(project_url, note, priority, tags)
+        if success:
+            return JSONResponse({"success": True})
+        return JSONResponse({"success": False, "detail": "数据库写入失败"}, status_code=500)
+    except Exception as e:
+        logger.error(f"add_annotation error: {e}")
+        return JSONResponse({"success": False, "detail": str(e)}, status_code=500)

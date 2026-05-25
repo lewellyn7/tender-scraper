@@ -11,19 +11,20 @@ class AnnotationsMixin:
     """annotations 表 CRUD 操作（混入 Database 类使用）"""
 
     def add_annotation(
-        self, project_url: str, note: str, priority: str = "normal", tags: list = None
+        self, project_url: str, note: str = "", priority: str = "normal", tags: list = None
     ) -> bool:
+        """同步写入 annotations（直接执行，不走队列）"""
         try:
-            self._batch_queue.put(
-                (
-                    """INSERT OR REPLACE INTO annotations
-                   (project_url, note, priority, tags, updated_at)
-                   VALUES (?,?,?,?,CURRENT_TIMESTAMP)""",
-                    (project_url, note, priority, json.dumps(tags or [], ensure_ascii=False)),
-                )
+            conn = self._get_conn()
+            conn.execute(
+                """INSERT OR REPLACE INTO annotations
+                (project_url, note, priority, tags, updated_at)
+                VALUES (?,?,?,?,CURRENT_TIMESTAMP)""",
+                (project_url, note, priority, json.dumps(tags or [], ensure_ascii=False)),
             )
+            conn.commit()
             return True
-        except (queue.Full, OSError, IOError) as e:
+        except Exception as e:
             logger.error(f"add_annotation: {e}")
             return False
 

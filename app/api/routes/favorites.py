@@ -63,7 +63,11 @@ def _serialize(obj):
 
 
 def _serialize_row(row):
-    return {k: _serialize(v) for k, v in row.items()}
+    result = {k: _serialize(v) for k, v in row.items()}
+    # 确保 id 字段映射为 fav_id，方便前端使用
+    if 'id' in result and 'fav_id' not in result:
+        result['fav_id'] = result['id']
+    return result
 
 
 # ─── GET /favorites ────────────────────────────────────────────────
@@ -128,10 +132,10 @@ def add_favorite(request: Request, project: dict = Body(...)):
 
 # ─── PATCH /favorites/{project_url}/status ───────────────────────
 
-@router.patch("/{project_url}/status")
+@router.patch("/status")
 def update_favorite_status(
     request: Request,
-    project_url: str,
+    project_url: str = Query(..., description="项目 URL"),
     body: dict = Body(...),
 ):
     """更新收藏状态"""
@@ -152,8 +156,8 @@ def update_favorite_status(
 
 # ─── DELETE /favorites/{project_url} ─────────────────────────────
 
-@router.delete("/{project_url}")
-def remove_favorite(request: Request, project_url: str):
+@router.delete("")
+def remove_favorite(request: Request, project_url: str = Query(..., description="项目 URL")):
     """删除收藏"""
     user = get_current_user(request)
     db = get_db()
