@@ -279,7 +279,7 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     "business_type": _v(tender.business_type or ""),
                     "publish_date": tender.publish_date or None,  # date type
                     "publish_date_raw": _v(tender.publish_date or ""),
-                    "content_preview": _v((tender.content_preview or "")[:500]),
+                    "content_preview": _v((tender.content_preview or "")[:2000]),
                     "full_content": _v(tender.full_content or ""),
                     "budget": _v(tender.budget or ""),
                     "bid_amount": _v(tender.bid_amount or ""),

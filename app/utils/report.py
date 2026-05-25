@@ -81,7 +81,8 @@ class ReportGenerator:
                 df.to_excel(writer, sheet_name="采购项目", index=False)
                 ws = writer.sheets["采购项目"]
                 for i, col in enumerate(df.columns):
-                    max_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
+                    col_data = df[col].fillna('').astype(str)
+                    max_len = max(col_data.map(len).max(), len(col)) + 2
                     ws.column_dimensions[chr(65 + i) if i < 26 else "A"].width = min(max_len, 60)
 
             logger.info(f"✅ Excel 报表已生成：{filepath}")

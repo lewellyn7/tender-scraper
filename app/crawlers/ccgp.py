@@ -234,17 +234,21 @@ class CCGPCrawlerV3(BaseCrawler):
             tender.attachments = await self._extract_attachments(page)
 
             # 生成结构化摘要（按 info_type 规则）
-            tender.project_overview = make_summary(
+            # 清空 raw content_preview，用结构化摘要替代
+            tender.content_preview = ""
+            tender.content_preview = make_summary(
                 info_type=tender.info_type or "",
                 budget=tender.budget or "",
                 bid_amount=tender.bid_amount or "",
                 submission_deadline=tender.submission_deadline or "",
                 contact_name=tender.contact_info.name if tender.contact_info else "",
                 contact_phone=tender.contact_info.phone if tender.contact_info else "",
-                region="",
+                region=tender.region or "",
                 full_content=tender.full_content or "",
                 business_type=tender.business_type or "",
             )
+            # project_overview 保留（给 favorites 等引用）
+            tender.project_overview = tender.content_preview
 
             # 提取项目编号和名称
             tender.project_no = extract_project_no(tender.title, tender.full_content or "")
@@ -270,7 +274,7 @@ class CCGPCrawlerV3(BaseCrawler):
                     "info_type": _v(tender.info_type or ""),
                     "publish_date": tender.publish_date or None,
                     "publish_date_raw": _v(tender.publish_date or ""),
-                    "content_preview": _v((tender.content_preview or "")[:500]),
+                    "content_preview": _v((tender.content_preview or "")[:2000]),
                     "full_content": _v(tender.full_content or ""),
                     "budget": _v(tender.budget or ""),
                     "bid_amount": _v(tender.bid_amount or ""),

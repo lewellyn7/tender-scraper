@@ -169,7 +169,7 @@
 
   async function removeFavorite(url) {
     if (!confirm("确认取消收藏?")) return;
-    await fetch("/api/favorites?project_url=" + encodeURIComponent(url), { method: "DELETE", headers: authHeaders() });
+    await fetch("/api/favorites/" + encodeURIComponent(url), { method: "DELETE", headers: authHeaders() });
     state.favorites = state.favorites.filter(f => f.project_url !== url);
     renderFavorites();
   }

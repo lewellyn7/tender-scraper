@@ -136,6 +136,13 @@ async def run_collection():
         all_items.extend(eng_items)
         logger.info(f"📥 列表页数据总计：{len(all_items)} 条（政府采购 {len(gov_items)} 条，工程招投标 {len(eng_items)} 条）")
 
+        # 过滤掉 CCGP-chongqing（仅保留 CQGGZY）
+        all_items = [
+            item for item in all_items
+            if not (hasattr(item, 'source_url') and item.source_url and 'ccgp' in item.source_url)
+        ]
+        logger.info(f"📥 列表页数据（过滤CCGP后）：{len(all_items)} 条")
+
         if not all_items:
             logger.warning("⚠️ 未采集到任何数据")
             return None

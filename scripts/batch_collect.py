@@ -13,7 +13,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from loguru import logger
 from app.core.browser import StealthBrowser
 from app.crawlers.cqggzy import CQGGZYCrawlerV2
-from app.crawlers.ccgp import CCGPCrawlerV3
 from app.database import get_db
 from config.settings import settings
 
@@ -65,7 +64,7 @@ async def collect_month(db, cqggzy, ccgp, year: int, month: int, max_pages: int 
 
     logger.info(f"📅 {year}-{month:02d} 开始采集...")
 
-    # 并行采集：政府采购 + 工程招投标 + CCGP 三类
+    # 并行采集：政府采购 + 工程招投标（CCGP 已禁用）
     gov_task = cqggzy.fetch_lists_parallel(
         category="gov_purchase", pages=list(range(1, max_pages + 1)),
         start_date=start_dt, end_date=end_dt
@@ -74,28 +73,16 @@ async def collect_month(db, cqggzy, ccgp, year: int, month: int, max_pages: int 
         category="engineering", pages=list(range(1, max_pages + 1)),
         start_date=start_dt, end_date=end_dt
     )
-    ccgp_tasks = [
-        ccgp.fetch_list(info_type="采购意向", page_num=1, start_date=start_dt, end_date=end_dt),
-        ccgp.fetch_list(info_type="采购公告", page_num=1, start_date=start_dt, end_date=end_dt),
-        ccgp.fetch_list(info_type="结果公告", page_num=1, start_date=start_dt, end_date=end_dt),
-    ]
 
-    results = await asyncio.gather(gov_task, eng_task, *ccgp_tasks, return_exceptions=True)
+    results = await asyncio.gather(gov_task, eng_task, return_exceptions=True)
 
     gov_items = results[0] if isinstance(results[0], list) else []
     eng_items = results[1] if isinstance(results[1], list) else []
-    ccgp_intent = results[2] if isinstance(results[2], list) else []
-    ccgp_notice = results[3] if isinstance(results[3], list) else []
-    ccgp_result = results[4] if isinstance(results[4], list) else []
 
     all_tenders.extend(gov_items)
     all_tenders.extend(eng_items)
-    all_tenders.extend(ccgp_intent)
-    all_tenders.extend(ccgp_notice)
-    all_tenders.extend(ccgp_result)
 
     logger.info(f"  → 政府采购: {len(gov_items)} 条，工程招投标: {len(eng_items)} 条")
-    logger.info(f"  → CCGP: 意向{len(ccgp_intent)} 条/公告{len(ccgp_notice)} 条/结果{len(ccgp_result)} 条")
 
     # 写入数据库（upsert）
     if all_tenders:

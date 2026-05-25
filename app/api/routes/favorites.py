@@ -30,18 +30,25 @@ def _get_pg_pool():
     return _pg_pool
 
 def _get_project_overview(url: str) -> str:
-    """从 projects_cqggzy 查 project_overview 用于补充 favorites content_preview"""
+    """从 projects_cqggzy / projects_ccgp 查 project_overview 用于补充 favorites content_preview"""
     p = _get_pg_pool()
     if not p:
         return ""
     try:
         conn = p.getconn()
         cur = conn.cursor()
+        # 先查 cqggzy，再查 ccgp（两表 URL 格式不同但可能重复）
         cur.execute(
-            "SELECT project_overview FROM projects_cqggzy WHERE url = %s AND project_overview IS NOT NULL AND project_overview != '' LIMIT 1",
+            """SELECT project_overview FROM projects_cqggzy WHERE url = %s AND project_overview IS NOT NULL AND project_overview != '' LIMIT 1""",
             (url,)
         )
         row = cur.fetchone()
+        if not row:
+            cur.execute(
+                """SELECT project_overview FROM projects_ccgp WHERE url = %s AND project_overview IS NOT NULL AND project_overview != '' LIMIT 1""",
+                (url,)
+            )
+            row = cur.fetchone()
         cur.close()
         p.putconn(conn)
         return row[0] if row else ""

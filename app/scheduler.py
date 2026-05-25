@@ -12,7 +12,9 @@ import json
 import os
 import re
 import sys
+import threading
 from datetime import datetime
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -40,6 +42,29 @@ def _parse_redis_url(url: str) -> dict:
         "db": int(db) if db else 0,
         "password": password,
     }
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    """HTTP health endpoint handler."""
+    def do_GET(self):
+        if self.path == "/health":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok"}')
+        else:
+            self.send_response(404)
+            self.end_headers()
+    def log_message(self, format, *args):
+        pass  # suppress logging
+
+
+def _start_health_server(port: int = 8000):
+    """Start lightweight HTTP health server in a daemon thread."""
+    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    logger.info(f"[HealthServer] listening on 0.0.0.0:{port}/health")
 
 
 def _publish_trigger() -> bool:
@@ -95,12 +120,13 @@ def job_run_collection():
 
 
 def main():
+    _start_health_server(port=int(os.getenv("PORT", 8000)))
     scheduler = BlockingScheduler(timezone="Asia/Shanghai")
 
     # 每 2 小时执行一次（00:00 / 02:00 / ... / 22:00）
     scheduler.add_job(
         job_run_collection,
-        CronTrigger(minute="0", hour="9,11,13,15,17,19"),
+        CronTrigger(minute="0", hour="9,11,13,15,17,19", timezone="Asia/Shanghai"),
         id="daily_collection",
         replace_existing=True,
         misfire_grace_time=3600,
