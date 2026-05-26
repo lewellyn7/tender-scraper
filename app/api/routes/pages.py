@@ -17,6 +17,11 @@ _templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 def _get_user_info(request) -> dict:
     """获取用户信息"""
     try:
+        # 自用模式：返回虚拟 admin 用户
+        from app.config.settings import get_settings
+        if get_settings().is_self_mode:
+            return {"user_id": "admin", "username": "admin", "role": "admin", "display_name": "系统管理员"}
+
         token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
         if token:
             from app.utils.session import get_user_from_session
