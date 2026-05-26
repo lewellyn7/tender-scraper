@@ -13,14 +13,19 @@ router = APIRouter(prefix="/api/export", tags=["导出"])
 
 def _get_user_from_request(request: Request):
     """从请求中获取用户ID（未登录抛出 401）"""
+    from fastapi import HTTPException
+    from app.config.settings import get_settings
+    from app.utils.session import get_user_from_session
+
+    # 自用模式：返回 admin 用户
+    if get_settings().is_self_mode:
+        return "admin"
+
     token = request.query_params.get("session_token") or request.cookies.get("session_token") or request.headers.get("X-Session-Token")
     if not token:
-        from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="未登录")
-    from app.utils.session import get_user_from_session
     user = get_user_from_session(token)
     if not user:
-        from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="无效的session")
     return user.get("user_id")
 
@@ -105,42 +110,63 @@ def export_excel(
 
 
 @router.get("/csv")
-def export_csv(request: Request, keyword: str = Query(""), category: str = Query("")):
-    """导出 CSV"""
+def export_csv(
+    request: Request,
+    keyword: str = Query(""),
+    category: str = Query(""),
+    info_type: str = Query(""),
+    date_start: str = Query(""),
+    date_end: str = Query(""),
+    limit: int = Query(5000),
+):
+    """导出 CSV（从 projects_cqggzy 表，支持筛选条件）"""
     import csv
 
     user_id = _get_user_from_request(request)
     db = get_db()
     conn = db._get_conn()
 
-    conditions = ["1=1"]
+    # 自用模式：不需要 session_token 查询参数
+    conditions = ["(NULLIF(project_no, '') IS NOT NULL OR url LIKE 'http%%' OR url LIKE 'https%%')"]
     params = []
     if keyword:
-        conditions.append("(title LIKE ? OR description LIKE ?)")
+        conditions.append("(title LIKE ? OR content_preview LIKE ?)")
         params.extend([f"%{keyword}%", f"%{keyword}%"])
+    if category:
+        conditions.append("business_type = ?")
+        params.append(category)
+    if info_type:
+        conditions.append("info_type = ?")
+        params.append(info_type)
+    if date_start:
+        conditions.append("publish_date >= ?")
+        params.append(date_start)
+    if date_end:
+        conditions.append("publish_date <= ?")
+        params.append(date_end)
 
     where = " AND ".join(conditions)
-    rows = conn.execute(f"SELECT * FROM favorites WHERE {where} LIMIT 10000", params).fetchall()
+    rows = conn.execute(
+        f"SELECT * FROM projects_cqggzy WHERE {where} ORDER BY publish_date DESC LIMIT ?",
+        params + [limit],
+    ).fetchall()
     row_count = len(rows)
 
+    export_fields = [
+        "title", "tender_type", "budget", "publish_date", "source_url",
+    ]
+
     output = io.StringIO()
-    writer = csv.DictWriter(
-        output, fieldnames=["title", "tender_type", "budget", "publish_date", "project_url"]
-    )
+    # UTF-8 with BOM（Excel 正确识别中文）
+    output.write("\ufeff")
+    writer = csv.DictWriter(output, fieldnames=export_fields, extrasaction='ignore')
     writer.writeheader()
     for row in rows:
         r = dict(row) if not hasattr(row, 'get') else row
-        writer.writerow(
-            {
-                "title": r.get("title", ""),
-                "tender_type": r.get("tender_type", ""),
-                "budget": r.get("budget", ""),
-                "publish_date": r.get("publish_date", ""),
-                "project_url": r.get("project_url", ""),
-            }
-        )
+        writer.writerow({f: r.get(f, "") for f in export_fields})
 
     output.seek(0)
+    csv_bytes = output.getvalue().encode("utf-8-sig")
 
     # 审计日志
     write_audit_log(
@@ -154,7 +180,7 @@ def export_csv(request: Request, keyword: str = Query(""), category: str = Query
     )
 
     return StreamingResponse(
-        io.StringIO(output.getvalue()),
-        media_type="text/csv",
+        io.BytesIO(csv_bytes),
+        media_type="text/csv; charset=utf-8-sig",
         headers={"Content-Disposition": "attachment; filename=projects.csv"},
     )

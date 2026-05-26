@@ -20,6 +20,9 @@ from app.utils.session import get_user_from_session
 
 def get_current_user_id_optional(request) -> str:
     """获取当前用户ID（可选，未登录返回None）"""
+    from app.config.settings import get_settings
+    if get_settings().is_self_mode:
+        return "admin"
     token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
     if token:
         user = get_user_from_session(token)
@@ -30,6 +33,9 @@ def get_current_user_id_optional(request) -> str:
 
 def get_current_user_id_required(request) -> str:
     """获取当前用户ID（必选，未登录抛出401）"""
+    from app.config.settings import get_settings
+    if get_settings().is_self_mode:
+        return "admin"
     token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
     if not token:
         raise HTTPException(status_code=401, detail="未登录")

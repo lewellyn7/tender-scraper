@@ -109,6 +109,11 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
             if (csrf) headers['X-CSRF-Token'] = csrf;
             return headers;
         }
+        function authFetch(url, options) {
+            options = options || {};
+            options.headers = Object.assign({}, authHeaders(), options.headers || {});
+            return fetch(url, options);
+        }
         function show(el) { if (el) el.classList.remove('hidden'); }
         function hide(el) { if (el) el.classList.add('hidden'); }
         function toggle(el, visible) { if (el) el.classList.toggle('hidden', !visible); }

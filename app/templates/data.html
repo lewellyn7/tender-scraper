@@ -621,7 +621,17 @@
       applyFilters();
     }
   });
-  document.getElementById('exportBtn').addEventListener('click', function() { var token = localStorage.getItem('session_token') || ''; window.location.href = '/api/export/csv?session_token=' + encodeURIComponent(token); });
+  document.getElementById('exportBtn').addEventListener('click', function() {
+    var token = localStorage.getItem('session_token') || '';
+    var kw = document.getElementById('searchKeyword').value || '';
+    var type = document.getElementById('filterType').value || '';
+    var infoType = document.getElementById('filterInfoType').value || '';
+    var params = 'session_token=' + encodeURIComponent(token);
+    if (kw) params += '&keyword=' + encodeURIComponent(kw);
+    if (type) params += '&category=' + encodeURIComponent(type);
+    if (infoType) params += '&info_type=' + encodeURIComponent(infoType);
+    window.location.href = '/api/export/csv?' + params;
+  });
   document.getElementById('prevPage').addEventListener('click', function() { if (currentPage > 1) { currentPage--; render(); } });
   document.getElementById('nextPage').addEventListener('click', function() { if (currentPage < totalPages) { currentPage++; render(); } });
 

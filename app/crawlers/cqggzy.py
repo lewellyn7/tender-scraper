@@ -122,8 +122,8 @@ class CQGGZYCrawlerV2(BaseCrawler):
                         if parsed and isinstance(parsed, datetime):
                             effective_date = parsed
                     if start_date and effective_date and effective_date < start_date:
-                        logger.debug(f"  ⏹  [{title[:30]}...] 日期 {effective_date.date()} < {start_date.date()}，停止本页")
-                        break
+                        logger.debug(f"  ⏹  [{title[:30]}...] 日期 {effective_date.date()} < {start_date.date()}，跳过")
+                        continue
                     if end_date and effective_date and effective_date > end_date:
                         continue
 

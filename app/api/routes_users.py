@@ -150,11 +150,11 @@ async def logout(
 async def get_me(x_session_token: str = Header(None, alias="X-Session-Token")):
     """获取当前用户信息"""
     settings = get_settings()
-    
+
     # 自用模式：返回 admin 用户
     if settings.is_self_mode:
         return {"user_id": "admin", "username": "admin", "role": "admin", "display_name": "系统管理员"}
-    
+
     if not x_session_token:
         raise HTTPException(status_code=401, detail="未登录")
     user = get_user_from_session(x_session_token)
