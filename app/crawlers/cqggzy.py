@@ -45,6 +45,142 @@ class CQGGZYCrawlerV2(BaseCrawler):
         """
         return await self._fetch_list_page(category, page_num, start_date, end_date)
 
+    async def _fetch_list_via_api(
+        self, page, category: str, page_num: int,
+        start_date=None, end_date=None
+    ) -> List["TenderInfo"]:
+        """通过 API 获取列表数据（支持分页）
+
+        POST /api/v2/search-engine-page 返回结构化 JSON，支持 pn/rn 分页。
+        在 Playwright 页面上下文内执行以保持 cookie 状态。
+        """
+        try:
+            # 构造 API 请求
+            category_num = "014005001" if category == "gov_purchase" else "014001001"
+            pn = page_num - 1  # API 页码从 0 开始
+            rn = 50  # 每页条数（增大减少页间重叠）
+
+            # 日期范围
+            sdt = start_date.strftime('%Y-%m-%d') if start_date else ""
+            edt = end_date.strftime('%Y-%m-%d') if end_date else ""
+
+            api_payload = {
+                "token": "",
+                "pn": pn,
+                "rn": rn,
+                "sdt": sdt,
+                "edt": edt,
+                "wd": "",
+                "inc_wd": "",
+                "exc_wd": "",
+                "fields": "",
+                "sort": '{"istop":"0","ordernum":"0","infoid":"1"}',
+                "ssort": "",
+                "cl": 10000,
+                "terminal": "",
+                "highlights": "",
+                "unionCondition": [],
+                "accuracy": "",
+                "noParticiple": "1",
+                "noWd": True,
+                "condition": [
+                    {
+                        "fieldName": "categorynum",
+                        "equal": category_num,
+                        "isLike": True,
+                        "likeType": 2
+                    }
+                ]
+            }
+
+            import json
+            # 使用 json.dumps 确保 payload 精确序列化（避免 Python None → JSON null 的不一致问题）
+            payload_json = json.dumps(api_payload, ensure_ascii=False)
+            api_response = await page.evaluate(
+                """async (payloadJson) => {
+                    const resp = await fetch('/api/v2/search-engine-page', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: payloadJson
+                    });
+                    return await resp.json();
+                }""",
+                payload_json
+            )
+
+            if not api_response or api_response.get('code') != 200:
+                return []
+
+            content_str = api_response.get('content', '{}')
+            try:
+                content_parsed = json.loads(content_str)
+            except (json.JSONDecodeError, TypeError):
+                logger.debug(f"  API content 解析失败")
+                return []
+
+            result_data = content_parsed.get('result', {})
+            items = result_data.get('records', []) if isinstance(result_data, dict) else []
+            total = result_data.get('totalcount', 0)
+            logger.debug(f"  API 返回: total={total}, this_page={len(items)}")
+            if not items:
+                return []
+
+            tender_type = "政府采购" if category == "gov_purchase" else "工程建设"
+            results = []
+
+            for item in items:
+                title = item.get('title', '').strip()
+                if len(title) < 5:
+                    continue
+
+                # 日期
+                infodate = item.get('infodate', '') or item.get('webdate', '') or ''
+                pub_date = None
+                if infodate and len(infodate) >= 10:
+                    try:
+                        pub_date = datetime.strptime(infodate[:19], '%Y-%m-%d %H:%M:%S')
+                    except ValueError:
+                        pass
+
+                # 详情页 URL：从 linkurl 构建
+                linkurl = item.get('linkurl', '')
+                if linkurl:
+                    full_url = f"{self.BASE_URL}{linkurl}"
+                else:
+                    info_id = item.get('infoid', '')
+                    full_url = f"{self.BASE_URL}/trade/014005?infoId={info_id}" if category == "gov_purchase" else f"{self.BASE_URL}/trade/014001?infoId={info_id}"
+
+                tender = TenderInfo(
+                    title=title,
+                    url=full_url,
+                    category=tender_type,
+                    source_url=full_url,
+                    publish_date_raw=infodate,
+                    tender_type=tender_type,
+                    scraped_by=self.version,
+                )
+                if pub_date:
+                    tender.publish_date = pub_date
+
+                # 从 content 提取摘要（前500字）
+                raw_content = item.get('content', '') or ''
+                if raw_content:
+                    # 清理 HTML
+                    import re as re_module
+                    clean = re_module.sub(r'<[^>]+>', '', raw_content)
+                    clean = re_module.sub(r'\s+', ' ', clean).strip()
+                    tender.full_content = clean[:5000] if clean else ''
+
+                results.append(tender)
+
+            logger.debug(f"  API 获取 {len(results)} 条（pn={pn}）")
+            return results
+
+        except Exception as e:
+            logger.debug(f"  API 获取失败，回退到 NUXT: {e}")
+            return []
+
+
     async def fetch_lists_parallel(
         self, category: str = "gov_purchase", pages: List[int] = None,
         start_date: datetime = None, end_date: datetime = None
@@ -90,13 +226,17 @@ class CQGGZYCrawlerV2(BaseCrawler):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await self._smart_wait()
 
-            # 新版架构：从 NUXT_DATA 提取列表数据
+            # 新版架构：优先通过 API 获取（支持分页），回退到 NUXT_DATA
+            api_items = await self._fetch_list_via_api(page, category, page_num, start_date, end_date)
+            if api_items:
+                results.extend(api_items)
+                return results
+
+            # 回退：解析 NUXT_DATA
             nuxt_data = await page.evaluate('document.querySelector("#__NUXT_DATA__")?.textContent || ""')
             if not nuxt_data:
                 logger.warning("⚠️ 未找到 NUXT_DATA")
                 return results
-
-            # 解析 NUXT JSON 格式并提取 tender 条目
             # NUXT 数据格式：日期字符串后紧跟标题，如 },"2026-05-29 23:56:23","标题",...
             # 使用正则直接匹配日期和标题对
             date_title_pattern = re.compile(r'\},"((?:2026|2025|2024)-\d{2}-\d{2} \d{2}:\d{2}:\d{2})","([^"]{10,100})"')
