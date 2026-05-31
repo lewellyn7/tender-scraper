@@ -74,7 +74,7 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 "inc_wd": "",
                 "exc_wd": "",
                 "fields": "",
-                "sort": '{"istop":"0","ordernum":"0","infoid":"1"}',
+                "sort": '{"istop":"0","ordernum":"0","newid":"1"}',
                 "ssort": "",
                 "cl": 10000,
                 "terminal": "",
