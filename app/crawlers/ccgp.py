@@ -14,6 +14,7 @@ from loguru import logger
 from app.crawlers.base import BaseCrawler
 from app.database import get_db
 from app.models.tender import TenderInfo
+from app.services.keywords_service import KeywordsService
 from app.utils.summarize import summarize as make_summary
 from app.utils.project_linker import normalize_project_name, extract_project_no
 
@@ -309,6 +310,12 @@ class CCGPCrawlerV3(BaseCrawler):
             # 提取项目编号和名称
             tender.project_no = extract_project_no(tender.title, tender.full_content or "")
             tender.project_name = normalize_project_name(tender.title)
+
+            # 关键词匹配（基于内容摘要 + 标题）
+            kw_text = f"{tender.title} {tender.content_preview or ''}"
+            ks = KeywordsService()
+            kw_result = ks.match(kw_text)
+            tender.keywords_matched = [m['keyword'] for m in kw_result.get('matched', [])]
 
             # 写入 projects_ccgp 表（与 cqggzy.py 相同的格式）
             try:

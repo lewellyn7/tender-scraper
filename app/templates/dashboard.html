@@ -222,7 +222,7 @@
             if (p.tender_type === '政府采购') grouped[source].govCount++;
             if (p.tender_type === '工程建设') grouped[source].engCount++;
 
-            if (p.budget || p.keywords_matched || p.project_overview || p.bidder_requirements || p.bid_amount) {
+            if (p.budget || p.keywords_matched || p.project_overview || p.bidder_requirements || p.bid_amount || p.content_preview) {
                 grouped[source].important.push(p);
             }
 

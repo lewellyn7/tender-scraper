@@ -24,36 +24,54 @@ def _load_projects_pg():
         conn = db._get_conn()
         cur = conn.cursor()
 
-        # 从 projects_cqggzy 读取（主数据源，886条）
-        cur.execute("""
-            SELECT title, category, info_type, business_type, publish_date,
-                   budget, bid_amount, deadline, region, industry,
-                   tender_type, project_overview, bidder_requirements,
-                   submission_deadline, contact_name, contact_phone,
-                   keywords_matched, source_url, url, scraped_at
-            FROM projects_cqggzy
-            ORDER BY publish_date DESC NULLS LAST, scraped_at DESC
-        """)
-        cols = [d[0] for d in cur.description]
-        rows_cqggzy = cur.fetchall()
+        # 公共列（两表都有）
+        COMMON_COLS = """
+            title, category, info_type, publish_date,
+            budget, bid_amount, deadline, region, industry,
+            tender_type, project_overview, bidder_requirements,
+            submission_deadline, contact_name, contact_phone,
+            keywords_matched, source_url, url, scraped_at
+        """
 
-        # projects_ccgp 如有数据也合并
+        # projects_cqggzy 专属列
+        CQGGZY_EXTRA = """business_type, publish_date_raw, full_content,
+            contact_email, attachments_count, attachments,
+            scraped_by, contract_amount, planned_publish_date,
+            tender_content, project_no"""
+
+        # projects_ccgp 专属列（无 business_type）
+        CCGP_EXTRA = """publish_date_raw, full_content,
+            contact_email, attachments_count, attachments,
+            scraped_by, contract_amount, planned_publish_date,
+            tender_content, project_no"""
+
+        rows_cqggzy, cols_cqggzy = [], []
         try:
-            cur.execute("""
-                SELECT title, category, info_type, business_type, publish_date,
-                       budget, bid_amount, deadline, region, industry,
-                       tender_type, project_overview, bidder_requirements,
-                       submission_deadline, contact_name, contact_phone,
-                       keywords_matched, source_url, url, scraped_at
+            cur.execute(f"""
+                SELECT {COMMON_COLS}, {CQGGZY_EXTRA}
+                FROM projects_cqggzy
+                ORDER BY publish_date DESC NULLS LAST, scraped_at DESC
+            """)
+            cols_cqggzy = [d[0] for d in cur.description]
+            rows_cqggzy = cur.fetchall()
+        except Exception as e:
+            print(f"[analytics] cqggzy error: {e}")
+            conn.rollback()
+
+        rows_ccgp = []
+        try:
+            cur.execute(f"""
+                SELECT {COMMON_COLS}, {CCGP_EXTRA}
                 FROM projects_ccgp
                 ORDER BY publish_date DESC NULLS LAST, scraped_at DESC
             """)
             rows_ccgp = cur.fetchall()
-        except Exception:
-            rows_ccgp = []
+        except Exception as e:
+            print(f"[analytics] ccgp skipped: {e}")
+            conn.rollback()
 
         cur.close()
-        return rows_cqggzy + rows_ccgp, cols
+        return rows_cqggzy + rows_ccgp, cols_cqggzy if cols_cqggzy else []
     except Exception as e:
         print(f"[analytics] _load_projects_pg error: {e}")
         return [], []

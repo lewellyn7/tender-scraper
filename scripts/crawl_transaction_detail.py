@@ -1,3 +1,7 @@
+#!/usr/bin/env python3
+"""
+CQGGZY 全分类翻页采集
+"""
 import asyncio, sys, os, json
 from datetime import datetime
 from urllib.parse import urljoin
@@ -9,115 +13,148 @@ from app.core.browser import StealthBrowser
 from app.database.db import Database
 
 BASE = "https://www.cqggzy.com"
-CATEGORY = "014001019"
+CATEGORIES = [
+    ("014001001", "招标公告"),
+    ("014001003", "中标结果公示"),
+    ("014001004", "中标候选人公示"),
+    ("014005001", "采购公告"),
+    ("014005002", "采购结果公告"),
+]
 START = datetime(2026, 1, 1)
 END = datetime(2026, 5, 31)
 
-async def main():
-    print(f'CQGGZY 招标计划 按月采集 {START.date()} ~ {END.date()}')
+def parse(captured):
+    if not captured:
+        return []
+    try:
+        outer = json.loads(captured[-1])
+        inner = json.loads(outer['content'])
+        return inner['result'].get('records', [])
+    except:
+        return []
 
-    browser = StealthBrowser(headless=True, slow_mo=5)
-    await browser.start()
+def write(records, cat_num, info_type):
+    if not records:
+        return 0
+    db = Database()
+    written = 0
+    for rec in records:
+        title = rec.get('title', '') or rec.get('titlenew', '')
+        linkurl = rec.get('linkurl', '')
+        if not linkurl or not title:
+            continue
+        if linkurl.startswith('/'):
+            linkurl = urljoin(BASE, linkurl)
+        webdate = rec.get('webdate', '') or rec.get('pubinwebdate', '') or ''
+        try:
+            dt = datetime.strptime(webdate[:10], '%Y-%m-%d') if webdate else None
+        except:
+            dt = None
+        if dt and (dt < START or dt > END):
+            continue
+        date_str = str(dt.date()) if dt else ''
+        db.upsert_projects([{
+            "url": linkurl,
+            "title": title,
+            "category": cat_num,
+            "info_type": info_type,
+            "publish_date": dt,
+            "publish_date_raw": date_str,
+            "source_url": linkurl,
+            "scraped_by": "cqggzy_full",
+        }])
+        written += 1
+    return written
+
+def js_click_page(page_num):
+    return """
+var pages = document.querySelectorAll('.pagination a');
+for (var i = 0; i < pages.length; i++) {
+    var t = pages[i].textContent.trim();
+    if (t == '%d') { pages[i].click(); return true; }
+}
+return false;
+    """ % (page_num + 1)
+
+async def scrape_category(browser, cat_num, info_type):
     page = await browser.new_page()
+    captured = []
 
-    captured_responses = []
-    async def on_response(resp):
+    async def on_resp(resp):
         if 'inteligentsearch' in resp.url:
             try:
                 body = await resp.text()
-                data = json.loads(body)
-                captured_responses.append(data)
+                captured.append(body)
             except:
                 pass
 
-    page.on('response', on_response)
+    if cat_num.startswith('014005'):
+        url = BASE + "/xxhz/014005/" + cat_num + "/transaction_detail.html"
+    else:
+        url = BASE + "/xxhz/014001/" + cat_num + "/transaction_detail.html"
 
-    # First: load page normally to get normal links
-    await page.goto(f'{BASE}/xxhz/014001/{CATEGORY}/transaction_detail.html', wait_until='domcontentloaded', timeout=30000)
+    page.on('response', on_resp)
+    await page.goto(url, wait_until='domcontentloaded', timeout=30000)
     await asyncio.sleep(3)
 
-    # Collect all links from initial load
-    all_links = {}
-    links = await page.query_selector_all(f'a[href*="/014001/{CATEGORY}/202"]')
-    for link in links:
-        href = await link.get_attribute('href')
-        title = await link.inner_text()
-        if href and title.strip():
-            date_match = href.split('/')[-2]
-            date_str = f"{date_match[:4]}-{date_match[4:6]}-{date_match[6:8]}"
-            all_links[href] = (title.strip(), date_str)
-
-    # Check captured responses for total
-    for data in captured_responses:
-        if 'total' in data:
-            print(f"API total: {data['total']}, results: {len(data.get('result',[]))}")
-
-    print(f"Initial links: {len(all_links)}")
-
-    # Now navigate through pages to get more links
-    for pg in range(2, 100):
-        clicked = await page.evaluate(f"""() => {{
-            var pages = document.querySelectorAll('.pagination a, #pager a, .pager a');
-            for (var i = 0; i < pages.length; i++) {{
-                var txt = pages[i].textContent.trim();
-                if (txt == '{pg}') {{
-                    pages[i].click();
-                    return true;
-                }}
-            }}
-            return false;
-        }}""")
-
-        if not clicked:
-            break
-
-        await asyncio.sleep(2)
-
-        links = await page.query_selector_all(f'a[href*="/014001/{CATEGORY}/202"]')
-        old_count = len(all_links)
-        for link in links:
-            href = await link.get_attribute('href')
-            title = await link.inner_text()
-            if href and title.strip() and href not in all_links:
-                date_match = href.split('/')[-2]
-                date_str = f"{date_match[:4]}-{date_match[4:6]}-{date_match[6:8]}"
-                all_links[href] = (title.strip(), date_str)
-
-        new_count = len(all_links)
-        print(f"  第{pg}页: +{new_count - old_count} new (total: {new_count})")
-
-        if len(links) == 0:
-            print(f"  -> 0 links, stop")
-            break
-
-    await browser.close()
-
-    # Filter by date range
-    filtered = {href: (title, date_str) for href, (title, date_str) in all_links.items()
-                if START <= datetime.strptime(date_str, '%Y-%m-%d') <= END}
-
-    print(f'\n总计: {len(all_links)} 条, 1-5月: {len(filtered)} 条')
-
-    # Write to DB
-    db = Database()
-    written = 0
-    for url, (title, date_str) in filtered.items():
+    total = 0
+    records = parse(captured)
+    if records:
         try:
-            db.upsert_projects([{
-                "url": url,
-                "title": title,
-                "category": CATEGORY,
-                "info_type": "招标计划",
-                "publish_date": datetime.strptime(date_str, '%Y-%m-%d'),
-                "publish_date_raw": date_str,
-                "source_url": url,
-                "scraped_by": "cqggzy_direct",
-            }])
-            written += 1
+            outer = json.loads(captured[-1])
+            inner = json.loads(outer['content'])
+            total = inner['result'].get('totalcount', 0)
         except:
             pass
 
-    print(f'写入数据库: {written} 条')
+    print("  [%s] total=%d" % (info_type, total))
+    written = write(records, cat_num, info_type)
+    print("  第1页: +%d -> 累计 %d" % (len(records), written))
+    captured.clear()
 
-if __name__ == '__main__':
-    asyncio.run(main())
+    page_num = 1
+    while True:
+        clicked = await page.evaluate(js_click_page(page_num))
+
+        if not clicked:
+            print("  找不到第%d页，停止" % (page_num + 1))
+            break
+
+        await asyncio.sleep(2)
+        records = parse(captured)
+        if not records:
+            print("  第%d页: 0条/无响应，停止" % (page_num + 1))
+            break
+
+        w = write(records, cat_num, info_type)
+        written += w
+        print("  第%d页: +%d -> 累计 %d" % (page_num + 1, len(records), written))
+        captured.clear()
+        page_num += 1
+
+        if page_num > 100:
+            print("  安全限制(100页)")
+            break
+
+    await page.close()
+    return written, total
+
+async def main():
+    print("╔═══════════════════════════════════════════════╗")
+    print("║  CQGGZY 全分类采集  2026-01-01~2026-05-31   ║")
+    print("╚═══════════════════════════════════════════════╝")
+
+    browser = StealthBrowser(headless=True, slow_mo=5)
+    await browser.start()
+    grand = 0
+
+    for cat_num, info_type in CATEGORIES:
+        print("\n▶ %s (%s)" % (info_type, cat_num))
+        written, total = await scrape_category(browser, cat_num, info_type)
+        print("  → %d 条写入 / 网站 %d 条" % (written, total))
+        grand += written
+
+    await browser.close()
+    print("\n总计: %d 条写入" % grand)
+
+asyncio.run(main())

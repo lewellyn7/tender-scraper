@@ -2,7 +2,8 @@
 {% block content %}
 <div class="toast-container" id="toastContainer"></div>
 
-  <div class="flex justify-between items-center mb-6">
+<div class="max-w-7xl mx-auto">
+  <div class="flex justify-between items-center mb-3">
     <div class="flex items-center gap-4">
       <h1 class="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
         <span id="pageTitle">数据分析</span>
@@ -42,59 +43,51 @@
   </div>
 
   <!-- Summary Cards (ClickHouse 风格) -->
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
-      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">采集项目</div>
-      <p class="text-5xl font-bold tracking-tight text-blue-600 dark:text-blue-400" id="statTotal">0</p>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-0.5">采集项目</div>
+      <p class="text-3xl font-bold tracking-tight text-blue-600 dark:text-blue-400" id="statTotal">0</p>
     </div>
-    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
-      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">政府项目</div>
-      <p class="text-5xl font-bold tracking-tight text-green-600 dark:text-green-400" id="govCount">0</p>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-0.5">政府项目</div>
+      <p class="text-3xl font-bold tracking-tight text-green-600 dark:text-green-400" id="govCount">0</p>
     </div>
-    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
-      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">工程项目</div>
-      <p class="text-5xl font-bold tracking-tight text-purple-600 dark:text-purple-400" id="engCount">0</p>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-0.5">工程项目</div>
+      <p class="text-3xl font-bold tracking-tight text-purple-600 dark:text-purple-400" id="engCount">0</p>
     </div>
-    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
-      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">有预算项目</div>
-      <p class="text-5xl font-bold tracking-tight text-amber-600 dark:text-amber-400" id="budgetCount">0</p>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-0.5">有预算项目</div>
+      <p class="text-3xl font-bold tracking-tight text-amber-600 dark:text-amber-400" id="budgetCount">0</p>
     </div>
   </div>
 
-  <div id="loadingEl" class="text-center py-12 text-gray-500">加载中...</div>
-  <div id="contentEl" class="space-y-6" style="display:none">
+  <div id="loadingEl" class="text-center py-8 text-gray-500">加载中...</div>
+  <div id="contentEl" class="space-y-3" style="display:none">
     <!-- Trend Chart -->
-    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">采集趋势 <span class="help-btn" data-tooltip="每日采集数量随时间变化
-
-展示过去一段时间内每天新增的招标项目数量。用于判断市场活跃周期和评估采集效率。">?</span></h2>
-      <div id="trend_chart" class="h-64"></div>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-3 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+      <h2 class="text-sm font-semibold text-gray-900 dark:text-white mb-1 flex items-center gap-2">采集趋势</h2>
+      <canvas id="trend_chart" class="h-32" width="400" height="128" style="display:block;height:128px;max-height:128px"></canvas>
     </div>
 
-    <div class="grid md:grid-cols-2 gap-6">
+    <div class="grid md:grid-cols-2 gap-2">
       <!-- Budget Distribution -->
-      <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">预算分布 <span class="help-btn" data-tooltip="项目预算金额分布
-
-按金额区间统计招标项目数量。便于快速筛选预算合理的机会，避免投入过高或过低的项目。">?</span></h2>
-        <div id="budget_chart" class="h-64"></div>
+      <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-3 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+        <h2 class="text-sm font-semibold text-gray-900 dark:text-white mb-1 flex items-center gap-2">预算分布</h2>
+        <canvas id="budget_chart" class="h-32" width="400" height="128" style="display:block;height:128px;max-height:128px"></canvas>
       </div>
 
       <!-- Source Distribution -->
-      <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">来源分布 <span class="help-btn" data-tooltip="招标信息来源分布
-
-统计收藏项目来自哪些网站（如政府采购网、公共资源交易中心等）。了解主要招标渠道分布。">?</span></h2>
-        <div id="source_chart" class="h-64"></div>
+      <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-3 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+        <h2 class="text-sm font-semibold text-gray-900 dark:text-white mb-1 flex items-center gap-2">来源分布</h2>
+        <canvas id="source_chart" class="h-32" width="400" height="128" style="display:block;height:128px;max-height:128px"></canvas>
       </div>
     </div>
 
     <!-- Keyword Heat -->
-    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">关键词热度 TOP20 <span class="help-btn" data-tooltip="标题关键词热度排行
-
-从收藏项目标题中提取出现频率最高的20个关键词。反映当前招标市场的热点领域和主题趋势。">?</span></h2>
-      <div id="keywordHeatContainer" class="flex flex-wrap gap-2"></div>
+    <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-3 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+      <h2 class="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">关键词热度 TOP20</h2>
+      <div id="keywordHeatContainer" class="flex flex-wrap gap-1"></div>
       <p id="keywordHeatEmpty" class="text-gray-400 text-sm" style="display:none">暂无数据</p>
     </div>
   </div>
@@ -102,23 +95,23 @@
   <!-- ═══════════════════ HEALTH DASHBOARD ═══════════════════ -->
   <div id="healthContent" class="space-y-6" style="display:none">
     <!-- Overall Score + Metric Cards -->
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6" id="healthCards">
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 mb-2" id="healthCards">
       <!-- injected by JS -->
     </div>
 
     <!-- Radar + Trend -->
-    <div class="grid md:grid-cols-2 gap-6">
-      <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">健康度雷达图</h2>
-        <div id="healthRadarChart" class="h-64"></div>
+    <div class="grid md:grid-cols-2 gap-2">
+      <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+        <h2 class="text-sm font-semibold text-gray-900 dark:text-white mb-2">健康度雷达图</h2>
+        <canvas id="healthRadarChart" class="h-32" width="400" height="128" style="display:block;height:128px;max-height:128px"></canvas>
       </div>
-      <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">综合得分趋势</h2>
+      <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors duration-100">
+        <h2 class="text-sm font-semibold text-gray-900 dark:text-white mb-2">综合得分趋势</h2>
         <div class="flex gap-2 mb-4">
           <button type="button" id="trend7dBtn" class="px-3 py-1 text-xs rounded border border-blue-600 text-blue-600 bg-blue-50 dark:bg-blue-900/20" onclick="loadHealthTrend(7)">7天</button>
           <button type="button" id="trend30dBtn" class="px-3 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-500" onclick="loadHealthTrend(30)">30天</button>
         </div>
-        <div id="healthTrendChart" class="h-56"></div>
+        <canvas id="healthTrendChart" class="h-28" width="400" height="112" style="display:block;height:112px;max-height:112px"></canvas>
       </div>
     </div>
 
@@ -134,7 +127,16 @@
     </div>
   </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+#contentEl .bg-white { overflow: hidden; }
+#contentEl canvas { 
+  display: block;
+  max-height: 280px !important; 
+  width: 100% !important;
+}
+.chart-card { overflow: hidden; }
+</style>
+<script src="/static/js/chart.js"></script>
 <script>
 // === Analytics Vanilla JS ===
 (function() {
@@ -180,7 +182,7 @@
   })();
 
   async function loadAnalytics() {
-    els.loadingEl.style.display = 'block';
+els.loadingEl.style.display = 'block';
     els.contentEl.style.display = 'none';
 
     try {
@@ -204,7 +206,7 @@
 
   function updateSummary() {
     const s = state.stats.summary || {};
-    els.statTotal.textContent = s.total || 0;
+    if (els.statTotal) els.statTotal.textContent = s.total || 0;
     els.budgetCount.textContent = state.budgetDist.reduce(function(r, n) { return r + (n.count || 0); }, 0);
     els.govCount.textContent = '-';
     els.engCount.textContent = '-';
@@ -237,8 +239,8 @@
       var ratio = count / state.maxKwCount;
       var fontSize = (0.7 + ratio * 0.6).toFixed(2);
       var span = document.createElement('span');
-      span.className = 'inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ' + getKwClass(count);
-      span.style.fontSize = fontSize + 'rem';
+      span.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ' + getKwClass(count);
+      span.style.fontSize = (parseFloat(fontSize) * 0.85) + 'rem';
       span.textContent = kw + ' ' + count;
       els.kwContainer.appendChild(span);
     });
@@ -258,7 +260,7 @@
 
   function renderTrendChart() {
     var el = document.getElementById('trend_chart');
-    if (!el) return;
+if (!el) return;
     var trend = Array.isArray(state.trend) ? state.trend : [];
     var labels = trend.map(function(t) { return t.date || ''; });
     var totals = trend.map(function(t) { return t.count || 0; });
@@ -289,7 +291,7 @@
 
   function renderBudgetChart() {
     var el = document.getElementById('budget_chart');
-    if (!el) return;
+if (!el) return;
     var dist = Array.isArray(state.budgetDist) ? state.budgetDist : [];
     var labels = dist.map(function(d) { return d.range || ''; });
     var data = dist.map(function(d) { return d.count || 0; });
@@ -309,7 +311,7 @@
 
   function renderSourceChart() {
     var el = document.getElementById('source_chart');
-    if (!el) return;
+if (!el) return;
     var dist = Array.isArray(state.sourceDist) ? state.sourceDist.slice(0, 8) : [];
     var labels = dist.map(function(d) { return (d.source || '').replace('www.',''); });
     var data = dist.map(function(d) { return d.count || 0; });
@@ -390,6 +392,8 @@
         .then(function(r) { return r.json(); })
         .then(function(data) {
           healthState.data = data;
+          if (healthState.charts.radar) { healthState.charts.radar.destroy(); healthState.charts.radar = null; }
+          if (healthState.charts.trend) { healthState.charts.trend.destroy(); healthState.charts.trend = null; }
           renderHealthCards(data.metrics);
           renderHealthRadar(data.metrics);
           renderHealthTrend(healthState.trendDays);

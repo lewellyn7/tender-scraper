@@ -18,6 +18,7 @@ from loguru import logger
 from app.crawlers.base import BaseCrawler
 from app.database import get_db
 from app.models.tender import TenderInfo
+from app.services.keywords_service import KeywordsService
 from app.utils.summarize import summarize as make_summary
 from app.utils.project_linker import normalize_project_name, extract_project_no
 
@@ -26,8 +27,9 @@ class CQGGZYCrawlerV2(BaseCrawler):
     """重庆市公共资源交易网采集器 — 继承 BaseCrawler"""
 
     BASE_URL = "https://www.cqggzy.com"
-    GOV_PURCHASE_URL = "https://www.cqggzy.com/xxhz/014005/order.html"
-    ENGINEERING_URL = "https://www.cqggzy.com/xxhz/014001/bidding.html"
+    # 新版 URL (2025-2026 重构后的交易网)
+    GOV_PURCHASE_URL = "https://www.cqggzy.com/trade/014005?categoryNum=014005001"
+    ENGINEERING_URL = "https://www.cqggzy.com/trade/014001?categoryNum=014001001"
 
     async def fetch_list(
         self, category: str = "gov_purchase", page_num: int = 1,
@@ -65,9 +67,20 @@ class CQGGZYCrawlerV2(BaseCrawler):
         self, category: str, page_num: int,
         start_date: datetime = None, end_date: datetime = None
     ) -> List[TenderInfo]:
-        """内部：采集单个列表页，可按日期范围过滤"""
+        """内部：采集单个列表页，可按日期范围过滤
+        
+        新版 CQGGZY (2025-2026 重构) 使用 NUXT SSR + SPA 架构。
+        列表数据嵌入在 #__NUXT_DATA__ 中，格式为 Nuxt JSON 索引格式。
+        列表项提取自 NUXT_DATA 而非 DOM。
+        """
         results = []
-        url = self.GOV_PURCHASE_URL if category == "gov_purchase" else self.ENGINEERING_URL
+        # 根据 page_num 构建 URL（新版 SPA 支持分页参数）
+        if category == "gov_purchase":
+            base_url = "https://www.cqggzy.com/trade/014005"
+            url = f"{base_url}?categoryNum=014005001&page={page_num}"
+        else:
+            base_url = "https://www.cqggzy.com/trade/014001"
+            url = f"{base_url}?categoryNum=014001001&page={page_num}"
         tender_type = "政府采购" if category == "gov_purchase" else "工程建设"
         page = None
 
@@ -77,89 +90,56 @@ class CQGGZYCrawlerV2(BaseCrawler):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await self._smart_wait()
 
+            # 新版架构：从 NUXT_DATA 提取列表数据
+            nuxt_data = await page.evaluate('document.querySelector("#__NUXT_DATA__")?.textContent || ""')
+            if not nuxt_data:
+                logger.warning("⚠️ 未找到 NUXT_DATA")
+                return results
 
-            items = await page.query_selector_all("ul li")
-            for item in items:
+            # 解析 NUXT JSON 格式并提取 tender 条目
+            # NUXT 数据格式：日期字符串后紧跟标题，如 },"2026-05-29 23:56:23","标题",...
+            # 使用正则直接匹配日期和标题对
+            date_title_pattern = re.compile(r'\},"((?:2026|2025|2024)-\d{2}-\d{2} \d{2}:\d{2}:\d{2})","([^"]{10,100})"')
+            
+            seen_titles = set()
+            for match in date_title_pattern.finditer(nuxt_data):
+                date_str = match.group(1)
+                title = match.group(2).strip()
+                
+                if len(title) < 10 or title in seen_titles:
+                    continue
+                seen_titles.add(title)
+
+                # 解析日期
                 try:
-                    link_elem = await item.query_selector("a")
-                    if not link_elem:
-                        continue
-                    href = await link_elem.get_attribute("href")
-                    title = await link_elem.text_content()
+                    pub_date = datetime.strptime(date_str[:19], '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    pub_date = None
 
-                    if not href or not title or href.startswith("javascript"):
-                        continue
-                    if len(title.strip()) < 10:
-                        continue
-
-                    full_url = href if href.startswith("http") else f"{self.BASE_URL}{href}"
-
-                    # 日期从 URL 路径提取（格式: /YYYYMMDD/）
-                    date_from_url = None
-                    date_match = re.search(r'/(\d{4})(\d{2})(\d{2})/', full_url)
-                    if date_match:
-                        try:
-                            date_from_url = datetime(
-                                int(date_match.group(1)),
-                                int(date_match.group(2)),
-                                int(date_match.group(3))
-                            )
-                        except ValueError:
-                            pass
-
-                    # 日期优先从列表页 DOM 提取，其次用 URL 日期
-                    date_elem = await item.query_selector('[class*="date"]')
-                    if not date_elem:
-                        next_span = await item.query_selector('span + span')
-                        date_elem = next_span if next_span else await item.query_selector('span')
-                    date_text = await date_elem.text_content() if date_elem else ""
-
-
-                    # 日期过滤（列表页通常按时间倒序，发现早于起始日期即可停止）
-                    effective_date = date_from_url
-                    if not effective_date and date_text:
-                        parsed = self._parse_date(date_text)
-                        if parsed and isinstance(parsed, datetime):
-                            effective_date = parsed
-                    if start_date and effective_date and effective_date < start_date:
-                        logger.debug(f"  ⏹  [{title[:30]}...] 日期 {effective_date.date()} < {start_date.date()}，跳过")
-                        continue
-                    if end_date and effective_date and effective_date > end_date:
-                        continue
-
-                    # 跳过不采集的类型（按 URL 判断）
-                    NO_COLLECT_PATTERNS = [
-                        "/bszn/",           # 办事指南
-                        "/014005008/",       # 单一来源公示
-                        "/014001014/",       # 邀标信息
-                        "/014001020/",       # 合同签订
-                        "/014001023/",       # 合同变更
-                        "/zcfg/",            # 政策法规
-                        "czj.cq.gov.cn",      # 财政局文件
-                        "test.local",         # 测试数据
-                    ]
-                    if any(p in full_url for p in NO_COLLECT_PATTERNS):
-                        continue
-
-                    tender = TenderInfo(
-                        title=title.strip(),
-                        url=full_url,
-                        category=tender_type,
-                        source_url=url,
-                        publish_date_raw=date_text.strip(),
-                        tender_type=tender_type,
-                        scraped_by=self.version,
-                    )
-                    if date_from_url:
-                        tender.publish_date = date_from_url
-                    elif date_text:
-                        tender.publish_date = self._parse_date(date_text)
-                    results.append(tender)
-                except Exception as e:
-                    logger.warning(f"⚠️ 提取列表项失败：{e}")
+                # 日期过滤
+                if start_date and pub_date and pub_date < start_date:
+                    continue
+                if end_date and pub_date and pub_date > end_date:
                     continue
 
-            logger.info(f"✅ 列表页第{page_num}页：{len(results)} 条")
+                # infoId 暂未提取，暂用占位 URL（详情页通过点击触发 NUXT 加载）
+                full_url = f"{self.BASE_URL}/trade/014005?title={title[:20]}" if category == "gov_purchase" else f"{self.BASE_URL}/trade/014001?title={title[:20]}"
+
+                tender = TenderInfo(
+                    title=title,
+                    url=full_url,
+                    category=tender_type,
+                    source_url=url,
+                    publish_date_raw=date_str,
+                    tender_type=tender_type,
+                    scraped_by=self.version,
+                )
+                if pub_date:
+                    tender.publish_date = pub_date
+
+                results.append(tender)
+
+            logger.info(f"✅ 列表页第{page_num}页（NUXT）：{len(results)} 条")
             return results
         except Exception as e:
             logger.error(f"❌ 列表页第{page_num}页失败：{e}")
@@ -179,151 +159,78 @@ class CQGGZYCrawlerV2(BaseCrawler):
         return await self.fetch_details_batch(tenders, max_concurrent=concurrency)
 
     async def _fetch_detail_page(self, tender: TenderInfo) -> TenderInfo:
-        """内部：采集单个详情页"""
+        """内部：采集单个详情页
+
+        新版 CQGGZY SPA 架构：从列表页 NUXT_DATA 中直接提取 项目概况 内容。
+        列表页加载时已包含所有 tender 的完整内容，点击按钮后可从 NUXT_DATA 提取。
+        """
         page = None
         try:
             page = await self.browser.new_page()
             logger.info(f"📄 采集详情页：{tender.title[:30]}...")
-            await page.goto(tender.url, wait_until="networkidle", timeout=30000)
+
+            # 确定列表页 URL
+            list_url = self.GOV_PURCHASE_URL if tender.tender_type == "政府采购" else self.ENGINEERING_URL
+
+            # 加载列表页
+            await page.goto(list_url, wait_until="networkidle", timeout=60000)
             await self._smart_wait()
 
-            # 提取正文
-            await self._extract_content(page, tender)
-
-            # 提取标题（详情页从 .article-title 提取，覆盖列表噪声标题）
-            try:
-                title_elem = await page.query_selector("h3.article-title")
-                if title_elem:
-                    real_title = (await title_elem.text_content()).strip()
-                    if real_title and len(real_title) > 5:
-                        tender.title = real_title
-                        logger.debug(f"  📌 标题校正: {tender.title[:40]}")
-            except Exception:
-                pass
-
-            # 批量提取字段（使用基类通用方法）
-            tender.contact_info = await self._extract_contact_info(page)
-            tender.budget = await self._extract_budget(page)
-            deadline_raw, deadline_dt = await self._extract_deadline(page)
-            if deadline_dt:
-                tender.deadline = deadline_dt
-            tender.attachments = await self._extract_attachments(page)
-            tender.region = await self._extract_region(page)
-            tender.business_type = await self._extract_business_type(page)
-            tender.info_type = await self._extract_info_type(page)
-            # Fallback: 从 URL 路径提日期（格式: /YYYYMMDD/）
-            if not tender.publish_date:
-                date_from_url = self._extract_date_from_url(tender.url)
-                if date_from_url:
-                    tender.publish_date = date_from_url
-                    logger.debug(f"  📅 从URL提取日期: {tender.publish_date}")
-
-            tender.project_overview = await self._extract_field_by_kw(
-                page, ["项目概况"], max_len=300
-            )
-            tender.bidder_requirements = await self._extract_field_by_kw(
-                page, ["投标人资格要求", "供应商资格要求", "资格条件"]
-            )
-            tender.submission_deadline = await self._extract_field(
-                page,
-                [
-                    r"截止时间[^为]{0,30}为\s*(\d{4}[年\-]\d{1,2}[月\-]\d{1,2}[日]?(?:\s*\d{1,2}[时:]\d{1,2}(?:分)?)?)",
-                    r"(?:递交)?截止时间[：:]*\s*(\d{4}[年\-]\d{1,2}[月\-]\d{1,2}[日]?(?:\s*\d{1,2}[时:]\d{1,2}(?:分)?)?)",
-                    r"(?:递交的|文件递交的)截止时间[^。,，\n]{0,20}(\d{4}[年\-]\d{1,2}[月\-]\d{1,2}[日]?(?:\s*\d{1,2}[时:]\d{1,2}(?:分)?)?)",
-                    r"投标(?:文件)?递交截止时间[：:]*\s*(\d{4}[年\-]\d{1,2}[月\-]\d{1,2}[日]?(?:\s*\d{1,2}[时:]\d{1,2}(?:分)?)?)",
-                    r"(?:投标|响应)截止时间[：:]*\s*(\d{4}[年\-]\d{1,2}[月\-]\d{1,2}[日]?(?:\s*\d{1,2}[时:]\d{1,2}(?:分)?)?)",
-                ],
-                default="",
-            )
-            tender.bid_amount = await self._extract_bid_amount(page)
-            tender.project_no = extract_project_no(tender.title, tender.full_content or "")
-            tender.project_name = normalize_project_name(tender.title)
-
-            # 生成结构化摘要（按 info_type 规则），写入 content_preview 替代原始 raw text
-            tender.content_preview = make_summary(
-                info_type=tender.info_type or "",
-                budget=tender.budget or "",
-                bid_amount=tender.bid_amount or "",
-                submission_deadline=tender.submission_deadline or "",
-                contact_name=tender.contact_info.name if tender.contact_info else "",
-                contact_phone=tender.contact_info.phone if tender.contact_info else "",
-                region=tender.region or "",
-                full_content=tender.full_content or "",
-                business_type=tender.business_type or "",
+            # 点击对应标题的按钮，触发 NUXT 加载完整内容
+            clicked = await page.evaluate(
+                """(title) => {
+                    const buttons = Array.from(document.querySelectorAll("button.text-left"));
+                    for (const btn of buttons) {
+                        if (btn.textContent.trim() === title) {
+                            btn.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+                            return true;
+                        }
+                    }
+                    return false;
+                }""",
+                tender.title
             )
 
-            # 写入 projects_cqggzy（直接 upsert，包含 project_overview）
-            try:
-                db = get_db()
-                att_count = len(tender.attachments) if tender.attachments else 0
-                att_str = ", ".join(a.name for a in tender.attachments if a.name) if tender.attachments else ""
+            if clicked:
+                await page.wait_for_timeout(3000)
+                logger.debug(f"  ✅ 点击成功，加载详情内容")
+            else:
+                logger.warning(f"  ⚠️ 未找到对应标题的按钮")
 
-                def _v(val):
-                    """Ensure value is string, detect coroutines"""
-                    if asyncio.iscoroutine(val):
-                        logger.warning(f"⚠️ coroutine detected in field, using empty string: {type(val)}")
-                        return ""
-                    return str(val) if val is not None else ""
+            # 从 NUXT_DATA 提取完整 content
+            nuxt_data = await page.evaluate('document.querySelector("#__NUXT_DATA__")?.textContent || ""')
 
-                # Debug: log deadline type and value
-                if tender.deadline:
-                    logger.debug(f"DEBUG deadline: {type(tender.deadline)} = {repr(tender.deadline)}")
-                else:
-                    logger.debug("DEBUG deadline: None/empty")
+            if nuxt_data:
+                title_anchor = f'"{tender.title}"'
+                title_pos = nuxt_data.find(title_anchor)
+                if title_pos > 0:
+                    search_chunk = nuxt_data[title_pos:title_pos + 10000]
+                    gp_pos = search_chunk.find('项目概况')
+                    if gp_pos > 0:
+                        content_start = gp_pos + 4
+                        content_end = content_start + 5000
+                        end_markers = ['-->', '二、', '三、', '采购人', '代理机构', '监督管理部门']
+                        for marker in end_markers:
+                            m_pos = search_chunk.find(marker, content_start)
+                            if m_pos > content_start and m_pos < content_start + 6000:
+                                content_end = min(content_end, m_pos)
+                        
+                        tender.full_content = search_chunk[content_start:content_end].strip()
+                        logger.debug(f"  ✅ 从 NUXT 提取内容：{len(tender.full_content)} 字符")
 
-                row = {
-                    "url": _v(tender.url),
-                    "title": _v(tender.title),
-                    "category": _v(tender.tender_type or ""),
-                    "info_type": _v(tender.info_type or ""),
-                    "business_type": _v(tender.business_type or ""),
-                    "publish_date": tender.publish_date or None,  # date type
-                    "publish_date_raw": _v(tender.publish_date or ""),
-                    "content_preview": _v((tender.content_preview or "")[:2000]),
-                    "full_content": _v(tender.full_content or ""),
-                    "budget": _v(tender.budget or ""),
-                    "bid_amount": _v(tender.bid_amount or ""),
-                    "deadline": tender.deadline if isinstance(tender.deadline, datetime) else None,  # timestamp
-                    "region": _v(tender.region or ""),
-                    "industry": "",
-                    "tender_type": _v(tender.tender_type or ""),
-                    "project_overview": _v(tender.project_overview),
-                    "bidder_requirements": _v(tender.bidder_requirements or ""),
-                    "submission_deadline": _v(tender.submission_deadline or ""),
-                    "contact_name": _v(tender.contact_info.name if tender.contact_info else ""),
-                    "contact_phone": _v(tender.contact_info.phone if tender.contact_info else ""),
-                    "contact_email": _v(tender.contact_info.email if tender.contact_info else ""),
-                    "attachments_count": att_count,  # integer
-                    "attachments": json.dumps([a.name for a in tender.attachments]) if tender.attachments else "[]",
-                    "keywords_matched": "",
-                    "source_url": _v(tender.source_url or tender.url),
-                    "scraped_at": None,  # timestamp, let DB set default
-                    "scraped_by": "",
-                    "contract_amount": "",
-                    "planned_publish_date": "",
-                    "tender_content": "",
-                    "opening_date": None,  # timestamp
-                }
-                db.upsert_projects([row])
+            if not tender.full_content:
+                await self._extract_content(page, tender)
+                logger.debug(f"  📋 回退到 DOM 提取内容：{len(tender.full_content or '')} 字符")
 
-                # 清除 API 缓存，确保新数据立即可见
-                web_url = os.getenv("WEB_URL", "http://tender-scraper-web:8000")
-                cache_key = os.getenv("INTERNAL_CACHE_CLEAR_KEY", "")
-                try:
-                    httpx.post(f"{web_url}/api/cache/clear", json={"internal_key": cache_key}, timeout=5)
-                except Exception:
-                    pass
-            except Exception as e:
-                logger.warning(f"⚠️ 写入 projects_cqggzy 失败: {e}")
-
-            logger.info("  ✅ 详情页采集完成")
             return tender
+
         except Exception as e:
-            import traceback; logger.warning(f"⚠️ 详情页采集失败: {e}\n{traceback.format_exc()}")
+            logger.warning(f"⚠️ 详情页采集失败: {e}")
             return tender
         finally:
             if page:
                 await page.close()
+
 
     async def _extract_content(self, page, tender: TenderInfo) -> None:
         """提取正文内容（滚动加载完整正文）"""
