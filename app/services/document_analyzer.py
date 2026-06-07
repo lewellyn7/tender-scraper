@@ -412,6 +412,27 @@ def _call_ragflow_analysis(text: str) -> Dict:
 # ── 主分析器 ────────────────────────────────────────────────
 
 
+# 文本提取失败的占位符（2026-06-07 qualification-ai P0-2 修复）
+# extract_text_from_pdf / extract_text_from_image 失败时返这些 placeholder，
+# 之前会被 analyze_document 当作"真实文本"继续解析，导致误识别证件类型。
+_EXTRACTION_ERROR_PREFIXES = (
+    "[PDF提取不可用",
+    "[PDF提取失败",
+    "[OCR不可用",
+    "[OCR失败",
+    "[OCR未识别到文字",
+    "[不支持的格式",
+)
+
+
+def _is_extraction_error(text: str) -> bool:
+    """检测文本是否为提取失败的占位符（不是真实文档内容）"""
+    if not text:
+        return True
+    s = text.strip()
+    return any(s.startswith(p) for p in _EXTRACTION_ERROR_PREFIXES)
+
+
 class DocumentAnalyzer:
     """资质文档分析器（支持营业执照/建造师/工程师/安全员/身份证/资质证书）"""
 
@@ -495,6 +516,16 @@ class DocumentAnalyzer:
 
         # 1. 文字提取
         raw_text = self.extract_text(file_path)
+
+        # 1a. 2026-06-07 P0-2: 修复"提取失败占位符被当作文档内容解析"的 bug
+        if _is_extraction_error(raw_text):
+            error_msg = raw_text.strip() or "文档内容提取失败"
+            return {
+                "success": False,
+                "error": error_msg,
+                "raw_text": raw_text,
+                "fields": {},
+            }
 
         if not raw_text or len(raw_text.strip()) < 5:
             return {
