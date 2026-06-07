@@ -162,23 +162,62 @@ class QualificationsMixin:
             return []
 
     def get_tender_requirements(self, tender_id: int) -> Optional[dict]:
-        """获取招标项目的资质要求"""
+        """获取招标项目的资质要求
+
+        修复 2026-06-07 (qualification-ai P0-1)：
+        旧实现查 favorites 表（错表，且 bidder_requirements 字段在 favorites 不存在）。
+        新实现：按来源表优先级回退（cqggzy → ccgp → favorites），
+        返回含 source 字段标识数据来源，requirements_text 优先取
+        bidder_requirements 字段，否则用 tender_type 兜底。
+
+        各表实际列：
+        - projects_cqggzy / projects_ccgp: id, title, bidder_requirements, tender_type, budget, region
+        - favorites: id, project_url, title, tender_type, budget, publish_date
+        """
+        # 每张表的查询列（schema 实际存在的列）
+        table_columns = {
+            "projects_cqggzy": "id, title, bidder_requirements, tender_type, budget, region",
+            "projects_ccgp":   "id, title, bidder_requirements, tender_type, budget, region",
+            "favorites":       "id, title, tender_type, budget",  # favorites 无 bidder_requirements / region
+        }
         try:
             c = self._get_conn()
-            row = c.execute(
-                "SELECT * FROM favorites WHERE id = ?", (tender_id,)
-            ).fetchone()
-            if not row:
-                return None
-            d = dict(row)
-            requirements_text = d.get("bidder_requirements", "") or d.get("tender_type", "")
-            return {
-                "tender_id": tender_id,
-                "title": d.get("title", ""),
-                "requirements_text": requirements_text,
-                "budget": d.get("budget", ""),
-                "region": d.get("region", ""),
-            }
+            # 优先级：cqggzy → ccgp → favorites
+            for table, cols in table_columns.items():
+                try:
+                    row = c.execute(
+                        f"SELECT {cols} FROM {table} WHERE id = %s",
+                        (tender_id,),
+                    ).fetchone()
+                except Exception as e:
+                    # 表/列不存在 或其他错误 → rollback 避免事务 abort
+                    # 然后继续下个表
+                    try:
+                        c.rollback()
+                    except Exception:
+                        pass
+                    logger.debug(f"get_tender_requirements: skip {table}: {e}")
+                    continue
+                if not row:
+                    continue
+                d = dict(row) if hasattr(row, "keys") else None
+                if d is None:
+                    continue
+                requirements_text = (
+                    d.get("bidder_requirements") or d.get("tender_type") or ""
+                )
+                return {
+                    "tender_id": tender_id,
+                    "title": d.get("title", "") or "",
+                    "requirements_text": requirements_text or "",
+                    "budget": d.get("budget", "") or "",
+                    "region": d.get("region", "") or "",
+                    "source": table,  # 标识数据来源，方便调用方处理空数据
+                    "has_requirements": bool(
+                        d.get("bidder_requirements") and str(d.get("bidder_requirements")).strip()
+                    ),
+                }
+            return None
         except Exception as e:
             logger.error(f"get_tender_requirements: {e}")
             return None
