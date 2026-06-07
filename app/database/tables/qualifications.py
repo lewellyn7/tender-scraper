@@ -10,14 +10,20 @@ class QualificationsMixin:
     """bidder_qualifications 表 CRUD 操作（混入 Database 类使用）"""
 
     def add_qualification(self, data: dict) -> Optional[int]:
-        """添加资质记录，返回新记录ID"""
+        """添加资质记录，返回新记录ID
+
+        修复 2026-06-07 (qualification-ai D-0)：
+        原代码 INSERT 引用了不存在的 notes / user_id 列，生产 PG 表实际
+        只有 14 列（无 notes / user_id），导致 add_qualification 永远失败。
+        新代码与实际 schema 对齐。
+        """
         try:
             conn = self._get_conn()
             row = conn.execute(
                 """INSERT INTO bidder_qualifications
                    (name, category, level, certificate_no, valid_from, valid_to,
-                    issuer, file_path, linked_tenders, status, notes, user_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    issuer, file_path, linked_tenders, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    RETURNING id""",
                 (
                     data.get("name", ""),
@@ -30,8 +36,6 @@ class QualificationsMixin:
                     data.get("file_path", ""),
                     json.dumps(data.get("linked_tenders", []), ensure_ascii=False),
                     data.get("status", "有效"),
-                    data.get("notes", ""),
-                    data.get("user_id", ""),
                 ),
             ).fetchone()
             conn.commit()
