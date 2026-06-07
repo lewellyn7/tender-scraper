@@ -1,11 +1,23 @@
 """招投标采集系统 - 主入口 V3
 更新：集成 SmartScheduler 动态优先级调度，替代手动 asyncio.gather
+
+# 采集源策略（2026-06-02 决策）
+# - CCGP（重庆政府采购网）：**不再进行采集**。原因见 memory/2026-06-02.md 和 AGENTS.md
+#   - SPA 架构，无服务端日期过滤，3 个月 API 窗口限制
+#   - 详情页 URL 提取依赖 JS navigation 拦截，稳定性差
+#   - 现存 58 条 CCGP 数据保留不删，仅停采
+# - CQGGZY（重庆公共资源交易中心）：唯一活跃采集源
+#   - 9 个分类并行采集，每日 9-19 点每 2 小时一次
 """
 import asyncio
 import json
+import time
+
+# 采集源开关（2026-06-02 决策）
+ENABLE_CCGP = False  # 设为 True 重新启用 CCGP 采集（需先修复 XHR 端点问题）
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -91,7 +103,7 @@ def _build_crawl_task(item, index: int) -> CrawlTask:
             pass
 
     return CrawlTask(
-        task_id=f"detail_{index}_{item.url[:40]}",
+        task_id=f"detail_{index}_{item.url}",
         source=source,
         url=item.url,
         info_type=getattr(item, "info_type", "招标公告"),
@@ -120,23 +132,56 @@ async def run_collection():
 
         # 2. 创建采集器 V2
         crawler = CQGGZYCrawlerV2(browser)
-        ccgp_crawler = CCGPCrawlerV3(browser)
+        # CCGP 采集器：仅在 ENABLE_CCGP=True 时创建（默认停采，2026-06-02 决策）
+        ccgp_crawler = CCGPCrawlerV3(browser) if ENABLE_CCGP else None
 
-        # 3. 采集数据 (列表页，并行两路)
+        # 采集数据（9 个分类，并行）；date=3m 由 URL 参数控制，额外做日期过滤
+        # 上周数据
+        # 2026-06-05 修复：CQGGZY API 的 edt 是排他的（不含当天），end_date 需 +1 天才能采集当天数据
+        today = datetime.now()
+        start_date = today - timedelta(days=7)
+        end_date = today + timedelta(days=1)
         all_items = []
+        categories = [
+            "engineering_notice",     # 招标公告
+            "engineering_plan",       # 招标计划
+            "engineering_qa",         # 答疑补遗
+            "engineering_candidate",   # 中标候选人公示
+            "engineering_result",    # 中标结果公示
+            "engineering_terminate", # 终止公告
+            "gov_purchase_notice",   # 采购公告
+            "gov_purchase_change",    # 变更公告
+            "gov_purchase_result",   # 采购结果公告
+        ]
 
-        logger.info("📋 开始采集政府采购公告 + 工程招投标（CCGP 已禁用）...")
-        gathered = await asyncio.gather(
-            crawler.fetch_list(category="gov_purchase"),
-            crawler.fetch_list(category="engineering"),
-        )
-        gov_items = gathered[0]
-        eng_items = gathered[1]
-        all_items.extend(gov_items)
-        all_items.extend(eng_items)
-        logger.info(f"📥 列表页数据总计：{len(all_items)} 条（政府采购 {len(gov_items)} 条，工程招投标 {len(eng_items)} 条）")
+        logger.info(f"📋 开始采集 CQGGZY 9 个分类...")
+        # 2026-06-03 修复：分页采集直到 API 返回 < 50 条（原代码只采第 1 页，丢失 50+ 之后的数据）
+        async def _fetch_all_pages(category: str) -> list:
+            items_all: list = []
+            for page_num in range(1, 21):  # 最多 20 页（1000 条）安全保护
+                items = await crawler.fetch_list(
+                    category=category, page_num=page_num,
+                    start_date=start_date, end_date=end_date,
+                )
+                items_all.extend(items)
+                if len(items) < 50:
+                    break
+            return items_all
+
+        tasks = [_fetch_all_pages(c) for c in categories]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for c, r in zip(categories, results):
+            if isinstance(r, list):
+                all_items.extend(r)
+                logger.info(f"  {c}: {len(r)} 条")
+            elif isinstance(r, Exception):
+                logger.warning(f"  {c}: 采集异常 {r}")
+        logger.info(f"📥 列表页数据总计：{len(all_items)} 条")
 
         # 过滤掉 CCGP-chongqing（仅保留 CQGGZY）
+        # 2026-06-02 决策：CCGP 不再进行采集，下方为双重保险
+        # 1. 列表页 categories 中不包含 CCGP URL（已实现）
+        # 2. 即便混入 CCGP 链接也过滤掉（防止外部数据源）
         all_items = [
             item for item in all_items
             if not (hasattr(item, 'source_url') and item.source_url and 'ccgp' in item.source_url)
@@ -165,8 +210,11 @@ async def run_collection():
 
         logger.info(f"✅ 匹配关键词的项目：{len(matched_items)}/{len(all_items)} 条")
 
-        # 5. 使用 SmartScheduler 并行采集详情页（来源均衡采样，确保 CCGP 也有机会）
-        detail_limit = min(30, len(matched_items))
+        # 5. 使用 SmartScheduler 并行采集详情页（来源均衡采样）
+        # 2026-06-02 决策：CCGP 停采后此处只处理 CQGGZY，不再有 CCGP 任务
+        # 2026-06-03 决策：扩大 detail_limit 30→100，确保大部分匹配项目有正文（列表 API 不再返回 content）
+        # 2026-06-05 决策：再扩大到 300，覆盖 3684 匹配项目中的绝大部分（每周期 16min）
+        detail_limit = min(300, len(matched_items))
         # 按来源均衡选择，避免单一来源占满限额
         from collections import defaultdict
         by_source = defaultdict(list)
@@ -205,13 +253,22 @@ async def run_collection():
                 if item is None:
                     return False
                 # 根据来源选择采集器
-                detail_crawler = ccgp_crawler if task.source == "ccgp" else crawler
+                # 2026-06-02：CCGP 停采后 ccgp_crawler=None，理论上不会调用（任务已被过滤）
+                # 加 None check 双重保险
+                if task.source == "ccgp":
+                    if ccgp_crawler is None:
+                        logger.warning(f"⚠️ CCGP 任务 {task.task_id} 被跳过（CCGP 采集已停用，ENABLE_CCGP=False）")
+                        return False
+                    detail_crawler = ccgp_crawler
+                else:
+                    detail_crawler = crawler
+                # 记录采集指标（HealthMonitor）
+                t0 = time.monotonic()
                 try:
                     detail_item = await detail_crawler.fetch_detail(item)
-                    # 更新原始 matched_items 中的对应项
+                    # 更新原始 matched_items 中的对应项（按 URL 而非对象引用）
                     for mi in matched_items:
-                        if mi.url == detail_item.url:
-                            # 复制详情字段
+                        if mi.url == item.url:  # 用原始 URL 匹配（task.item_map 已建立）
                             mi.full_content = detail_item.full_content
                             mi.content_preview = detail_item.content_preview
                             mi.budget = detail_item.budget
@@ -221,7 +278,7 @@ async def run_collection():
                             break
                     # 同时更新 all_items
                     for ai in all_items:
-                        if ai.url == detail_item.url:
+                        if ai.url == item.url:
                             ai.full_content = detail_item.full_content
                             ai.content_preview = detail_item.content_preview
                             ai.budget = detail_item.budget
@@ -229,9 +286,22 @@ async def run_collection():
                             ai.contact_info = detail_item.contact_info
                             ai.attachments = detail_item.attachments
                             break
+                    # 记录成功
+                    try:
+                        from app.services.health_monitor import get_health_monitor
+                        latency_ms = (time.monotonic() - t0) * 1000
+                        get_health_monitor().record_crawl_ok(latency_ms)
+                    except Exception:
+                        pass
                     return True
                 except Exception as e:
                     logger.warning(f"  ⚠️ 详情采集失败 [{task.task_id}]: {e}")
+                    try:
+                        from app.services.health_monitor import get_health_monitor
+                        latency_ms = (time.monotonic() - t0) * 1000
+                        get_health_monitor().record_crawl_fail(latency_ms)
+                    except Exception:
+                        pass
                     return False
 
             # 执行调度（自动控制并发 + 自适应间隔）
@@ -288,7 +358,16 @@ async def run_collection():
         if standardized_matched:
             _upsert_to_vector_store(standardized_matched)
 
-        # 11. 截标日期 T-3 提醒检查
+        # 11. 写入 PostgreSQL（projects_cqggzy 表）
+        try:
+            from app.database.db import get_db
+            db = get_db()
+            db.upsert_projects(standardized_all)
+            logger.info(f"📦 PostgreSQL 写入：{len(standardized_all)} 条")
+        except Exception as e:
+            logger.error(f"PostgreSQL 写入失败: {e}")
+
+        # 12. 截标日期 T-3 提醒检查
         try:
             from app.utils.notifications import get_notif_manager
             nm = get_notif_manager()

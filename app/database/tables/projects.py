@@ -66,6 +66,8 @@ class ProjectsMixin:
         - project_no 非空字符串 → 按 project_no 查找，ON CONFLICT UPDATE
         - project_no 为空/None    → 转为 NULL，按 project_name 查找，UPDATE 或 INSERT
         NULL 在 UNIQUE 索引中允许多行（不存在 project_no 的项目）。
+
+        PG 兼容：使用 RETURNING id 拿 lastrowid。
         """
         conn = self._get_conn()
         pno = None if not project_no else project_no
@@ -92,11 +94,12 @@ class ProjectsMixin:
                     )
                     conn.commit()
                     return existing["id"]
-                # 未找到 → INSERT（ON CONFLICT 不可用：project_no 可能为 NULL，故用检查-插入模式）
-                cursor = conn.execute(
+                # 未找到 → INSERT，用 RETURNING id 拿新 id
+                cur = conn.execute(
                     """INSERT INTO projects
                        (project_name, project_name_raw, project_no, business_type, region, industry, budget)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, ?, ?, ?)
+                       RETURNING id""",
                     (
                         project_name,
                         project_name_raw,
@@ -108,7 +111,11 @@ class ProjectsMixin:
                     ),
                 )
                 conn.commit()
-                return cursor.lastrowid
+                row = cur.fetchone() if hasattr(cur, "fetchone") else None
+                if row:
+                    rid = row["id"] if isinstance(row, dict) else row[0]
+                    return int(rid)
+                return -1
             else:
                 # project_no 为空 → 按 project_name 查找，UPDATE 或 INSERT
                 existing = conn.execute(
@@ -132,10 +139,11 @@ class ProjectsMixin:
                     conn.commit()
                     return existing["id"]
                 else:
-                    cursor = conn.execute(
+                    cur = conn.execute(
                         """INSERT INTO projects
                            (project_name, project_name_raw, project_no, business_type, region, industry, budget)
-                           VALUES (?, ?, NULL, ?, ?, ?, ?)""",
+                           VALUES (?, ?, NULL, ?, ?, ?, ?)
+                           RETURNING id""",
                         (
                             project_name,
                             project_name_raw,
@@ -146,7 +154,11 @@ class ProjectsMixin:
                         ),
                     )
                     conn.commit()
-                    return cursor.lastrowid
+                    row = cur.fetchone() if hasattr(cur, "fetchone") else None
+                    if row:
+                        rid = row["id"] if isinstance(row, dict) else row[0]
+                        return int(rid)
+                    return -1
         except Exception as e:
             logger.error(f"upsert_project: {e}")
             try:
@@ -215,11 +227,14 @@ class ProjectsMixin:
         title: str = "",
         publish_date: str = "",
         budget: str = "",
-    ) -> bool:
-        """插入或更新项目记录（ON CONFLICT 防止重复）"""
+    ) -> int:
+        """插入或更新项目记录（ON CONFLICT 防止重复），返回 record_id。
+
+        未变动数据返回 -1。
+        """
         try:
             conn = self._get_conn()
-            conn.execute(
+            cur = conn.execute(
                 """INSERT INTO project_records
                    (project_id, record_url, record_type, title, publish_date, budget)
                    VALUES (?, ?, ?, ?, ?, ?)
@@ -227,7 +242,8 @@ class ProjectsMixin:
                    record_type=EXCLUDED.record_type,
                    title=EXCLUDED.title,
                    publish_date=EXCLUDED.publish_date,
-                   budget=EXCLUDED.budget""",
+                   budget=EXCLUDED.budget
+                   RETURNING id""",
                 (
                     project_id,
                     record_url,
@@ -238,7 +254,138 @@ class ProjectsMixin:
                 ),
             )
             conn.commit()
-            return True
+            row = cur.fetchone() if hasattr(cur, "fetchone") else None
+            record_id = -1
+            if row:
+                record_id = int(row["id"] if isinstance(row, dict) else row[0])
+
+            # Hook: 写入后触发收藏项目关联提醒（失败不抛）
+            if record_id > 0:
+                try:
+                    self._try_trigger_favorite_notification(
+                        project_id=project_id,
+                        record_id=record_id,
+                        project_name=title,  # 临时用 title，后头会重取
+                        info_type=record_type,
+                        record_url=record_url,
+                        record_title=title,
+                    )
+                except Exception as e:
+                    logger.debug(f"favorite notification hook failed: {e}")
+            return record_id
         except Exception as e:
             logger.error(f"add_project_record: {e}")
-            return False
+            return -1
+
+    def _try_trigger_favorite_notification(
+        self,
+        project_id: int,
+        record_id: int,
+        project_name: str,
+        info_type: str,
+        record_url: str,
+        record_title: str = "",
+    ) -> None:
+        """Hook: 写入新 record 后触发收藏项目关联提醒。
+
+        委托给 `app.services.favorite_notifier.try_notify_favorite_match`。
+        失败不抛——不干扰采集主流程。
+        """
+        try:
+            from app.services.favorite_notifier import try_notify_favorite_match
+
+            try_notify_favorite_match(
+                project_id=project_id,
+                record_id=record_id,
+                project_name=project_name,
+                info_type=info_type,
+                record_url=record_url,
+                record_title=record_title,
+            )
+        except Exception as e:
+            logger.debug(f"favorite notification hook failed: {e}")
+
+    # ── sync helper ───────────────────────────────────────────
+
+    def _sync_projects_link(self, rows: list, source_table: str = "projects_cqggzy") -> int:
+        """联动写入 projects + project_records 关联表。
+
+        对每条 row:
+        1. upsert_project() → project_id
+        2. add_project_record() → record_id (会触发通知 hook)
+
+        失败被捕获，不阻断主流程。
+        """
+        if not rows:
+            return 0
+        synced = 0
+        try:
+            from app.utils.project_linker import (
+                extract_project_no,
+                normalize_project_name,
+            )
+        except Exception as e:
+            logger.warning(f"import project_linker failed: {e}")
+            return 0
+
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            url = r.get("url", "")
+            title = r.get("title", "")
+            if not url or not title:
+                continue
+
+            try:
+                # 1. 计算 project_name / project_no
+                project_name = normalize_project_name(title)
+                project_no_raw = r.get("project_no", "") or ""
+                if not project_no_raw:
+                    # 从 title / content_preview 提取
+                    project_no_raw = extract_project_no(
+                        title, r.get("content_preview", "") or ""
+                    ) or ""
+                # ccgp source 已有 project_no
+                project_no = project_no_raw
+
+                # 2. upsert_project
+                project_id = self.upsert_project(
+                    project_name=project_name,
+                    project_name_raw=title,
+                    project_no=project_no,
+                    business_type=r.get("business_type", "") or r.get("tender_type", ""),
+                    region=r.get("region", "") or "",
+                    industry=r.get("industry", "") or "",
+                    budget=r.get("budget", "") or "",
+                )
+                if project_id <= 0:
+                    continue
+
+                # 3. add_project_record (此函数末尾会触发通知 hook)
+                info_type = r.get("info_type", "") or ""
+                # publish_date:可能是 datetime/date/str，统一转 str
+                pub_date = r.get("publish_date", "")
+                if pub_date and not isinstance(pub_date, str):
+                    try:
+                        pub_date = pub_date.strftime("%Y-%m-%d")
+                    except Exception:
+                        pub_date = str(pub_date)
+
+                self.add_project_record(
+                    project_id=project_id,
+                    record_url=url,
+                    record_type=info_type,
+                    title=title,
+                    publish_date=pub_date or "",
+                    budget=r.get("budget", "") or "",
+                )
+                synced += 1
+            except Exception as e:
+                logger.debug(f"_sync_projects_link 单条失败: {url}: {e}")
+                continue
+
+        if synced:
+            logger.info(
+                f"🔗 {source_table} 联动入 {synced} 条到 projects + project_records"
+            )
+        return synced

@@ -27,9 +27,37 @@ class CQGGZYCrawlerV2(BaseCrawler):
     """重庆市公共资源交易网采集器 — 继承 BaseCrawler"""
 
     BASE_URL = "https://www.cqggzy.com"
-    # 新版 URL (2025-2026 重构后的交易网)
-    GOV_PURCHASE_URL = "https://www.cqggzy.com/trade/014005?categoryNum=014005001"
+
+    # 新版 URL (2026-06 改版后) — pageNum= + date=3m
+    # 工程招投标
     ENGINEERING_URL = "https://www.cqggzy.com/trade/014001?categoryNum=014001001"
+    # 政府采购
+    GOV_PURCHASE_URL = "https://www.cqggzy.com/trade/014005?categoryNum=014005001"
+
+    # 分类采集 URL 映射（支持多 categoryNum）
+    LIST_URLS = {
+        "engineering_notice":    ("https://www.cqggzy.com/trade/014001", "014001001"),
+        "engineering_plan":      ("https://www.cqggzy.com/trade/014001", "014001019"),
+        "engineering_qa":        ("https://www.cqggzy.com/trade/014001", "014001002"),
+        "engineering_candidate":  ("https://www.cqggzy.com/trade/014001", "014001003"),
+        "engineering_result":    ("https://www.cqggzy.com/trade/014001", "014001004"),
+        "engineering_terminate": ("https://www.cqggzy.com/trade/014001", "014001021"),
+        "gov_purchase_notice":   ("https://www.cqggzy.com/trade/014005", "014005001"),
+        "gov_purchase_change":   ("https://www.cqggzy.com/trade/014005", "014005002"),
+        "gov_purchase_result":   ("https://www.cqggzy.com/trade/014005", "014005004"),
+    }
+
+    INFO_TYPE_MAP = {
+        "engineering_notice":    "招标公告",
+        "engineering_plan":      "招标计划",
+        "engineering_qa":        "答疑补遗",
+        "engineering_candidate": "中标候选人公示",
+        "engineering_result":    "中标结果公示",
+        "engineering_terminate": "终止公告",
+        "gov_purchase_notice":   "采购公告",
+        "gov_purchase_change":   "变更公告",
+        "gov_purchase_result":   "采购结果公告",
+    }
 
     async def fetch_list(
         self, category: str = "gov_purchase", page_num: int = 1,
@@ -56,7 +84,13 @@ class CQGGZYCrawlerV2(BaseCrawler):
         """
         try:
             # 构造 API 请求
-            category_num = "014005001" if category == "gov_purchase" else "014001001"
+            # category → categoryNum 映射
+            cat_map = {
+                "gov_purchase": "014005001",
+                "engineering": "014001001",
+            }
+            cat_map.update({k: v[1] for k, v in self.LIST_URLS.items()})
+            category_num = cat_map.get(category, "014005001" if "gov" in category else "014001001")
             pn = page_num - 1  # API 页码从 0 开始
             rn = 50  # 每页条数（增大减少页间重叠）
 
@@ -125,7 +159,7 @@ class CQGGZYCrawlerV2(BaseCrawler):
             if not items:
                 return []
 
-            tender_type = "政府采购" if category == "gov_purchase" else "工程建设"
+            tender_type = self.INFO_TYPE_MAP.get(category, "政府采购" if category == "gov_purchase" else "工程建设")
             results = []
 
             for item in items:
@@ -142,13 +176,21 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     except ValueError:
                         pass
 
-                # 详情页 URL：从 linkurl 构建
-                linkurl = item.get('linkurl', '')
-                if linkurl:
-                    full_url = f"{self.BASE_URL}{linkurl}"
+                # 详情页 URL（2026-06 新版）：infoid 为真正的项目 UUID，syscollectguid 是分类级 ID（多项目共用）
+                # 优先使用 infoid，若无则降级到 syscollectguid
+                infoid = item.get('infoid', '') or item.get('syscollectguid', '')
+                raw_catnum = item.get('categorynum', '') or ''
+                # categorynum 可能是 12 位（如 014001001007），直接用完整值作为 categoryNum
+                category_num = raw_catnum
+                # 判断是工程还是采购（trade id 在 URL 中）
+                if category_num.startswith('014001') or category.startswith('engineering'):
+                    trade_id = '014001'
                 else:
-                    info_id = item.get('infoid', '')
-                    full_url = f"{self.BASE_URL}/trade/014005?infoId={info_id}" if category == "gov_purchase" else f"{self.BASE_URL}/trade/014001?infoId={info_id}"
+                    trade_id = '014005'
+                if infoid:
+                    full_url = f"{self.BASE_URL}/trade/{trade_id}/{infoid}?categoryNum={category_num}"
+                else:
+                    full_url = f"{self.BASE_URL}/trade/{trade_id}?infoId={item.get('infoid', '')}"
 
                 tender = TenderInfo(
                     title=title,
@@ -157,19 +199,37 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     source_url=full_url,
                     publish_date_raw=infodate,
                     tender_type=tender_type,
+                    business_type=self._infer_business_type_by_url(full_url),  # 2026-06-05 P0-1
                     scraped_by=self.version,
                 )
                 if pub_date:
                     tender.publish_date = pub_date
 
-                # 从 content 提取摘要（前500字）
+                # info_type 从 URL 的 categoryNum 前 9 位提取（2026-06-02 用户分类标准）
+                import re as _re
+                _m = _re.search(r'categoryNum=(\d+)', full_url)
+                if _m:
+                    _prefix9 = _m.group(1)[:9]
+                    _CATEGORY_INFO_TYPE = {
+                        '014001019': '招标计划',
+                        '014001001': '招标公告',
+                        '014001002': '答疑补遗',
+                        '014001003': '中标候选人公示',
+                        '014001004': '中标结果公示',
+                        '014001021': '终止公告',
+                        '014005001': '采购公告',
+                        '014005002': '变更公告',
+                        '014005004': '采购结果公告',
+                    }
+                    tender.info_type = _CATEGORY_INFO_TYPE.get(_prefix9, '')
+
+                # 从 content 提取全文（API 已含完整正文，不再访问详情页）
                 raw_content = item.get('content', '') or ''
                 if raw_content:
-                    # 清理 HTML
                     import re as re_module
                     clean = re_module.sub(r'<[^>]+>', '', raw_content)
                     clean = re_module.sub(r'\s+', ' ', clean).strip()
-                    tender.full_content = clean[:5000] if clean else ''
+                    tender.full_content = clean  # 保留完整内容，不截断
 
                 results.append(tender)
 
@@ -210,14 +270,20 @@ class CQGGZYCrawlerV2(BaseCrawler):
         列表项提取自 NUXT_DATA 而非 DOM。
         """
         results = []
-        # 根据 page_num 构建 URL（新版 SPA 支持分页参数）
+        # 2026-06 改版：pageNum= + date=3m
         if category == "gov_purchase":
             base_url = "https://www.cqggzy.com/trade/014005"
-            url = f"{base_url}?categoryNum=014005001&page={page_num}"
-        else:
+            url = f"{base_url}?pageNum={page_num}&date=3m&categoryNum=014005001"
+            tender_type = "政府采购"
+        elif category == "engineering":
             base_url = "https://www.cqggzy.com/trade/014001"
-            url = f"{base_url}?categoryNum=014001001&page={page_num}"
-        tender_type = "政府采购" if category == "gov_purchase" else "工程建设"
+            url = f"{base_url}?pageNum={page_num}&date=3m&categoryNum=014001001"
+            tender_type = "工程建设"
+        else:
+            base, cat_num = self.LIST_URLS.get(category, ("https://www.cqggzy.com/trade/014005", "014005001"))
+            url = f"{base}?pageNum={page_num}&date=3m&categoryNum={cat_num}"
+            # 政府采购类 vs 工程建设类
+            tender_type = "政府采购" if category.startswith("gov_purchase") else "工程建设"
         page = None
 
         try:
@@ -263,7 +329,7 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     continue
 
                 # infoId 暂未提取，暂用占位 URL（详情页通过点击触发 NUXT 加载）
-                full_url = f"{self.BASE_URL}/trade/014005?title={title[:20]}" if category == "gov_purchase" else f"{self.BASE_URL}/trade/014001?title={title[:20]}"
+                full_url = f"{self.BASE_URL}/trade/014005?title={title[:20]}" if category.startswith("gov_purchase") else f"{self.BASE_URL}/trade/014001?title={title[:20]}"
 
                 tender = TenderInfo(
                     title=title,
@@ -276,6 +342,10 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 )
                 if pub_date:
                     tender.publish_date = pub_date
+
+                # NUXT fallback URL 无 categoryNum，只设 trade 级默认
+                # 2026-06-02 用户分类：014001=招标公告（最常见），014005=采购公告
+                tender.info_type = "招标公告" if tender_type == "工程建设" else "采购公告"
 
                 results.append(tender)
 
@@ -299,77 +369,109 @@ class CQGGZYCrawlerV2(BaseCrawler):
         return await self.fetch_details_batch(tenders, max_concurrent=concurrency)
 
     async def _fetch_detail_page(self, tender: TenderInfo) -> TenderInfo:
-        """内部：采集单个详情页
+        """详情页采集：SPA 导航到 UUID URL 获取完整正文。
 
-        新版 CQGGZY SPA 架构：从列表页 NUXT_DATA 中直接提取 项目概况 内容。
-        列表页加载时已包含所有 tender 的完整内容，点击按钮后可从 NUXT_DATA 提取。
+        策略：
+        1. 先访问列表页建立 SPA context
+        2. history.pushState 触发 Vue Router 导航到详情页
+        3. 等待正文渲染，提取内容
         """
         page = None
         try:
             page = await self.browser.new_page()
-            logger.info(f"📄 采集详情页：{tender.title[:30]}...")
 
-            # 确定列表页 URL
-            list_url = self.GOV_PURCHASE_URL if tender.tender_type == "政府采购" else self.ENGINEERING_URL
+            # 从 URL 解析 trade_id 和 categoryNum
+            # 格式: /trade/{trade_id}/{uuid}?categoryNum={catnum}
+            parsed = self._parse_detail_url(tender.url)
+            trade_id = parsed.get('trade_id', '014001')
+            category_num = parsed.get('category_num', '')
+            uuid_val = parsed.get('uuid', '')
 
-            # 加载列表页
-            await page.goto(list_url, wait_until="networkidle", timeout=60000)
-            await self._smart_wait()
+            if not uuid_val:
+                logger.debug(f"  详情页无 UUID URL: {tender.url}")
+                return tender
 
-            # 点击对应标题的按钮，触发 NUXT 加载完整内容
-            clicked = await page.evaluate(
-                """(title) => {
-                    const buttons = Array.from(document.querySelectorAll("button.text-left"));
-                    for (const btn of buttons) {
-                        if (btn.textContent.trim() === title) {
-                            btn.dispatchEvent(new MouseEvent("click", {bubbles: true}));
-                            return true;
-                        }
-                    }
-                    return false;
-                }""",
-                tender.title
-            )
+            # Step 1: 直接导航到详情页（用 6位 categoryNum，网站接受）
+            detail_url = f"{self.BASE_URL}/trade/{trade_id}/{uuid_val}?categoryNum={category_num}"
+            await page.goto(detail_url, wait_until="networkidle", timeout=45000)
+            await asyncio.sleep(2)
+            await self._extract_content(page, tender)
 
-            if clicked:
-                await page.wait_for_timeout(3000)
-                logger.debug(f"  ✅ 点击成功，加载详情内容")
+
+            # Step 3: 等待正文加载
+            try:
+                await page.wait_for_selector(
+                    '.epoint-article-content, #mainContent, .content, .article, '
+                    '#content, .text-content, .zw_c, .con_r',
+                    timeout=10000
+                )
+            except Exception:
+                pass
+
+            # 提取正文
+            content = None
+            selectors = [
+                '.epoint-article-content', '#mainContent', '.epoint-article',
+                '.content', '.article', '.detail-content', '#content',
+                '.main-content', '.text-content', '.zw_c', '.con_r',
+            ]
+            for sel in selectors:
+                try:
+                    el = await page.query_selector(sel)
+                    if el:
+                        content = await el.inner_text()
+                        if content and len(content) > 100:
+                            break
+                except Exception:
+                    pass
+
+            # 备用：提取 body 正文区（去掉导航噪音）
+            if not content or len(content) < 100:
+                body = await page.inner_text('body')
+                body = re.sub(r'^APP下载.*?当前位置：.*?\s*', '', body, flags=re.DOTALL)
+                body = re.sub(r'国家部委网站.*$', '', body, flags=re.DOTALL)
+                content = body.strip()
+
+            if content and len(content) > 50 and '暂无内容' not in content:
+                # 2026-06-05: 使用 clean_noise 进一步去噪 + 识别空详情页
+                from app.utils.clean_noise import clean_text, is_empty_page
+                cleaned = clean_text(content)
+                if is_empty_page(content) or len(cleaned) < 30:
+                    # 整页只有 chrome 或空详情页 — 不入库
+                    logger.debug(f"  详情页空(仅chrome): {tender.url}")
+                else:
+                    tender.full_content = cleaned
+                    logger.debug(f"  详情页成功: {tender.title[:30]} ({len(cleaned)}字)")
             else:
-                logger.warning(f"  ⚠️ 未找到对应标题的按钮")
-
-            # 从 NUXT_DATA 提取完整 content
-            nuxt_data = await page.evaluate('document.querySelector("#__NUXT_DATA__")?.textContent || ""')
-
-            if nuxt_data:
-                title_anchor = f'"{tender.title}"'
-                title_pos = nuxt_data.find(title_anchor)
-                if title_pos > 0:
-                    search_chunk = nuxt_data[title_pos:title_pos + 10000]
-                    gp_pos = search_chunk.find('项目概况')
-                    if gp_pos > 0:
-                        content_start = gp_pos + 4
-                        content_end = content_start + 5000
-                        end_markers = ['-->', '二、', '三、', '采购人', '代理机构', '监督管理部门']
-                        for marker in end_markers:
-                            m_pos = search_chunk.find(marker, content_start)
-                            if m_pos > content_start and m_pos < content_start + 6000:
-                                content_end = min(content_end, m_pos)
-                        
-                        tender.full_content = search_chunk[content_start:content_end].strip()
-                        logger.debug(f"  ✅ 从 NUXT 提取内容：{len(tender.full_content)} 字符")
-
-            if not tender.full_content:
-                await self._extract_content(page, tender)
-                logger.debug(f"  📋 回退到 DOM 提取内容：{len(tender.full_content or '')} 字符")
+                logger.debug(f"  详情页空/无效: {tender.url}")
 
             return tender
-
         except Exception as e:
-            logger.warning(f"⚠️ 详情页采集失败: {e}")
+            logger.warning(f"  详情页失败 {tender.url}: {e}")
             return tender
         finally:
             if page:
                 await page.close()
+
+    def _parse_detail_url(self, url: str) -> dict:
+        """从详情页 URL 解析 trade_id / uuid / categoryNum"""
+        # 格式: https://www.cqggzy.com/trade/014001/{uuid}?categoryNum=014001001001
+        result = {'trade_id': '014001', 'uuid': '', 'category_num': ''}
+        try:
+            uuid_match = re.search(
+                r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', url
+            )
+            if uuid_match:
+                result['uuid'] = uuid_match.group(1)
+            tid_match = re.search(r'/trade/(01400[15])/', url)
+            if tid_match:
+                result['trade_id'] = tid_match.group(1)
+            cat_match = re.search(r'[?&]categoryNum=([0-9]+)', url)
+            if cat_match:
+                result['category_num'] = cat_match.group(1)
+        except Exception:
+            pass
+        return result
 
 
     async def _extract_content(self, page, tender: TenderInfo) -> None:
@@ -482,15 +584,28 @@ class CQGGZYCrawlerV2(BaseCrawler):
             pass
         return "政府采购"
 
+    @staticmethod
+    def _infer_business_type_by_url(url: str) -> str:
+        """纯 URL 推理业务类型（列表阶段用，无 page 实例）
+        2026-06-05 复盘 P0-1 修复：原 _extract_business_type 需 page，列表 API 模式无 page，
+        导致 11307/11307 records 业务类型 NULL。"""
+        if "014005" in url or "order" in url:
+            return "政府采购"
+        if "014001" in url or "bidding" in url:
+            return "工程招投标"
+        return ""
+
     def _extract_info_type_by_url(self, url: str) -> str:
-        """根据 URL 路径提取信息类型（优先级最高）"""
+        """根据 URL 路径提取信息类型（优先级最高）
+        2026-06-02 与用户核对：014005002=变更公告（不是答疑变更）
+        """
         # 政府采购
         if "/014005/014005001/" in url:
             return "采购公告"
         if "/014005/014005004/" in url:
             return "采购结果公告"
         if "/014005/014005002/" in url:
-            return "答疑变更"
+            return "变更公告"
         if "/014005/014005008/" in url:
             return "单一来源公示"
         # 工程招投标

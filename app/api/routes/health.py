@@ -33,7 +33,12 @@ async def extended_health():
         db = get_db()
         conn = db._get_conn()
         conn.execute("SELECT 1").fetchone()
-        components["database"] = {"status": "healthy", "type": "sqlite"}
+        # 检测实际 backend（PostgreSQL 还是 SQLite）
+        from app.database.db import USE_PG
+        components["database"] = {
+            "status": "healthy",
+            "type": "postgresql" if USE_PG else "sqlite",
+        }
     except Exception as e:
         components["database"] = {"status": "unhealthy", "error": str(e)}
         overall_healthy = False

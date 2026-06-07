@@ -269,3 +269,80 @@ class FavoritesMixin:
             params.append(status)
         where = "WHERE " + " AND ".join(conditions) if conditions else ""
         return where, params
+
+    # ─── favorite match (project linking) ─────────────────────────
+
+    def find_favorite_matches(
+        self,
+        record_url: str,
+        project_name: str = "",
+        project_no: str = "",
+        info_type: str = "",
+    ) -> List[dict]:
+        """查找可能与新 record 关联的收藏项目。
+
+        匹配策略（按优先级去重）：
+        1. URL 完全相同 — 同一项目同一记录
+        2. 规范化名称相同 — 同一项目的不同阶段（答疑补遗 vs 招标公告）
+        3. 项目编号相同 — 跨站点的同一项目
+
+        返回：List[{user_id, project_url, title, tender_type, match_type}]
+        match_type: 'url' | 'name' | 'project_no'
+
+        注意：不限制 user_id — 任何用户只要收藏了该项目就应收到提醒。
+        """
+        from app.utils.project_linker import normalize_project_name
+
+        results: List[dict] = []
+        seen: set = set()  # (user_id, project_url) 去重
+
+        try:
+            c = self._get_conn()
+            # 取全部 favorites（最多 5000），再 Python 端去重匹配。
+            # 收藏数据规模小（百量级），全表扫可接受。
+            rows = c.execute(
+                "SELECT user_id, project_url, title, tender_type, budget, publish_date "
+                "FROM favorites LIMIT 5000"
+            ).fetchall()
+            fav_list = [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            logger.error(f"find_favorite_matches: {e}")
+            return []
+
+        for fav in fav_list:
+            uid = fav.get("user_id", "")
+            fpu = fav.get("project_url", "")
+            key = (uid, fpu)
+            if key in seen:
+                continue
+
+            match_type = None
+
+            # 策略 1: URL 完全相同
+            if record_url and fpu and record_url == fpu:
+                match_type = "url"
+            # 策略 2: 名称匹配（双向子串含项目编号）
+            elif project_name and fav.get("title"):
+                p_name_norm = normalize_project_name(project_name)
+                f_name_norm = normalize_project_name(fav["title"])
+                if p_name_norm and f_name_norm:
+                    # 完全相等 OR 互为子串（处理 fav.title 比 project_name 多 "分包5" 等细节的情况）
+                    if p_name_norm == f_name_norm:
+                        match_type = "name"
+                    elif len(p_name_norm) >= 6 and p_name_norm in f_name_norm:
+                        match_type = "name_contains"
+                    elif len(f_name_norm) >= 6 and f_name_norm in p_name_norm:
+                        match_type = "name_contains"
+            # 策略 3: 项目编号相同（从 favorites.title 中也提取一遍）
+            if not match_type and project_no:
+                from app.utils.project_linker import extract_project_no
+                fav_pno = extract_project_no(fav.get("title", ""), "")
+                if fav_pno and project_no and fav_pno == project_no:
+                    match_type = "project_no"
+
+            if match_type:
+                results.append({**fav, "match_type": match_type})
+                seen.add(key)
+
+        return results
+

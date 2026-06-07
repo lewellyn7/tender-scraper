@@ -70,7 +70,7 @@ services:
     - DB_PORT=5432
     - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}
     - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
-    - PROJECTS_CACHE_TTL=30
+    - PROJECTS_CACHE_TTL=300
     - INTERNAL_CACHE_CLEAR_KEY=cache_clear_10dc6901049c3c860fdbded525024a06
     - WEB_URL=http://tender-scraper-web:8000
     - RAGFLOW_MCP_URL=http://host.docker.internal:9382
@@ -184,7 +184,7 @@ services:
     - DB_PORT=5432
     - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}
     - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
-    - PROJECTS_CACHE_TTL=30
+    - PROJECTS_CACHE_TTL=300
     - INTERNAL_CACHE_CLEAR_KEY=cache_clear_10dc6901049c3c860fdbded525024a06
     - WEB_URL=http://tender-scraper-web:8000
     - RAGFLOW_MCP_URL=http://host.docker.internal:9382
@@ -245,7 +245,7 @@ services:
     - DB_PORT=5432
     - DATABASE_URL=postgresql://${DB_USER:-root}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-tender_scraper}
     - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
-    - PROJECTS_CACHE_TTL=30
+    - PROJECTS_CACHE_TTL=300
     - INTERNAL_CACHE_CLEAR_KEY=cache_clear_10dc6901049c3c860fdbded525024a06
     - WEB_URL=http://tender-scraper-web:8000
     - RAGFLOW_MCP_URL=http://host.docker.internal:9382

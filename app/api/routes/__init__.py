@@ -16,7 +16,6 @@ from .health import router as health_router
 from .favorites import router as favorites_router
 from .crawler_configs import router as crawler_configs_router
 from .logs import router as logs_router
-from .notifications import router as notifications_router
 from .notifications_settings import router as notifications_settings_router
 from .presets import router as presets_router
 from .projects import router as projects_router
@@ -38,7 +37,6 @@ api_router.include_router(annotations_presets_router)
 api_router.include_router(config_backup_router)
 api_router.include_router(qualification_categories_router)
 api_router.include_router(database_router)
-api_router.include_router(notifications_router)
 api_router.include_router(notifications_settings_router)
 api_router.include_router(bidder_qualifications_router)
 api_router.include_router(document_upload_router)

@@ -101,6 +101,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     # 认证路径 — 完全绕过IP限流（登录有独立per-user装饰器保护）
     _AUTH_PATHS = frozenset(["/login", "/register", "/api/users/login", "/api/users/register"])
 
+    # 2026-06-05 P0-8: 健康检查/静态资源/监控端点不受限流
+    _EXEMPT_PATH_PREFIXES = ("/health", "/metrics", "/spa/", "/static/", "/favicon")
+
     def __init__(self, app, max_per_minute_guest: int = 500, max_per_minute_user: int = 1000):
         super().__init__(app)
         self.max_per_minute_guest = max_per_minute_guest
@@ -118,8 +121,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
 
-        # 认证路径 → 跳过IP限流（登录自有@rate_limit装饰器保护）
+        # 认证路径 / 健康检查 / 静态资源 → 跳过IP限流
         if path in self._AUTH_PATHS or path.startswith("/api/users/"):
+            return await call_next(request)
+        if any(path.startswith(prefix) for prefix in self._EXEMPT_PATH_PREFIXES):
             return await call_next(request)
 
         identifier = self._get_user_identifier(request)

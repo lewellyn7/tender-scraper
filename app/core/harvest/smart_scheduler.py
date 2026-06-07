@@ -298,8 +298,8 @@ class AdaptiveIntervalManager:
     - 错误率高 → 大幅延长间隔
     """
 
-    MIN_INTERVAL = 0.5   # 秒
-    MAX_INTERVAL = 30.0  # 秒
+    MIN_INTERVAL = 10.0  # 秒（避免触发网站反爬限制）
+    MAX_INTERVAL = 60.0  # 秒
     CRITICAL_INTERVAL = 300.0  # 被ban后恢复检查间隔
 
     def __init__(self, priority_engine: DynamicPriorityEngine):

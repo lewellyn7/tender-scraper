@@ -22,6 +22,7 @@ from app.database.tables import (
     AnnotationsMixin,
     FavoritesMixin,
     ModalsMixin,
+    NotificationsMixin,
     QualificationsMixin,
     UsersMixin,
     KeywordsMixin,
@@ -242,6 +243,7 @@ class Database(
     ModalsMixin,
     KeywordsMixin,
     ProjectsMixin,
+    NotificationsMixin,
 ):
     """PostgreSQL 数据库单例（混合了所有表操作Mixin）"""
 
@@ -329,6 +331,8 @@ class Database(
         if not rows:
             return
         conn = self._get_conn().conn
+        # 保留原始 dict rows 用于关联表同步（在 convert tuple 后会丢失字段名）
+        rows_original = [r for r in rows if isinstance(r, dict)]
         try:
             cols = [
                 "url", "title", "category", "info_type", "business_type",
@@ -341,7 +345,19 @@ class Database(
                 "contract_amount", "planned_publish_date", "tender_content",
             ]
             placeholders = ",".join(["%s"] * len(cols))
-            set_clause = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols[1:])
+            # 2026-06-05 修复：保护 full_content/content_preview 不被空值覆盖
+            # 列表 API 不返回 content，upsert 会用空值覆盖已填的详情正文，导致每周期丢失 ~7700 条详情
+            # 解决：用 COALESCE(NULLIF(EXCLUDED.col, ''), 原值) 保留已有内容
+            protected_cols = {"full_content", "content_preview"}
+            set_parts = []
+            for c in cols[1:]:
+                if c in protected_cols:
+                    set_parts.append(
+                        f"{c}=COALESCE(NULLIF(EXCLUDED.{c}, ''), projects_cqggzy.{c})"
+                    )
+                else:
+                    set_parts.append(f"{c}=EXCLUDED.{c}")
+            set_clause = ", ".join(set_parts)
             insert_sql = f"""
                 INSERT INTO projects_cqggzy ({','.join(cols)})
                 VALUES ({placeholders})
@@ -356,7 +372,7 @@ class Database(
                 null_cols = {'deadline', 'publish_date', 'attachments_count', 'opening_date', 'scraped_at'}
                 def _to_val(r, c):
                     v = r.get(c)
-                    if v is None:
+                    if v is None or v == "":
                         return None
                     return v if c in null_cols else (v or "")
                 rows = [[_to_val(r, c) for c in cols] for r in rows]
@@ -368,12 +384,20 @@ class Database(
             conn.rollback()
             logger.error(f"upsert_projects: {e}")
 
+        # 联动写入 projects + project_records 关联表
+        try:
+            self._sync_projects_link(rows_original, source_table="projects_cqggzy")
+        except Exception as e:
+            logger.warning(f"_sync_projects_link (cqggzy) failed: {e}")
+
 
     def upsert_projects_ccgp(self, rows: list):
         """批量 upsert 项目到 projects_ccgp 表（URL 去重）"""
         if not rows:
             return
         conn = self._get_conn().conn
+        # 保留原始 dict rows 用于关联表同步
+        rows_original = [r for r in rows if isinstance(r, dict)]
         try:
             cols = [
                 "url", "title", "category", "info_type", "publish_date", "publish_date_raw",
@@ -386,7 +410,19 @@ class Database(
                 "project_no",
             ]
             placeholders = ",".join(["%s"] * len(cols))
-            set_clause = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols[1:])
+            # 2026-06-05 修复：保护 full_content/content_preview 不被空值覆盖
+            # 列表 API 不返回 content，upsert 会用空值覆盖已填的详情正文
+            # 同时保护 scraped_at — ccgp.py:358 在详情阶段会传 scraped_at=None
+            protected_cols = {"full_content", "content_preview", "scraped_at"}
+            set_parts = []
+            for c in cols[1:]:
+                if c in protected_cols:
+                    set_parts.append(
+                        f"{c}=COALESCE(NULLIF(EXCLUDED.{c}, ''), projects_ccgp.{c})"
+                    )
+                else:
+                    set_parts.append(f"{c}=EXCLUDED.{c}")
+            set_clause = ", ".join(set_parts)
             insert_sql = f"""
                 INSERT INTO projects_ccgp ({','.join(cols)})
                 VALUES ({placeholders})
@@ -399,7 +435,7 @@ class Database(
                 null_cols = {'deadline', 'publish_date', 'attachments_count', 'opening_date', 'scraped_at'}
                 def _to_val(r, c):
                     v = r.get(c)
-                    if v is None:
+                    if v is None or v == "":
                         return None
                     return v if c in null_cols else (v or "")
                 rows = [[_to_val(r, c) for c in cols] for r in rows]
@@ -411,26 +447,35 @@ class Database(
             conn.rollback()
             logger.error(f"upsert_projects_ccgp: {e}")
 
+        # 联动写入 projects + project_records 关联表
+        try:
+            self._sync_projects_link(rows_original, source_table="projects_ccgp")
+        except Exception as e:
+            logger.warning(f"_sync_projects_link (ccgp) failed: {e}")
+
 
     def _init_tables(self):
         if USE_PG:
             # PG schema is created by migration script
-            # Migration: add user_id column to favorites if missing
             c = self._get_conn()
+            # Migration: add user_id column to favorites if missing
             try:
                 c.execute("SELECT user_id FROM favorites LIMIT 1")
             except Exception:
                 try:
+                    c.rollback()
                     c.execute("ALTER TABLE favorites ADD COLUMN user_id TEXT DEFAULT ''")
                     c.execute("CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id)")
                     c.execute("CREATE INDEX IF NOT EXISTS idx_favorites_title ON favorites(title)")
                     logger.info("Migrated PG favorites table: added user_id column and title index")
                 except Exception as e:
                     logger.warning(f"PG favorites migration skipped: {e}")
+                    c.rollback()
             # Migration: create projects + project_records if not exists
             try:
                 c.execute("SELECT id FROM projects LIMIT 1")
             except Exception:
+                c.rollback()
                 c.execute("""CREATE TABLE IF NOT EXISTS projects (
                     id SERIAL PRIMARY KEY,
                     project_name VARCHAR(500) NOT NULL,
@@ -456,8 +501,46 @@ class Database(
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )""")
                 c.execute("CREATE INDEX IF NOT EXISTS idx_project_records_project ON project_records(project_id)")
-                c.execute("CREATE INDEX IF NOT EXISTS idx_project_records_url ON project_records(record_url)")
+                c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_project_records_url ON project_records(record_url)")
                 logger.info("Created projects + project_records tables")
+            else:
+                # Migration: ensure record_url has UNIQUE constraint (required for ON CONFLICT)
+                try:
+                    cur2 = c.cursor()
+                    cur2.execute("""SELECT 1 FROM pg_indexes
+                                     WHERE indexname='idx_project_records_url'
+                                       AND indexdef LIKE '%UNIQUE%'""")
+                    has_unique = cur2.fetchone() is not None
+                    if not has_unique:
+                        c.execute("DROP INDEX IF EXISTS idx_project_records_url")
+                        c.execute("CREATE UNIQUE INDEX idx_project_records_url ON project_records(record_url)")
+                        logger.info("Migrated: idx_project_records_url → UNIQUE")
+                except Exception as e:
+                    logger.warning(f"record_url UNIQUE migration skipped: {e}")
+                    c.rollback()
+            # Migration: create notifications table (2026-06-06 收藏项目关联提醒)
+            try:
+                c.execute("SELECT id FROM notifications LIMIT 1")
+            except Exception:
+                c.rollback()
+                c.execute("""CREATE TABLE IF NOT EXISTS notifications (
+                    id SERIAL PRIMARY KEY,
+                    user_id TEXT NOT NULL DEFAULT '',
+                    project_id INTEGER NOT NULL,
+                    record_id INTEGER NOT NULL,
+                    project_name TEXT DEFAULT '',
+                    info_type TEXT DEFAULT '',
+                    record_url TEXT DEFAULT '',
+                    record_title TEXT DEFAULT '',
+                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    telegram_chat_id TEXT DEFAULT '',
+                    telegram_msg_id TEXT DEFAULT '',
+                    dedup_key TEXT DEFAULT ''
+                )""")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, sent_at)")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_notifications_dedup ON notifications(dedup_key, sent_at)")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_notifications_project ON notifications(project_id)")
+                logger.info("Created notifications table")
             # Migration: add user_id to duplicate_records if missing
             try:
                 c.execute("SELECT user_id FROM duplicate_records LIMIT 1")

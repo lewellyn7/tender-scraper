@@ -18,6 +18,7 @@ BUSINESS_SUFFIXES = [
     "中标结果公告",
     "采购公告",
     "采购结果",
+    "采购结果公告",
     "结果公告",
     "变更公告",
     "更正公告",
@@ -28,6 +29,17 @@ BUSINESS_SUFFIXES = [
     "招标控制价",
     "工程量清单",
     "最高限价公告",
+    "公开",
+    "中标成交",
+    "成交",
+    "答疑补遗",
+    "补充公告",
+    "补遗",
+    "延期公告",
+    "终止公告",
+    "变更",
+    "暂缓",
+    "澄清",
     "延期公告",
     "补充公告",
     "答疑澄清",
@@ -65,10 +77,18 @@ def normalize_project_name(name: str) -> str:
     # 去除重复后缀（同一项目的不同招标次数）
     normalized = REPEAT_SUFFIX_PATTERN.sub("", normalized)
 
-    # 去除业务后缀
-    for suffix in BUSINESS_SUFFIXES:
-        if normalized.endswith(suffix):
-            normalized = normalized[: -len(suffix)].strip()
+    # 循环去业务后缀（多个后缀可能叠加，如 "公开招标公告" 需先去 "招标公告" 再去 "公开"）
+    changed = True
+    while changed:
+        changed = False
+        for suffix in BUSINESS_SUFFIXES:
+            if normalized.endswith(suffix):
+                normalized = normalized[: -len(suffix)].strip()
+                changed = True
+                break  # 重新从头开始去
+
+    # 去除 "分包X" / "标段X" / "第X包" 等细节（同项目不同分包可属于不同项目，但当 X 为数字且唯一时合并到主项目名）
+    normalized = re.sub(r"(?:分包|标段|第[一二三四五六七八九十0-9]+包)[0-9一二三四五六七八九十]*", "", normalized)
 
     # 保留期段后缀（不去除，期段是区分标志）
     # 例如 "某项目一期" 和 "某项目二期" 是不同的

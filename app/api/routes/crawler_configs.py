@@ -11,13 +11,23 @@ from loguru import logger
 
 from app.database import get_db
 from app.utils.session import get_user_from_session
+from app.api.dependencies import get_current_user
+from fastapi import Depends
 from app.core.crawl_executor import CrawlExecutor, PLAYWRIGHT_AVAILABLE
 from app.security.audit import write_audit_log, EVENT_CONFIG_CHANGE, EVENT_DATA_DELETE
 
 router = APIRouter(prefix="/api/crawler-configs", tags=["自定义爬虫"])
 
 
-def get_current_user_id(request) -> str:
+def _get_current_user(request) -> dict:
+    """self_mode-aware 取当前用户：self_mode 自动 admin，团队模式从 session 拿"""
+    from app.config.settings import get_settings
+    if get_settings().is_self_mode:
+        return {"user_id": "admin", "username": "admin", "role": "admin"}
+    return _legacy_get_user_id(request)
+
+
+def _legacy_get_user_id(request) -> str:
     token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
     if not token:
         raise HTTPException(status_code=401, detail="未登录")
@@ -30,7 +40,7 @@ def get_current_user_id(request) -> str:
 @router.get("/{config_id}")
 def get_config(config_id: int, request: Request):
     """获取单个爬虫配置"""
-    get_current_user_id(request)  # require auth
+    _get_current_user(request)  # require auth
     db = get_db()
     conn = db._get_conn()
     cursor = conn.execute("SELECT * FROM crawler_configs WHERE id=?", (config_id,))
@@ -47,7 +57,7 @@ def get_config(config_id: int, request: Request):
 @router.get("")
 def list_configs(request: Request):
     """列出所有爬虫配置"""
-    get_current_user_id(request)  # require auth
+    _get_current_user(request)  # require auth
     db = get_db()
     conn = db._get_conn()
     cursor = conn.execute(
@@ -67,7 +77,7 @@ def list_configs(request: Request):
 @router.post("")
 def create_config(request: Request, config: dict = Body(...)):
     """创建爬虫配置"""
-    user_id = get_current_user_id(request)
+    user = _get_current_user(request); user_id = user["user_id"] if isinstance(user, dict) else user
     db = get_db()
     conn = db._get_conn()
     name = config.get("name", "").strip()
@@ -115,7 +125,7 @@ def create_config(request: Request, config: dict = Body(...)):
 @router.put("/{config_id}")
 def update_config(config_id: int, request: Request, config: dict = Body(...)):
     """更新爬虫配置"""
-    user_id = get_current_user_id(request)
+    user = _get_current_user(request); user_id = user["user_id"] if isinstance(user, dict) else user
     db = get_db()
     conn = db._get_conn()
     item_rules = json.dumps(config.get("item_rules", {}), ensure_ascii=False)
@@ -156,7 +166,7 @@ def update_config(config_id: int, request: Request, config: dict = Body(...)):
 @router.delete("/{config_id}")
 def delete_config(config_id: int, request: Request):
     """删除爬虫配置"""
-    user_id = get_current_user_id(request)
+    user = _get_current_user(request); user_id = user["user_id"] if isinstance(user, dict) else user
     db = get_db()
     conn = db._get_conn()
     # 获取配置名用于审计

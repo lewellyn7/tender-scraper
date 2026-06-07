@@ -250,7 +250,7 @@ def get_projects(request: Request,
     source: str = Query(""),
     sort_by: str = Query("date"),
     use_tfidf: bool = Query(False),
-    use_vector: bool = Query(True),
+    use_vector: bool = Query(False),  # 修复 6-5: 默认改为 False (top_k=500 会返回 500 条松散相关结果，不如精确匹配可控)
 ):
     db = get_db()
     projects, _ = _load_projects()
@@ -268,18 +268,33 @@ def get_projects(request: Request,
 
     filtered = projects
     if keyword:
+        vector_attempted = False
+        vector_had_url_overlap = False
         if use_vector:
+            vector_attempted = True
             try:
                 vs = get_vector_store()
                 vec_results = vs.search(query=keyword, top_k=500)
-                vector_matched_urls = {r["metadata"].get("url") for r in vec_results if r.get("metadata", {}).get("url")}
+                raw_vec_urls = {r["metadata"].get("url") for r in vec_results if r.get("metadata", {}).get("url")}
                 url_scores = {r["metadata"].get("url"): r["score"] for r in vec_results if r.get("metadata", {}).get("url")}
-                logger.debug(f"[vector] 语义搜索 '{keyword[:20]}...' 召回 {len(vector_matched_urls)} 条")
+                # 检测向量库 URL 与项目 URL 是否能匹配（修复 6-5: 老向量库 URL 格式过期问题）
+                project_url_set = {p.get("url", "") for p in projects}
+                vector_matched_urls = {u for u in raw_vec_urls if u in project_url_set}
+                vector_had_url_overlap = len(vector_matched_urls) > 0
+                logger.debug(
+                    f"[vector] 语义搜索 '{keyword[:20]}...' 召回 {len(raw_vec_urls)} 条, "
+                    f"URL 匹配 {len(vector_matched_urls)} 条, overlap={vector_had_url_overlap}"
+                )
             except Exception as e:
                 logger.warning(f"[vector] 向量搜索失败，回退简单匹配: {e}")
                 vector_matched_urls = None
 
-        if vector_matched_urls is None:
+        # 修复 6-5: 向量库返回结果但 URL 与项目库不匹配（向量库过期）→ 回退简单匹配
+        if (vector_attempted and not vector_had_url_overlap) or vector_matched_urls is None:
+            if vector_attempted and not vector_had_url_overlap:
+                logger.warning(
+                    f"[vector] URL 不匹配项目库 (向量库可能过期)，回退到 title+content 简单匹配"
+                )
             if use_tfidf:
                 m = TFIDFMatcher()
                 m.build_corpus([p.get("title", "") for p in projects])
@@ -293,12 +308,19 @@ def get_projects(request: Request,
                 filtered = [p for p in projects if p.get("url", "") in mu]
             else:
                 kws = [k.strip().lower() for k in keyword.split(",") if k.strip()]
+                # 修复 6-5: 简单匹配也检查 full_content (之前只查 title+content_preview)
                 filtered = [
                     p
                     for p in projects
-                    if any(kw in p.get("title", "").lower() for kw in kws)
-                    or any(kw in p.get("content_preview", "").lower() for kw in kws)
+                    if any(kw in (p.get("title", "") or "").lower() for kw in kws)
+                    or any(kw in (p.get("content_preview", "") or "").lower() for kw in kws)
+                    or any(kw in (p.get("full_content", "") or "").lower() for kw in kws)
                 ]
+            # 标记回退后不要再用 vector_matched_urls 二次过滤
+            vector_matched_urls = None
+
+    if vector_matched_urls is not None:
+        filtered = [p for p in filtered if p.get("url", "") in vector_matched_urls]
 
     if vector_matched_urls is not None:
         filtered = [p for p in filtered if p.get("url", "") in vector_matched_urls]

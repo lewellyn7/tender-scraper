@@ -132,7 +132,14 @@ def export_csv(
     if keyword:
         conditions.append("(title LIKE ? OR content_preview LIKE ?)")
         params.extend([f"%{keyword}%", f"%{keyword}%"])
-    if category:
+    if category == "政府采购":
+        # 业务类型字段 DB 中常为 NULL，按 URL 模式匹配（与 /api/projects 推理逻辑一致）
+        # psycopg2 需要双 % 转义（详见 AGENTS.md: LIKE 'http%' + 双 % 转义）
+        conditions.append("(url LIKE '%%014005%%' OR url LIKE '%%order%%')")
+    elif category == "工程招投标":
+        conditions.append("(url LIKE '%%014001%%' OR url LIKE '%%bidding%%')")
+    elif category:
+        # 兜底：直接匹配 business_type 字段
         conditions.append("business_type = ?")
         params.append(category)
     if info_type:
@@ -146,14 +153,36 @@ def export_csv(
         params.append(date_end)
 
     where = " AND ".join(conditions)
+    # 复用 /api/projects 路由的兑底逻辑：
+    # - source_url: 优先用 DB 中的 source_url，缺失时用 url 兑底（DB 中 5931/11307 为空）
+    # - tender_type: 缺失时用 info_type 兑底（DB 中 4554/11307 为空）
+    # - business_type: DB 全部为 NULL，按 URL 推理（与 projects.py:90-105 保持一致）
     rows = conn.execute(
-        f"SELECT * FROM projects_cqggzy WHERE {where} ORDER BY publish_date DESC LIMIT ?",
+        f"""
+        SELECT
+            title,
+            COALESCE(NULLIF(tender_type, ''), info_type) AS tender_type,
+            COALESCE(budget, '') AS budget,
+            COALESCE(publish_date::text, '') AS publish_date,
+            COALESCE(NULLIF(source_url, ''), url) AS source_url,
+            COALESCE(NULLIF(business_type, ''),
+                CASE
+                    WHEN url LIKE '%%014005%%' OR url LIKE '%%order%%' THEN '政府采购'
+                    WHEN url LIKE '%%014001%%' OR url LIKE '%%bidding%%' THEN '工程招投标'
+                    ELSE ''
+                END
+            ) AS business_type,
+            COALESCE(NULLIF(info_type, ''), '') AS info_type
+        FROM projects_cqggzy
+        WHERE {where}
+        ORDER BY publish_date DESC LIMIT ?
+        """,
         params + [limit],
     ).fetchall()
     row_count = len(rows)
 
     export_fields = [
-        "title", "tender_type", "budget", "publish_date", "source_url",
+        "title", "tender_type", "business_type", "info_type", "budget", "publish_date", "source_url",
     ]
 
     output = io.StringIO()

@@ -3,15 +3,19 @@
 修复 H-2: 原版在无 session 时直接放行 POST，导致 CSRF 风险。
 现在：
 - GET/HEAD/OPTIONS: 直接通过
-- POST/PUT/PATCH/DELETE: 
-  - 无 session token → 403（匿名请求不允许 mutation）
-  - 有 session 但无 CSRF token → 403（已登录用户的跨站请求风险）
-  - 有 session + 有 CSRF token → 允许
+- POST/PUT/PATCH/DELETE:
+  - 自用模式 (DEPLOYMENT_MODE=self) — bypass：get_current_user 已自动 admin-fallback
+  - 团队模式：
+    - 无 session token → 403（匿名请求不允许 mutation）
+    - 有 session 但无 CSRF token → 403（已登录用户的跨站请求风险）
+    - 有 session + 有 CSRF token → 允许
 """
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
+from app.config.settings import get_settings
 
 
 class CSRFProtectionMiddleware(BaseHTTPMiddleware):
@@ -24,6 +28,10 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Safe methods don't need CSRF check
         if request.method in self.SAFE_METHODS:
+            return await call_next(request)
+
+        # 自用模式：bypass CSRF（依赖 get_current_user 的 admin-fallback）
+        if get_settings().is_self_mode:
             return await call_next(request)
 
         path = request.url.path

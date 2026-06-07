@@ -2,9 +2,35 @@
 
 import difflib
 import math
+import re
 from typing import Any, Dict, List
 
 from loguru import logger
+
+
+# 2026-06-02 用户分类标准
+CATEGORY_NUM_TO_INFO_TYPE = {
+    '014001019': '招标计划',
+    '014001001': '招标公告',
+    '014001002': '答疑补遗',
+    '014001003': '中标候选人公示',
+    '014001004': '中标结果公示',
+    '014001021': '终止公告',
+    '014005001': '采购公告',
+    '014005002': '变更公告',
+    '014005004': '采购结果公告',
+}
+
+
+def _classify_info_type_by_url(url: str) -> str:
+    """从 URL 提取 categoryNum 前 9 位 -> info_type"""
+    if not url:
+        return ''
+    m = re.search(r'categoryNum=(\d+)', url or '')
+    if not m:
+        return ''
+    prefix9 = m.group(1)[:9]
+    return CATEGORY_NUM_TO_INFO_TYPE.get(prefix9, '')
 
 
 class TenderFilter:
@@ -122,6 +148,13 @@ class TenderFilter:
         publish_date_raw = self._get_field(item, "publish_date_raw", "")
         source_url = self._get_field(item, "source_url", "")
         content_preview = self._get_field(item, "content_preview", "")
+        full_content = self._get_field(item, "full_content", "")
+        if not content_preview:
+            if full_content and len(full_content) > 10:
+                content_preview = full_content[:300].strip() + ("..." if len(full_content) > 300 else "")
+            # 2026-06-05 修复：不在这里用 title 填充摘要。列表 API 不返回 content，
+            # 如用 title 填充会导致内容摘要列始终是标题，不符合预期。
+            # 正确做法是空着，等详情补采后写入。
         budget = self._get_field(item, "budget", "")
         deadline = self._fmt_date(self._get_field(item, "deadline"))
         region = self._get_field(item, "region", "")
@@ -131,6 +164,10 @@ class TenderFilter:
         scraped_by = self._get_field(item, "scraped_by", "tender-scraper v3.2")
         business_type = self._get_field(item, "business_type", "")
         info_type = self._get_field(item, "info_type", "")
+        # 2026-06-02 fallback: 如果 item.info_type 为空，从 URL 提取
+        if not info_type:
+            _url = self._get_field(item, "url") or self._get_field(item, "source_url", "")
+            info_type = _classify_info_type_by_url(_url)
         project_overview = self._get_field(item, "project_overview", "")
         bidder_requirements = self._get_field(item, "bidder_requirements", "")
         submission_deadline = self._get_field(item, "submission_deadline", "")
@@ -146,6 +183,7 @@ class TenderFilter:
             "url": url,
             "source_url": source_url,
             "content_preview": content_preview,
+            "full_content": full_content,
             "budget": budget,
             "deadline": deadline,
             "region": region,

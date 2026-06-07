@@ -123,16 +123,16 @@ def main():
     _start_health_server(port=int(os.getenv("PORT", 8000)))
     scheduler = BlockingScheduler(timezone="Asia/Shanghai")
 
-    # 每 2 小时执行一次（00:00 / 02:00 / ... / 22:00）
+    # 每 2 小时执行一次（08:00 / 10:00 / 12:00 / 14:00 / 16:00 / 18:00 / 20:00）
     scheduler.add_job(
         job_run_collection,
-        CronTrigger(minute="0", hour="9,11,13,15,17,19", timezone="Asia/Shanghai"),
+        CronTrigger(minute="0", hour="8,10,12,14,16,18,20", timezone="Asia/Shanghai"),
         id="daily_collection",
         replace_existing=True,
         misfire_grace_time=3600,
     )
 
-    logger.info("[Scheduler] 定时采集调度器已启动 (每 2 小时一次: 00/02/04/06/08/10/12/14/16/18/20/22:00)")
+    logger.info("[Scheduler] 定时采集调度器已启动 (每 2 小时一次: 08/10/12/14/16/18/20:00)")
 
     job = scheduler.get_job("daily_collection")
     if job:

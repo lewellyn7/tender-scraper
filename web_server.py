@@ -120,7 +120,7 @@ async def global_exception_handler(request, exc):
 
 # 添加安全中间件（按注册顺序：HTTPSForce → SecurityHeaders → RequestLogging → Prometheus）
 app.add_middleware(HTTPSForceMiddleware)
-## app.add_middleware(RateLimitMiddleware,  # DISABLED TEMPORARILY max_per_minute_guest=500, max_per_minute_user=1000)
+app.add_middleware(RateLimitMiddleware, max_per_minute_guest=300, max_per_minute_user=1000)  # 2026-06-05 P0-8
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(PrometheusMiddleware)

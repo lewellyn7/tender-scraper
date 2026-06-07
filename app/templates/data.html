@@ -626,10 +626,14 @@
     var kw = document.getElementById('searchKeyword').value || '';
     var type = document.getElementById('filterType').value || '';
     var infoType = document.getElementById('filterInfoType').value || '';
+    var dateStart = document.getElementById('filterDateStart').value || '';
+    var dateEnd = document.getElementById('filterDateEnd').value || '';
     var params = 'session_token=' + encodeURIComponent(token);
     if (kw) params += '&keyword=' + encodeURIComponent(kw);
     if (type) params += '&category=' + encodeURIComponent(type);
     if (infoType) params += '&info_type=' + encodeURIComponent(infoType);
+    if (dateStart) params += '&date_start=' + encodeURIComponent(dateStart);
+    if (dateEnd) params += '&date_end=' + encodeURIComponent(dateEnd);
     window.location.href = '/api/export/csv?' + params;
   });
   document.getElementById('prevPage').addEventListener('click', function() { if (currentPage > 1) { currentPage--; render(); } });

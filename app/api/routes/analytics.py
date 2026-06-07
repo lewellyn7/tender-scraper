@@ -235,14 +235,163 @@ router.get("")(get_analytics)
 
 @router.get("/health")
 def get_health():
-    """健康度仪表盘"""
+    """健康度仪表盘
+
+    策略：
+    - HealthMonitor (in-memory) 提供当前进程采集指标
+    - DB 提供吞吐量/总计数（跨进程准）
+    - 两者合并：HealthMonitor 优先，throughput 从 DB 推算
+    """
     try:
         from app.services.health_monitor import get_health_monitor
         hm = get_health_monitor()
-        return JSONResponse(hm.get_status())
-    except Exception:
+        status = hm.get_current_status()
+
+        # 跨进程指标：从 DB 推算 throughput + stats
+        db_status = _compute_health_from_db()
+        if db_status:
+            db_throughput = db_status.get("metrics", {}).get("crawl_items_per_hour", {})
+            if db_throughput and db_throughput.get("value", 0) > 0:
+                status["metrics"]["crawl_items_per_hour"] = db_throughput
+            # 记录状态：并提供一个"24h 实际数据量" 便于前端展示
+            stats = db_status.get("stats", {})
+            if stats.get("records_per_day", 0) > 0:
+                status["metrics"]["records_per_day"] = {
+                    "value": stats["records_per_day"],
+                    "label": "24小时采集量",
+                    "target": 5000,
+                    "unit": "项/日",
+                    "score": min(100, (stats["records_per_day"] / 5000) * 100),
+                }
+                # 重算 overall_score（加上新指标）
+                scores = [m.get("score", 100) for m in status["metrics"].values()]
+                status["overall_score"] = round(sum(scores) / len(scores), 1)
+            status["stats"] = stats
+            status["data_source"] = "health_monitor+db"
+        else:
+            status["data_source"] = "health_monitor"
+        return JSONResponse(status)
+    except Exception as e:
         return JSONResponse({
             "status": "ok",
             "services": {},
-            "message": "Health monitor not available"
+            "message": f"Health monitor not available: {e}",
+            "data_source": "none",
         })
+
+
+def _compute_health_from_db() -> dict:
+    """从 DB 推算健康度指标（兑底逻辑）。
+
+    计算：
+    - crawl_items_per_hour: 过去 1 小时 project_records 增量
+    - crawl_success_rate: 采集成功率（这里简化为 1.0 假设都成功）
+    - crawl_avg_latency_ms: 0（DB 不存延迟）
+    """
+    from app.database import get_db
+    from datetime import datetime, timedelta
+
+    try:
+        db = get_db()
+        c = db._get_conn()
+        one_hour_ago = datetime.now() - timedelta(hours=1)
+        one_day_ago = datetime.now() - timedelta(days=1)
+
+        # 1 小时增量
+        cur = c.cursor()
+        # 尝试 PG（%s），失败回退 SQLite（?）
+        try:
+            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > %s", (one_hour_ago,))
+            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > %s", (one_day_ago,))
+        except Exception:
+            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > ?", (one_hour_ago,))
+            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > ?", (one_day_ago,))
+        # cur 现在指向最后一个查询（24h），重新查 1h
+        try:
+            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > %s", (one_hour_ago,))
+        except Exception:
+            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > ?", (one_hour_ago,))
+        rows_per_hour = cur.fetchone()[0]
+        try:
+            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > %s", (one_day_ago,))
+        except Exception:
+            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > ?", (one_day_ago,))
+        rows_per_day = cur.fetchone()[0]
+
+        # 总量
+        cur.execute("SELECT COUNT(*) FROM project_records")
+        total_records = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM projects")
+        total_projects = cur.fetchone()[0]
+
+        # 计算 health score
+        from app.services.health_monitor import HEALTH_METRICS
+
+        def _score(metric_key, value):
+            target = HEALTH_METRICS[metric_key]["target"]
+            config = HEALTH_METRICS[metric_key]
+            if metric_key in ("crawl_items_per_hour",):
+                # 越高越好
+                return min(100, (value / target) * 100) if target else 100
+            elif metric_key in ("crawl_avg_latency_ms",):
+                # 越低越好
+                return min(100, (target / max(value, 1)) * 100) if target else 100
+            else:
+                return min(100, max(0, (value / target) * 100)) if target else 100
+
+        s_rate = _score("crawl_success_rate", 1.0)
+        s_latency = _score("crawl_avg_latency_ms", 0)
+        s_throughput = _score("crawl_items_per_hour", rows_per_hour)
+        s_heal = _score("self_heal_rate", 1.0)
+        s_ban = _score("ban_escape_rate", 1.0)
+        overall = round((s_rate + s_latency + s_throughput + s_heal + s_ban) / 5, 1)
+
+        return {
+            "metrics": {
+                "crawl_success_rate": {
+                    "value": 1.0,
+                    "label": "采集成功率",
+                    "target": HEALTH_METRICS["crawl_success_rate"]["target"],
+                    "unit": "%",
+                    "score": s_rate,
+                },
+                "crawl_avg_latency_ms": {
+                    "value": 0.0,
+                    "label": "平均采集延迟",
+                    "target": HEALTH_METRICS["crawl_avg_latency_ms"]["target"],
+                    "unit": "ms",
+                    "score": s_latency,
+                },
+                "crawl_items_per_hour": {
+                    "value": rows_per_hour,
+                    "label": "采集吞吐量",
+                    "target": HEALTH_METRICS["crawl_items_per_hour"]["target"],
+                    "unit": "项/时",
+                    "score": s_throughput,
+                },
+                "self_heal_rate": {
+                    "value": 1.0,
+                    "label": "自愈率",
+                    "target": HEALTH_METRICS["self_heal_rate"]["target"],
+                    "unit": "%",
+                    "score": s_heal,
+                },
+                "ban_escape_rate": {
+                    "value": 1.0,
+                    "label": "封禁逃脱率",
+                    "target": HEALTH_METRICS["ban_escape_rate"]["target"],
+                    "unit": "%",
+                    "score": s_ban,
+                },
+            },
+            "overall_score": overall,
+            "stats": {
+                "records_per_hour": rows_per_hour,
+                "records_per_day": rows_per_day,
+                "total_records": total_records,
+                "total_projects": total_projects,
+            },
+        }
+    except Exception as e:
+        logger.warning(f"DB health fallback failed: {e}")
+        return {}
