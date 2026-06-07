@@ -127,7 +127,7 @@ def _rule_based_extract(text: str) -> Dict:
         "issuer": None,
         "address": None,
         "legal_person": None,
-        "confidence": 0.3,
+        "confidence": None,  # 2026-06-07 P0-3: 末尾用 _compute_confidence 真实计算
         "method": "rule_based",
     }
 
@@ -293,7 +293,59 @@ def _rule_based_extract(text: str) -> Dict:
     if cert_type != "其他":
         result["category"] = cert_type
 
+    # 2026-06-07 P0-3: 真实 confidence（不再是常量 0.3）
+    result["confidence"] = _compute_confidence(result, source="rule")
+
     return result
+
+
+# ── confidence 真实计算 (2026-06-07 P0-3) ──────────────────
+# 关键字段：必填、高信息量（错填代价高）
+# 辅助字段：可选、上下文补全（错填代价低）
+_CONFIDENCE_KEY_FIELDS = (
+    "certificate_type",  # 证件类型 — 决定后续业务逻辑
+    "name",              # 主体名称 — 核心
+    "id_number",         # 身份证号 — 唯一身份
+    "certificate_no",    # 证书编号 — 唯一性
+    "valid_to",          # 有效期 — 业务关键
+)
+_CONFIDENCE_AUX_FIELDS = (
+    "level",
+    "issuer",
+    "title",
+    "person_name",
+    "registered_city",
+    "address",
+    "legal_person",
+    "valid_from",
+    "construction_no",
+)
+
+
+def _compute_confidence(fields: Dict, *, source: str = "rule") -> float:
+    """计算真实 confidence（不再是常量 0.3/0.8）
+
+    公式：
+        key_filled = 关键字段中非空数量
+        aux_filled = 辅助字段中非空数量
+        confidence = 0.6 × (key_filled / 5) + 0.4 × (aux_filled / 9)
+
+    :param fields: 已提取字段字典
+    :param source: 'rule' / 'llm' — 只用于 log，不影响结果
+    :return: 0.0-1.0 之间的浮点数
+    """
+    def _nonempty(v) -> bool:
+        if v is None:
+            return False
+        if isinstance(v, str) and not v.strip():
+            return False
+        return True
+
+    key_filled = sum(1 for f in _CONFIDENCE_KEY_FIELDS if _nonempty(fields.get(f)))
+    aux_filled = sum(1 for f in _CONFIDENCE_AUX_FIELDS if _nonempty(fields.get(f)))
+    score = 0.6 * (key_filled / len(_CONFIDENCE_KEY_FIELDS)) \
+            + 0.4 * (aux_filled / len(_CONFIDENCE_AUX_FIELDS))
+    return round(score, 3)
 
 
 # ── LLM 分析 ──────────────────────────────────────────────
@@ -337,8 +389,8 @@ def _analyze_with_llm_service(text: str) -> Dict:
 
         try:
             parsed = json.loads(llm_result.content)
-            if "confidence" not in parsed:
-                parsed["confidence"] = 0.8
+            # 2026-06-07 P0-3: 不管 LLM 返什么 confidence，都重新基于字段完整度算
+            parsed["confidence"] = _compute_confidence(parsed, source="llm")
             parsed["_llm_provider"] = llm_result.provider
             parsed["_llm_model"] = llm_result.model
             parsed["_llm_latency_ms"] = llm_result.latency_ms
@@ -367,8 +419,8 @@ def _call_openai_analysis(text: str) -> Dict:
         )
         raw = response.choices[0].message.content
         result = json.loads(raw)
-        if "confidence" not in result:
-            result["confidence"] = 0.8
+        # 2026-06-07 P0-3: 真实 confidence 计算
+        result["confidence"] = _compute_confidence(result, source="llm")
         return result
     except Exception as e:
         logger.error(f"OpenAI analysis failed: {e}")
@@ -400,8 +452,8 @@ def _call_ragflow_analysis(text: str) -> Dict:
         match = re.search(r"\{[\s\S]+\}", content)
         if match:
             result = json.loads(match.group())
-            if "confidence" not in result:
-                result["confidence"] = 0.8
+            # 2026-06-07 P0-3: 真实 confidence 计算
+            result["confidence"] = _compute_confidence(result, source="llm")
             return result
         return {"raw_answer": content, "error": "无法解析结构化结果"}
     except Exception as e:
@@ -551,8 +603,11 @@ class DocumentAnalyzer:
                 fields = llm_result
             else:
                 fields["llm_error"] = llm_result.get("error")
-                # LLM失败，用规则结果，置信度维持较低
-                fields["confidence"] = 0.3
+                # 2026-06-07 P0-3: LLM 失败时仍用规则字段 + 真实 confidence
+                # 不再设置为固定 0.3（误导前端）
+                # 规则路径的 confidence 在 _rule_based_extract 末尾已计算
+                # 如果之前被 LLM 的 confidence 覆盖过，这里重新计算
+                fields["confidence"] = _compute_confidence(fields, source="rule_fallback")
 
         # 4. 补充元数据
         fields["file_name"] = file_path.name
