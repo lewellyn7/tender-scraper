@@ -32,6 +32,28 @@ class TestStripTitleDup:
         assert out.startswith("项目编号"), f"got: {out[:80]}"
         assert not out.startswith(title), f"should not start with title"
 
+    def test_strips_single_line_consecutive_title(self):
+        """单行内连续 2 个 title 重复 (inner_text 产生), 全部去掉
+
+        2026-06-08 Bug 2.1 二次发现: 真实 full_content 是单行
+        (HTML 标签被 strip 后 inner_text 合并), title 重复以
+        'title title' 形式出现, 原来的按 \\n split 失效.
+        需支持 startswith 连续剥.
+        """
+        text = "巫山县官渡中学计算机教室设施设备采购(WSX26A00223)采购更正公告 巫山县官渡中学计算机教室设施设备采购(WSX26A00223)采购更正公告 项目编号：WSX26A00223_130117562645086240"
+        title = "巫山县官渡中学计算机教室设施设备采购(WSX26A00223)采购更正公告"
+        out = strip_title_dup(text, title)
+        assert not out.startswith(title), f"got: {out[:80]}"
+        assert out.startswith("项目编号"), f"got: {out[:80]}"
+
+    def test_strips_single_line_3_titles(self):
+        """单行内连续 3 个 title 重复, 全部去掉"""
+        text = "TITLE TITLE TITLE 项目编号：xxx"
+        title = "TITLE"
+        out = strip_title_dup(text, title)
+        assert not out.startswith("TITLE"), f"should strip all 3, got: {out[:80]}"
+        assert out.startswith("项目编号")
+
     def test_preserves_title_in_middle(self):
         """title 在中间 (非开头) → 保留 (可能是用户想看的)"""
         text = "项目编号：xxx\n标题：彭水县双创项目\n项目法人：yyy"
