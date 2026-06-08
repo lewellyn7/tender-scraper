@@ -161,6 +161,7 @@ class CQGGZYCrawlerV2(BaseCrawler):
 
             tender_type = self.INFO_TYPE_MAP.get(category, "政府采购" if category == "gov_purchase" else "工程建设")
             results = []
+            seen_urls = set()  # 2026-06-08 Bug 1 修复：去重 list API 返回的重复 url
 
             for item in items:
                 title = item.get('title', '').strip()
@@ -202,6 +203,10 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     business_type=self._infer_business_type_by_url(full_url),  # 2026-06-05 P0-1
                     scraped_by=self.version,
                 )
+                # 2026-06-08 Bug 1 修复：去重同一 url，list API 在多个 page 返回中可能重复
+                if full_url in seen_urls:
+                    continue
+                seen_urls.add(full_url)
                 if pub_date:
                     tender.publish_date = pub_date
 
@@ -223,13 +228,21 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     }
                     tender.info_type = _CATEGORY_INFO_TYPE.get(_prefix9, '')
 
-                # 从 content 提取全文（API 已含完整正文，不再访问详情页）
+                # 从 content 提取全文
+                # 2026-06-08 改造：API 改版后不再返回 content 字段（参见 AGENTS.md 6-3 教训）
+                # 修复点：raw_content 为空时不要用 title 兑底填充 content_preview
+                # 原因：会导致 16.7% 项目摘要与 title 重复（“未清洗”表现）
+                # 正确逻辑：raw_content 有就提 full_content + 截取 content_preview，raw_content 无就留空（由详情阶段回填）
                 raw_content = item.get('content', '') or ''
                 if raw_content:
                     import re as re_module
                     clean = re_module.sub(r'<[^>]+>', '', raw_content)
                     clean = re_module.sub(r'\s+', ' ', clean).strip()
                     tender.full_content = clean  # 保留完整内容，不截断
+                    tender.content_preview = (clean[:500] + "...") if len(clean) > 500 else clean
+                # else: content_preview 保持默认值空字符串
+                # 详情阶段 crawler_fn 会回填；upsert_projects 的 protected_cols={full_content, content_preview}
+                # 保证列表阶段写空不会冲掉详情阶段已回填的值
 
                 results.append(tender)
 

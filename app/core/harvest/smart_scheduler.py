@@ -45,6 +45,7 @@ class CrawlTask:
     info_type: str = "招标公告"  # 招标公告 / 中标结果 / 采购意向
     region: str = "重庆"
     deadline: Optional[datetime] = None  # 招标截止时间
+    publish_date: Optional[datetime] = None  # 项目发布日期（2026-06-08 新增：用于无 deadline task 的时效性计算）
     keywords: list[str] = field(default_factory=list)  # 关键词匹配
     priority_static: int = 5  # 静态优先级 1-10
 
@@ -154,25 +155,55 @@ class DynamicPriorityEngine:
 
     async def _timeliness_factor(self, task: CrawlTask) -> float:
         """
-        时效性因子：招标截止前 48h 权重指数上升
-        0 (已过期) → 1 (48h 后)
+        时效性因子计算（2026-06-08 改造：双路径）
+
+        优先级路径：
+        1. deadline 存在 → 招标截止前 48h 权重指数上升（保留原逻辑）
+        2. deadline 缺失 + publish_date 存在 → 按发布日期越新越优先（7天窗口线性降权）
+        3. 都缺失 → 0.3（略低于中间值，不再"中性 0.5"占便宜）
+
+        改造原因：
+        - 招标计划/中标公示/答疑补遗等无 deadline 的 task，原代码返回 0.5
+        - 4 个其他因子（reliability/cost/success_rate/demand）对今天 vs 1 周前 task 几乎一样
+        - 导致新数据被淹没在历史补采里，priority 排序等价于随机
         """
-        if task.deadline is None:
-            return 0.5  # 无截止时间，取中间值
-
         now = datetime.now(timezone.utc)
-        if task.deadline.tzinfo is None:
-            task.deadline = task.deadline.replace(tzinfo=timezone.utc)
 
-        hours_left = (task.deadline - now).total_seconds() / 3600
+        # 路径 1：deadline 路径（原逻辑）
+        if task.deadline is not None:
+            if task.deadline.tzinfo is None:
+                task.deadline = task.deadline.replace(tzinfo=timezone.utc)
 
-        if hours_left <= 0:
-            return 1.0  # 已过期，优先处理
-        if hours_left > 168:  # > 7 天，略降低
-            return 0.3
+            hours_left = (task.deadline - now).total_seconds() / 3600
 
-        # 渐变上升曲线：1 - exp(-hours_left / 48)
-        return 1.0 - math.exp(-hours_left / 48)
+            if hours_left <= 0:
+                return 1.0  # 已过期，优先处理
+            if hours_left > 168:  # > 7 天，略降低
+                return 0.3
+
+            # 渐变上升曲线：1 - exp(-hours_left / 48)
+            return 1.0 - math.exp(-hours_left / 48)
+
+        # 路径 2：publish_date 路径（2026-06-08 新增）
+        if task.publish_date is not None:
+            if task.publish_date.tzinfo is None:
+                task.publish_date = task.publish_date.replace(tzinfo=timezone.utc)
+
+            days_old = (now - task.publish_date).total_seconds() / 86400
+
+            if days_old < 0:
+                # 未来日期（数据异常），按今天处理
+                return 1.0
+            if days_old > 7:
+                # 超过 7 天，旧数据，让位给新数据
+                return 0.2
+
+            # 线性降权：今天 = 1.0, 7天前 = 0.2
+            # score = 1.0 - 0.8 * (days_old / 7)
+            return 1.0 - 0.8 * (days_old / 7.0)
+
+        # 路径 3：都缺失
+        return 0.3
 
     async def _reliability_factor(self, task: CrawlTask, metrics: SourceMetrics) -> float:
         """
@@ -408,7 +439,10 @@ class SmartScheduler:
         """注册任务，返回动态优先级分数"""
         priority = await self.priority_engine.compute_priority(task)
         self._tasks[task.task_id] = task
-        await self._queue.put((priority, task.task_id))
+        # 2026-06-08 Bug 1 修复：asyncio.PriorityQueue 是 min-heap，get() 永远返回最小值
+        # 原代码入队 (priority, task_id) -> 0.6567 (旧) 先于 0.7257 (新) 被取，完全反了
+        # 修复：入队时取负 priority，让"高 priority = 小 queue value = 先被取"
+        await self._queue.put((-priority, task.task_id))
         logger.debug(
             f"[SmartScheduler] 注册任务 {task.task_id}，优先级 {priority:.4f}"
         )
@@ -420,11 +454,10 @@ class SmartScheduler:
         for t in tasks:
             p = await self.priority_engine.compute_priority(t)
             priorities.append(p)
-        # 按优先级排序入队（高优先级先处理）
-        sorted_tasks = sorted(zip(priorities, tasks), key=lambda x: -x[0])
-        for priority, task in sorted_tasks:
+        # 2026-06-08 Bug 1 修复：入队 -priority (asyncio.PriorityQueue 是 min-heap)
+        for priority, task in zip(priorities, tasks):
             self._tasks[task.task_id] = task
-            await self._queue.put((priority, task.task_id))
+            await self._queue.put((-priority, task.task_id))
         return priorities
 
     # ── 调度循环 ─────────────────────────────────────────────────────────────
@@ -448,7 +481,8 @@ class SmartScheduler:
                 results["skipped"] += 1
                 logger.debug(f"[SmartScheduler] 跳过任务 {task_id}（间隔保护），重新入队")
                 # 重新入队（稍后重试，不丢弃）
-                await self._queue.put((task.priority_dynamic, task_id))
+                # 2026-06-08 Bug 1 修复：入队 -priority_dynamic (min-heap 语义)
+                await self._queue.put((-task.priority_dynamic, task_id))
                 await asyncio.sleep(0.1)
                 continue
 

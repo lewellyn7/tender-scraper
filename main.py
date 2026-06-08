@@ -109,6 +109,7 @@ def _build_crawl_task(item, index: int) -> CrawlTask:
         info_type=getattr(item, "info_type", "招标公告"),
         region="重庆",
         deadline=getattr(item, "deadline", None),
+        publish_date=getattr(item, "publish_date", None),  # 2026-06-08 新增：透传 publish_date 用于时效性计算
         keywords=getattr(item, "keywords_matched", []),
         priority_static=priority_static,
     )
@@ -158,12 +159,19 @@ async def run_collection():
         # 2026-06-03 修复：分页采集直到 API 返回 < 50 条（原代码只采第 1 页，丢失 50+ 之后的数据）
         async def _fetch_all_pages(category: str) -> list:
             items_all: list = []
+            seen_urls: set = set()  # 2026-06-08 Bug 1 修复：跨 page 去重，list API 在多个 page 返回可能包含同一 url
             for page_num in range(1, 21):  # 最多 20 页（1000 条）安全保护
                 items = await crawler.fetch_list(
                     category=category, page_num=page_num,
                     start_date=start_date, end_date=end_date,
                 )
-                items_all.extend(items)
+                for it in items:
+                    url = getattr(it, "url", "") if not isinstance(it, dict) else it.get("url", "")
+                    if url and url in seen_urls:
+                        continue
+                    if url:
+                        seen_urls.add(url)
+                    items_all.append(it)
                 if len(items) < 50:
                     break
             return items_all
@@ -231,6 +239,59 @@ async def run_collection():
 
         if detail_items:
             logger.info(f"📄 使用 SmartScheduler 并行采集 {len(detail_items)} 个详情页...")
+
+            # 2026-06-08 Bug 1 修复：detail_items[:300] 是按列表 API newid 顺序取的，
+            # 列表 API 的 newid 排序 ≠ publish_date 排序，导致 6-8 的新数据都在 [1013-7965] 位置、
+            # 从未进入前 300 个 SmartScheduler 任务。需要先按 publish_date 预排序全部 matched_items，
+            # 再截前 detail_limit 个。
+            def _sort_key(item):
+                pd = getattr(item, "publish_date", None)
+                if pd is None:
+                    return (1, 0)  # 未知日期 → 降序底
+                return (0, -pd.timestamp())  # 有日期 → 按时间降序（负值倒置）
+            # 按来源均衡选择后重新按 publish_date 降序排序
+            # 注意：这里 detail_items 本身已经是来源均衡选择过的。需重做来源均衡：
+            # 先把全部 matched_items 按 publish_date 降序排，再按来源轮询取
+            all_sorted = sorted(matched_items, key=_sort_key)
+
+            # 重新按来源均衡
+            from collections import defaultdict
+            by_source_sorted = defaultdict(list)
+            for item in all_sorted:
+                src = "ccgp" if (hasattr(item, "source_url") and "ccgp" in (item.source_url or "")) else "cqggzy"
+                by_source_sorted[src].append(item)
+            detail_items_new = []
+            sources = list(by_source_sorted.keys())
+            max_per_source = max(5, detail_limit // len(sources)) if sources else detail_limit
+            # 轮询：首次从每源取 1 个，再从每源取下一个，... 直到每源达到 max_per_source
+            ptrs = {src: 0 for src in sources}
+            taken = {src: 0 for src in sources}
+            while len(detail_items_new) < detail_limit:
+                progressed = False
+                for src in sources:
+                    if taken[src] >= max_per_source:
+                        continue
+                    if ptrs[src] >= len(by_source_sorted[src]):
+                        continue
+                    detail_items_new.append(by_source_sorted[src][ptrs[src]])
+                    ptrs[src] += 1
+                    taken[src] += 1
+                    progressed = True
+                    if len(detail_items_new) >= detail_limit:
+                        break
+                if not progressed:
+                    break
+            detail_items = detail_items_new
+            logger.info(
+                f"  📊 预排序：matched_items ({len(matched_items)}) → 按 publish_date 降序后按来源均衡取前 {len(detail_items)}"
+            )
+            # DEBUG: 看预排序后前 5 个 task 的 publish_date + 后 5 个的 publish_date
+            for i in [0, 1, 2, 3, 4, -5, -4, -3, -2, -1]:
+                it = detail_items[i]
+                pd = getattr(it, "publish_date", None)
+                logger.info(
+                    f"    [DEBUG] detail_items[{i}] publish_date={pd} title={it.title[:30]}"
+                )
 
             # 构建 CrawlTask 列表
             crawl_tasks = [_build_crawl_task(item, i) for i, item in enumerate(detail_items)]
