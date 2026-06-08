@@ -347,6 +347,18 @@ async def run_collection():
                             ai.contact_info = detail_item.contact_info
                             ai.attachments = detail_item.attachments
                             break
+                    # 2026-06-08 P1 修复: 详情成功立即写 DB, 避免 SIGTERM 丢掉全部 detail
+                    # (旧代码依赖 main.py:426 在 schedule 结束后一次性 upsert, 进程被杀则丢失)
+                    if detail_item.full_content:
+                        try:
+                            from app.database.db import get_db
+                            get_db().update_full_content(
+                                item.url,
+                                detail_item.full_content,
+                                detail_item.content_preview or detail_item.full_content[:300]
+                            )
+                        except Exception as db_e:
+                            logger.warning(f"  ⚠️ 详情写 DB 失败 [{task.task_id}]: {db_e}")
                     # 记录成功
                     try:
                         from app.services.health_monitor import get_health_monitor
