@@ -470,18 +470,37 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 await page.close()
 
     def _parse_detail_url(self, url: str) -> dict:
-        """从详情页 URL 解析 trade_id / uuid / categoryNum"""
-        # 格式: https://www.cqggzy.com/trade/014001/{uuid}?categoryNum=014001001001
+        """从详情页 URL 解析 trade_id / uuid / categoryNum
+
+        2026-06-08 修复: 014005 政府采购 2025-2026 重构后采用 19 位数字 ID
+        (e.g. /trade/014005/1638974459430088704) 而非标准 UUID 格式
+        (8-4-4-4-12). 实际访问测试: HTTP 200 + 正常 HTML 返回, 详情页能打开.
+        但 /trade/014005?title=... 是搜索页 URL, 不在此修复范围.
+
+        识别优先级:
+        1. 标准 UUID (014001 仍用)  → 8-4-4-4-12 hex
+        2. 数字 ID (014005 重构后)  → 16+ 位十进制 (可带 _分页后缀 如 164xxx_1)
+        3. 都匹配不上 → uuid='', 主路径跳过
+        """
         result = {'trade_id': '014001', 'uuid': '', 'category_num': ''}
         try:
+            # 1) 标准 UUID (014001 仍用)
             uuid_match = re.search(
                 r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', url
             )
             if uuid_match:
                 result['uuid'] = uuid_match.group(1)
-            tid_match = re.search(r'/trade/(01400[15])/', url)
+            else:
+                # 2) 数字 ID (014005 重构后, 16+ 位十进制, 可带 _分页)
+                # 实际: /trade/014005/164xxx_1?categoryNum=... 也合法
+                num_match = re.search(r'/trade/\d+/(\d{16,}(?:_\d+)?)(?:[?/]|$)', url)
+                if num_match:
+                    result['uuid'] = num_match.group(1)
+            # trade_id 解析 (014001 / 014005)
+            tid_match = re.search(r'/trade/(01400[15])(?:/|\?|$)', url)
             if tid_match:
                 result['trade_id'] = tid_match.group(1)
+            # categoryNum
             cat_match = re.search(r'[?&]categoryNum=([0-9]+)', url)
             if cat_match:
                 result['category_num'] = cat_match.group(1)
