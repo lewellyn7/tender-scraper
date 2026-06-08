@@ -285,6 +285,54 @@ async def run_collection():
             logger.info(
                 f"  📊 预排序：matched_items ({len(matched_items)}) → 按 publish_date 降序后按来源均衡取前 {len(detail_items)}"
             )
+
+            # 2026-06-08 Bug 1-C 修复: 24h 漏采回放
+            # 1. SELECT 最近 7 天发布 且 content_preview 为空 且 本轮未采集的 URL
+            # 2. 插入 detail_items 头部 (高优先级) + 去重
+            # 3. 避免: 每次重抓会导致调度变慢, 只选 (今天 0 点后发布 + 空 content)
+            try:
+                from sqlalchemy import text as sa_text, create_engine
+                from app.database.db import DATABASE_URL
+                tmp_engine = create_engine(DATABASE_URL)
+                with tmp_engine.connect() as conn:
+                    pending = conn.execute(sa_text("""
+                        SELECT id, url, title, publish_date
+                        FROM projects_cqggzy
+                        WHERE publish_date >= CURRENT_DATE - INTERVAL '7 days'
+                          AND (content_preview IS NULL OR length(content_preview) = 0)
+                          AND url NOT IN (
+                            SELECT url FROM projects_cqggzy
+                            WHERE scraped_at > NOW() - INTERVAL '24 hours'
+                              AND length(content_preview) > 0
+                          )
+                        ORDER BY publish_date DESC
+                        LIMIT 50
+                    """)).fetchall()
+                tmp_engine.dispose()
+                if pending:
+                    existing_urls = {it.url for it in detail_items}
+                    new_reprocess = []
+                    from app.models.tender import TenderInfo
+                    for r in pending:
+                        pid, url, title, pd = r[0], r[1], r[2], r[3]
+                        if url in existing_urls:
+                            continue
+                        ti = TenderInfo(
+                            url=url,
+                            title=title or "",
+                            publish_date=pd,
+                            source_url="",
+                        )
+                        new_reprocess.append(ti)
+                        existing_urls.add(url)
+                    if new_reprocess:
+                        logger.info(
+                            f"  🔁 24h 漏采回放: 添加 {len(new_reprocess)} 条待补采"
+                        )
+                        # 插到头部 (优先调)
+                        detail_items = new_reprocess + list(detail_items)
+            except Exception as e:
+                logger.warning(f"  ⚠️ 24h 漏采回放查询失败: {e}")
             # DEBUG: 看预排序后前 5 个 task 的 publish_date + 后 5 个的 publish_date
             for i in [0, 1, 2, 3, 4, -5, -4, -3, -2, -1]:
                 it = detail_items[i]
