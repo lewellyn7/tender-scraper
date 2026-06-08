@@ -329,14 +329,19 @@ class AdaptiveIntervalManager:
     - 错误率高 → 大幅延长间隔
     """
 
-    MIN_INTERVAL = 10.0  # 秒（避免触发网站反爬限制）
+    # 2026-06-08 修复: MIN_INTERVAL 从 10s 降到 0.5s
+    # 原 10s + initial 2s 会让 5 worker 退化为串行 (1 task/2s = 100s for 10 task)
+    # 改 0.5s 后: 5 worker 1s task 完美并行 (2 batches × 1s = 2s)
+    # 反爬保护由: source-level 全局 _last_used + adaptive response time 共同承担
+    MIN_INTERVAL = 0.5  # 秒 (避免反爬 + 允许 worker 并行 burst)
     MAX_INTERVAL = 60.0  # 秒
     CRITICAL_INTERVAL = 300.0  # 被ban后恢复检查间隔
 
     def __init__(self, priority_engine: DynamicPriorityEngine):
         self.priority_engine = priority_engine
         # 每个站点的响应时间记录
-        self._intervals: dict[str, float] = defaultdict(lambda: 2.0)  # 默认 2s
+        # 2026-06-08 修复: initial 2.0 改为 0.0, 让首次访问不 skip
+        self._intervals: dict[str, float] = defaultdict(lambda: 0.0)
         self._last_used: dict[str, float] = defaultdict(time.time)
 
     async def get_interval(self, task: CrawlTask) -> float:
@@ -462,70 +467,111 @@ class SmartScheduler:
 
     # ── 调度循环 ─────────────────────────────────────────────────────────────
 
+    # 2026-06-08 修复：同一 task requeue 次数上限, 避免 ERR_CONNECTION_CLOSED 后被反复重试
+    MAX_REQUEUE = 3
+
     async def schedule(self, crawler_fn) -> dict:
         """
-        调度循环：持续从队列取任务执行
+        调度循环：worker pool 并行执行任务
+
+        关键变化 (vs 旧版):
+        1. 启动 max_concurrent 个 worker 协程, 真正并行 (旧版是单 coroutine 串行,
+           async with semaphore 形同虚设, 22s/task, 300 task 要 110 分钟)
+        2. 同一 task_id requeue 次数上限 MAX_REQUEUE, 超过后丢弃, 避免死循环
+        3. 退出条件: queue 空 + 没有 running task (双重检查避免假退出)
+
         crawler_fn: async def(task: CrawlTask) -> bool  返回是否成功
         """
         results = {"succeeded": 0, "failed": 0, "skipped": 0}
+        requeue_counts: dict[str, int] = {}
+        # asyncio 单线程, dict 累加原子, 无需 lock
 
-        while not self._queue.empty():
-            # 取最高优先级任务
-            _, task_id = await self._queue.get()
-            task = self._tasks.get(task_id)
-            if task is None:
-                continue
+        async def worker(worker_id: int):
+            """单个 worker: 持续从 queue 取任务直到所有任务完成"""
+            while True:
+                # 退出条件: queue 空 + 没有 running task
+                # 双重检查: 等 100ms 再看, 避免其他 worker 正在放新 task
+                if self._queue.empty() and not self._running:
+                    await asyncio.sleep(0.1)
+                    if self._queue.empty() and not self._running:
+                        return
 
-            # 检查是否应跳过（间隔保护）
-            if await self.interval_manager.should_skip(task):
-                results["skipped"] += 1
-                logger.debug(f"[SmartScheduler] 跳过任务 {task_id}（间隔保护），重新入队")
-                # 重新入队（稍后重试，不丢弃）
-                # 2026-06-08 Bug 1 修复：入队 -priority_dynamic (min-heap 语义)
-                await self._queue.put((-task.priority_dynamic, task_id))
-                await asyncio.sleep(0.1)
-                continue
-
-            # 并发控制
-            async with self._semaphore:
-                self._running.add(task_id)
-                task.status = TaskStatus.RUNNING
-                task.started_at = datetime.now(timezone.utc)
-
+                # 阻塞 pop, 最多等 0.5s 重新检查退出
                 try:
-                    success = await asyncio.wait_for(
-                        crawler_fn(task), timeout=60.0
+                    _, task_id = await asyncio.wait_for(
+                        self._queue.get(), timeout=0.5
                     )
-                    if success:
-                        results["succeeded"] += 1
-                        task.status = TaskStatus.SUCCEEDED
-                        elapsed_ms = (
-                            (datetime.now(timezone.utc) - task.started_at).total_seconds()
-                            * 1000
+                except asyncio.TimeoutError:
+                    continue
+
+                task = self._tasks.get(task_id)
+                if task is None:
+                    self._queue.task_done()
+                    continue
+
+                # 间隔保护: should_skip 则 requeue (受 MAX_REQUEUE 限制)
+                if await self.interval_manager.should_skip(task):
+                    cnt = requeue_counts.get(task_id, 0) + 1
+                    if cnt > self.MAX_REQUEUE:
+                        # 超过 requeue 上限, 丢弃 (避免死循环)
+                        results["skipped"] += 1
+                        logger.debug(
+                            f"[SmartScheduler] 任务 {task_id} 达到 MAX_REQUEUE={self.MAX_REQUEUE}, 丢弃"
                         )
-                        self.priority_engine.record_success(task.source, elapsed_ms)
-                        self.interval_manager.record_actual_interval(task.source, elapsed_ms)
-                    else:
+                        self._queue.task_done()
+                        continue
+                    requeue_counts[task_id] = cnt
+                    # 2026-06-08 Bug 1 修复：入队 -priority_dynamic (min-heap 语义)
+                    await self._queue.put((-task.priority_dynamic, task_id))
+                    self._queue.task_done()
+                    await asyncio.sleep(0.1)
+                    continue
+
+                # 并发控制: 真正限流的 semaphore
+                async with self._semaphore:
+                    self._running.add(task_id)
+                    task.status = TaskStatus.RUNNING
+                    task.started_at = datetime.now(timezone.utc)
+
+                    try:
+                        success = await asyncio.wait_for(
+                            crawler_fn(task), timeout=60.0
+                        )
+                        if success:
+                            results["succeeded"] += 1
+                            task.status = TaskStatus.SUCCEEDED
+                            elapsed_ms = (
+                                (datetime.now(timezone.utc) - task.started_at).total_seconds()
+                                * 1000
+                            )
+                            self.priority_engine.record_success(task.source, elapsed_ms)
+                            self.interval_manager.record_actual_interval(task.source, elapsed_ms)
+                        else:
+                            results["failed"] += 1
+                            task.status = TaskStatus.FAILED
+                            self.priority_engine.record_failure(task.source)
+                    except asyncio.TimeoutError:
                         results["failed"] += 1
                         task.status = TaskStatus.FAILED
+                        task.error = "timeout"
+                        self.priority_engine.record_failure(task.source, 60000)
+                        logger.warning(f"[SmartScheduler] worker {worker_id} 任务 {task_id} 超时")
+                    except Exception as e:
+                        results["failed"] += 1
+                        task.status = TaskStatus.FAILED
+                        task.error = str(e)
                         self.priority_engine.record_failure(task.source)
-                except asyncio.TimeoutError:
-                    results["failed"] += 1
-                    task.status = TaskStatus.FAILED
-                    task.error = "timeout"
-                    self.priority_engine.record_failure(task.source, 60000)
-                    logger.warning(f"[SmartScheduler] 任务 {task_id} 超时")
-                except Exception as e:
-                    results["failed"] += 1
-                    task.status = TaskStatus.FAILED
-                    task.error = str(e)
-                    self.priority_engine.record_failure(task.source)
-                    logger.error(f"[SmartScheduler] 任务 {task_id} 异常: {e}")
-                finally:
-                    task.finished_at = datetime.now(timezone.utc)
-                    self._running.discard(task_id)
-                    self._queue.task_done()
+                        logger.error(f"[SmartScheduler] worker {worker_id} 任务 {task_id} 异常: {e}")
+                    finally:
+                        task.finished_at = datetime.now(timezone.utc)
+                        self._running.discard(task_id)
+                        self._queue.task_done()
 
+        # 启动 max_concurrent 个 worker
+        workers = [
+            asyncio.create_task(worker(i)) for i in range(self.max_concurrent)
+        ]
+        await asyncio.gather(*workers)
         return results
 
     # ── 指标导出 ─────────────────────────────────────────────────────────────
