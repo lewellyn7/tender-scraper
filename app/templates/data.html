@@ -522,11 +522,17 @@
     var kw = document.getElementById('searchKeyword').value.toLowerCase().trim();
     var type = document.getElementById('filterType').value;
     var infoType = document.getElementById('filterInfoType').value;
+    var dateStart = document.getElementById('filterDateStart').value || '';
+    var dateEnd = document.getElementById('filterDateEnd').value || '';
     filteredItems = allItems.filter(function(item) {
       if (kw && !(item.title || '').toLowerCase().includes(kw) && !(item.keywords_matched || '').toLowerCase().includes(kw)) return false;
       if (type && (item.business_type || item.type || item.tender_type || '') !== type) return false;
       if (infoType && (item.info_type || '') !== infoType) return false;
       if (selectedKeyword && !(item.keywords_matched || '').includes(selectedKeyword)) return false;
+      // 日期范围筛选（YYYY-MM-DD 字符串比较，格式一致即可正确排序）
+      var itemDate = (item.publish_date || '').slice(0, 10);
+      if (dateStart && itemDate && itemDate < dateStart) return false;
+      if (dateEnd && itemDate && itemDate > dateEnd) return false;
       return true;
     });
     totalItems = filteredItems.length;
@@ -658,6 +664,9 @@
       applyFilters();
     }
   });
+  // 日期范围 change 立即触发筛选（修复：之前日期筛选只对导出生效，列表不生效）
+  document.getElementById('filterDateStart').addEventListener('change', applyFilters);
+  document.getElementById('filterDateEnd').addEventListener('change', applyFilters);
   document.getElementById('exportBtn').addEventListener('click', function() {
     var token = localStorage.getItem('session_token') || '';
     var kw = document.getElementById('searchKeyword').value || '';
