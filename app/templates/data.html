@@ -33,41 +33,78 @@
   <!-- 工具栏 -->
   <div class="bg-white rounded-lg shadow p-4">
     <div class="flex flex-wrap items-end gap-3">
-      <!-- 视图切换 -->
-      <div class="flex rounded-md overflow-hidden border border-gray-300">
-        <button type="button" id="view-table" class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white" onclick="switchView('table')">表格</button>
-        <button type="button" id="view-card" class="px-3 py-1.5 text-sm font-medium bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300" onclick="switchView('card')">卡片</button>
+      <!-- 视图切换（表格/卡片） -->
+      <div class="flex items-center gap-1">
+        <div class="flex rounded-md overflow-hidden border border-gray-300">
+          <button type="button" id="view-table" class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white" onclick="switchView('table')">表格</button>
+          <button type="button" id="view-card" class="px-3 py-1.5 text-sm font-medium bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300" onclick="switchView('card')">卡片</button>
+        </div>
+        <span class="help-btn" data-tooltip="切换数据展示形式
+
+• 表格：紧凑列表，方便快速浏览多条
+• 卡片：突出标题和摘要，适合精读">?</span>
       </div>
       <!-- 关键词搜索 -->
-      <div class="flex-1 min-w-[200px]">
+      <div class="flex-1 min-w-[200px] flex items-center gap-1">
         <input type="text" id="searchKeyword" placeholder="搜索标题..." class="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600">
+        <span class="help-btn" data-tooltip="按标题关键词搜索
+
+• 支持中文/英文
+• 按回车键触发搜索
+• 输入 / 也能快速聚焦到此框
+• 留空显示全部数据">?</span>
       </div>
       <!-- 视图切换（逐条/按项目） -->
-      <div class="flex rounded-md overflow-hidden border border-gray-300">
-        <button type="button" id="view-item" class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white" onclick="switchProjectView('item')">逐条</button>
-        <button type="button" id="view-project" class="px-3 py-1.5 text-sm font-medium bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300" onclick="switchProjectView('project')">按项目</button>
+      <div class="flex items-center gap-1">
+        <div class="flex rounded-md overflow-hidden border border-gray-300">
+          <button type="button" id="view-item" class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white" onclick="switchProjectView('item')">逐条</button>
+          <button type="button" id="view-project" class="px-3 py-1.5 text-sm font-medium bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300" onclick="switchProjectView('project')">按项目</button>
+        </div>
+        <span class="help-btn" data-tooltip="切换数据组织方式
+
+• 逐条：每条采集记录一行/一卡
+• 按项目：按项目编号聚合，显示项目维度的所有公告">?</span>
       </div>
       <!-- 类型筛选 -->
-      <div class="w-36">
+      <div class="w-36 flex items-center gap-1">
         <select id="filterType" class="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600">
           <option value="">全类型</option>
           <option value="政府采购">政府采购</option>
           <option value="工程招投标">工程招投标</option>
 
         </select>
+        <span class="help-btn" data-tooltip="按业务大类筛选
+
+• 政府采购：来自 CCGP，包含采购公告/结果等
+• 工程招投标：来自 CQGGZY，包含招标/中标等
+
+切换类型会重置右侧信息类型选项">?</span>
       </div>
       <!-- 信息类型筛选 -->
-      <div class="w-36">
+      <div class="w-36 flex items-center gap-1">
         <select id="filterInfoType" class="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600">
           <option value="">全部公示</option>
         </select>
+        <span class="help-btn" data-tooltip="按公示类型细分筛选
+
+选项随左侧业务类型联动：
+• 政府采购 → 采购公告/答疑变更/结果/合同
+• 工程招投标 → 招标/中标/补遗/计划
+
+按项目视图下用于按 info_type 进一步过滤分组">?</span>
       </div>
       <!-- 日期筛选 -->
-<div class="flex items-center gap-2">
-<input type="date" id="filterDateStart" placeholder="开始日期" class="px-3 py-2 border border-gray-300 rounded-md text-sm dark:bg-gray-700 dark:border-gray-600">
-<span class="text-gray-500">-</span>
-<input type="date" id="filterDateEnd" placeholder="结束日期" class="px-3 py-2 border border-gray-300 rounded-md text-sm dark:bg-gray-700 dark:border-gray-600">
-</div>
+      <div class="flex items-center gap-2">
+        <input type="date" id="filterDateStart" placeholder="开始日期" class="px-3 py-2 border border-gray-300 rounded-md text-sm dark:bg-gray-700 dark:border-gray-600">
+        <span class="text-gray-500">-</span>
+        <input type="date" id="filterDateEnd" placeholder="结束日期" class="px-3 py-2 border border-gray-300 rounded-md text-sm dark:bg-gray-700 dark:border-gray-600">
+        <span class="help-btn" data-tooltip="按发布日期范围筛选
+
+• 留空表示不限
+• 格式：YYYY-MM-DD
+• 改变日期会立即重新筛选
+• 同样作用于导出 Excel">?</span>
+      </div>
 <!-- 关键词标签云 -->
   <div id="keywordCloud" class="flex flex-wrap gap-2 mt-3 px-1"></div>
 
