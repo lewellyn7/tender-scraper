@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.database import get_db
 from app.security.audit import write_audit_log, EVENT_DATA_EXPORT
+from app.utils.search_parser import parse_keyword, match_item
 
 router = APIRouter(prefix="/api/export", tags=["导出"])
 
@@ -46,9 +47,20 @@ def export_excel(
 
     conditions = ["1=1"]
     params = []
-    if keyword:
-        conditions.append("(title LIKE ? OR description LIKE ?)")
-        params.extend([f"%{keyword}%", f"%{keyword}%"])
+    # 6-9: 导出走 parse_keyword 支持多关键词 + 负关键词
+    # 同步应用两阶段过滤：positives (OR) 必命中, negatives 任一命中则排除
+    pos, neg = parse_keyword(keyword)
+    if pos:
+        # OR 语义：任一正向 token 命中 title/description 即视为可能匹配
+        pos_clauses = []
+        for p in pos:
+            pos_clauses.append("(title LIKE ? OR description LIKE ?)")
+            params.extend([f"%{p}%", f"%{p}%"])
+        conditions.append("(" + " OR ".join(pos_clauses) + ")")
+    for n in neg:
+        # AND 语义：title/description 都不能命中负关键词
+        conditions.append("(title NOT LIKE ? AND description NOT LIKE ?)")
+        params.extend([f"%{n}%", f"%{n}%"])
     if category:
         conditions.append("tender_type LIKE ?")
         params.append(f"%{category}%")
@@ -129,9 +141,19 @@ def export_csv(
     # 自用模式：不需要 session_token 查询参数
     conditions = ["(NULLIF(project_no, '') IS NOT NULL OR url LIKE 'http%%' OR url LIKE 'https%%')"]
     params = []
-    if keyword:
-        conditions.append("(title LIKE ? OR content_preview LIKE ?)")
-        params.extend([f"%{keyword}%", f"%{keyword}%"])
+    # 6-9: 导出走 parse_keyword 支持多关键词 + 负关键词（同步 data.html 列表）
+    pos, neg = parse_keyword(keyword)
+    if pos:
+        # OR 语义：任一正向 token 命中 title/content_preview 即视为可能匹配
+        pos_clauses = []
+        for p in pos:
+            pos_clauses.append("(title LIKE ? OR content_preview LIKE ?)")
+            params.extend([f"%{p}%", f"%{p}%"])
+        conditions.append("(" + " OR ".join(pos_clauses) + ")")
+    for n in neg:
+        # AND 语义：title/content_preview 都不能命中负关键词
+        conditions.append("(title NOT LIKE ? AND (content_preview IS NULL OR content_preview NOT LIKE ?))")
+        params.extend([f"%{n}%", f"%{n}%"])
     if category == "政府采购":
         # 业务类型字段 DB 中常为 NULL，按 URL 模式匹配（与 /api/projects 推理逻辑一致）
         # psycopg2 需要双 % 转义（详见 AGENTS.md: LIKE 'http%' + 双 % 转义）

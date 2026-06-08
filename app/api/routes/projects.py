@@ -16,6 +16,7 @@ from app.database import get_db
 from app.services.vector_store import get_vector_store
 from app.utils.tfidf_matcher import TFIDFMatcher
 from app.utils.session import get_user_from_session
+from app.utils.search_parser import parse_keyword, match_item
 
 
 def get_current_user_id_optional(request) -> str:
@@ -298,24 +299,34 @@ def get_projects(request: Request,
             if use_tfidf:
                 m = TFIDFMatcher()
                 m.build_corpus([p.get("title", "") for p in projects])
-                kws = [k.strip() for k in keyword.split(",") if k.strip()]
-                m.build_keywords(kws)
+                # 6-9: TF-IDF 路径同步支持多关键词 + 负关键词
+                pos, neg = parse_keyword(keyword)
+                m.build_keywords(pos)
                 mu = set()
                 for p in projects:
-                    _, matched, _ = m.match(p.get("title", ""), kws)
-                    if matched:
-                        mu.add(p.get("url", ""))
+                    title_lower = (p.get("title", "") or "").lower()
+                    _, matched, _ = m.match(p.get("title", ""), pos) if pos else (None, True, None)
+                    # TF-IDF 不感知负关键词 → 负关键词单独走 substring 过滤
+                    if not pos or matched:
+                        text_lower = (p.get("title", "") or "").lower() + " " + (p.get("keywords_matched", "") or "").lower()
+                        if not neg or not any(n in text_lower for n in neg):
+                            mu.add(p.get("url", ""))
                 filtered = [p for p in projects if p.get("url", "") in mu]
             else:
-                kws = [k.strip().lower() for k in keyword.split(",") if k.strip()]
-                # 修复 6-5: 简单匹配也检查 full_content (之前只查 title+content_preview)
-                filtered = [
-                    p
-                    for p in projects
-                    if any(kw in (p.get("title", "") or "").lower() for kw in kws)
-                    or any(kw in (p.get("content_preview", "") or "").lower() for kw in kws)
-                    or any(kw in (p.get("full_content", "") or "").lower() for kw in kws)
-                ]
+                # 6-9: 简单匹配 — 走 parse_keyword 统一处理多关键词 + 负关键词
+                pos, neg = parse_keyword(keyword)
+                if pos or neg:
+                    filtered = []
+                    for p in projects:
+                        text_lower = (
+                            (p.get("title", "") or "") + " "
+                            + (p.get("content_preview", "") or "") + " "
+                            + (p.get("full_content", "") or "")
+                        ).lower()
+                        if match_item(text_lower, pos, neg):
+                            filtered.append(p)
+                else:
+                    filtered = list(projects)
             # 标记回退后不要再用 vector_matched_urls 二次过滤
             vector_matched_urls = None
 
