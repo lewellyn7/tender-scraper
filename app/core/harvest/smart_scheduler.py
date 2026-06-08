@@ -342,7 +342,12 @@ class AdaptiveIntervalManager:
         # 每个站点的响应时间记录
         # 2026-06-08 修复: initial 2.0 改为 0.0, 让首次访问不 skip
         self._intervals: dict[str, float] = defaultdict(lambda: 0.0)
-        self._last_used: dict[str, float] = defaultdict(time.time)
+        # 2026-06-08 Bug 1-B 修复: _last_used 从 source-level 全局改为 per-worker 隔离
+        # 原: dict[source, timestamp] → 5 worker 同 source 互争, 首个处理完更新 timestamp, 后续 4 个被判间隔太近被 skip
+        # 新: dict[worker_id, dict[source, timestamp]] → 5 worker 各自独立间隔, 全部能跑
+        self._last_used: dict[str, dict[str, float]] = defaultdict(
+            lambda: defaultdict(time.time)
+        )
 
     async def get_interval(self, task: CrawlTask) -> float:
         """
@@ -381,18 +386,21 @@ class AdaptiveIntervalManager:
         self._intervals[task.source] = clamped
         return clamped
 
-    async def should_skip(self, task: CrawlTask) -> bool:
+    async def should_skip(self, task: CrawlTask, worker_id: str = "default") -> bool:
         """
         判断是否应跳过本次采集（频繁访问）
+
+        2026-06-08 Bug 1-B 修复: 加 worker_id 参数, 支持 per-worker 间隔跟踪
+        多 worker 同一 source 并行不互相 skip
         """
         source = task.source
         now = time.time()
-        last = self._last_used.get(source, 0)
+        last = self._last_used[worker_id].get(source, 0)
         interval = self._intervals[source]
 
         if now - last < interval:
             return True
-        self._last_used[source] = now
+        self._last_used[worker_id][source] = now
         return False
 
     def record_actual_interval(self, source: str, actual_ms: float):
@@ -510,7 +518,7 @@ class SmartScheduler:
                     continue
 
                 # 间隔保护: should_skip 则 requeue (受 MAX_REQUEUE 限制)
-                if await self.interval_manager.should_skip(task):
+                if await self.interval_manager.should_skip(task, worker_id=f"worker_{worker_id}"):
                     cnt = requeue_counts.get(task_id, 0) + 1
                     if cnt > self.MAX_REQUEUE:
                         # 超过 requeue 上限, 丢弃 (避免死循环)
