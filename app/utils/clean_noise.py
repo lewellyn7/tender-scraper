@@ -56,3 +56,52 @@ def is_empty_page(text: str) -> bool:
             return True
     cleaned = clean_text(text)
     return len(cleaned) < 30
+
+
+def strip_title_dup(text: str, title: str) -> str:
+    """2026-06-08 修复: 详情页 .epoint-article-content 含 <h1>title</h1> + 表格,
+    inner_text() 把 title 也抓进来, 导致 content_preview 开头 = title 重复。
+
+    行为: 
+    - 跳过开头所有与 title 完全相等的行 (连空行)
+    - 容忍 title 出现在中间 (不删, 用户可能想看)
+    - title 为空 / text 为空 → 原样返回
+
+    Example:
+        text='<h1>华洋 厂保障性住房...</h1>\\n华洋 厂保障性住房...\\n项目编号：xxx',
+        title='华洋 厂保障性住房项目配售服务答疑补遗文件'
+        → '项目编号：xxx' (前 2 行被剥)
+    """
+    if not text or not title:
+        return text
+    title = title.strip()
+    if not title:
+        return text
+    lines = text.split('\n')
+    # 跳过开头所有 =title 的行 (含空行)
+    idx = 0
+    while idx < len(lines):
+        if lines[idx].strip() == title:
+            idx += 1
+        elif not lines[idx].strip():  # 空白行也跳
+            idx += 1
+        else:
+            break
+    if idx == 0:
+        return text
+    return '\n'.join(lines[idx:]).lstrip('\n').rstrip()
+
+
+def make_content_preview(full_content: str, title: str, max_len: int = 500) -> str:
+    """2026-06-08 新增: 生成 content_preview 统一入口
+    1. strip_title_dup 去掉 title 重复
+    2. 截断到 max_len + '...'
+    """
+    if not full_content:
+        return ''
+    cleaned = strip_title_dup(full_content, title)
+    if not cleaned:
+        return ''
+    if len(cleaned) > max_len:
+        return cleaned[:max_len] + '...'
+    return cleaned

@@ -238,8 +238,9 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     import re as re_module
                     clean = re_module.sub(r'<[^>]+>', '', raw_content)
                     clean = re_module.sub(r'\s+', ' ', clean).strip()
+                    from app.utils.clean_noise import make_content_preview
                     tender.full_content = clean  # 保留完整内容，不截断
-                    tender.content_preview = (clean[:500] + "...") if len(clean) > 500 else clean
+                    tender.content_preview = make_content_preview(clean, tender.title)
                 # else: content_preview 保持默认值空字符串
                 # 详情阶段 crawler_fn 会回填；upsert_projects 的 protected_cols={full_content, content_preview}
                 # 保证列表阶段写空不会冲掉详情阶段已回填的值
@@ -447,13 +448,15 @@ class CQGGZYCrawlerV2(BaseCrawler):
 
             if content and len(content) > 50 and '暂无内容' not in content:
                 # 2026-06-05: 使用 clean_noise 进一步去噪 + 识别空详情页
-                from app.utils.clean_noise import clean_text, is_empty_page
+                from app.utils.clean_noise import clean_text, is_empty_page, make_content_preview
                 cleaned = clean_text(content)
                 if is_empty_page(content) or len(cleaned) < 30:
                     # 整页只有 chrome 或空详情页 — 不入库
                     logger.debug(f"  详情页空(仅chrome): {tender.url}")
                 else:
                     tender.full_content = cleaned
+                    # 2026-06-08 修复: 同步生成 content_preview, 不依赖后续 fallback
+                    tender.content_preview = make_content_preview(cleaned, tender.title)
                     logger.debug(f"  详情页成功: {tender.title[:30]} ({len(cleaned)}字)")
             else:
                 logger.debug(f"  详情页空/无效: {tender.url}")
@@ -530,10 +533,9 @@ class CQGGZYCrawlerV2(BaseCrawler):
                         pass
                     full = await elem.inner_text()
                     if len(full) > 20:
+                        from app.utils.clean_noise import make_content_preview
                         tender.full_content = full
-                        tender.content_preview = (
-                            full[:500] + "..." if len(full) > 500 else full
-                        )
+                        tender.content_preview = make_content_preview(full, tender.title)
                         logger.info(f"  ✅ 正文提取成功 ({len(full)} 字)")
                         return
             except Exception:
@@ -555,8 +557,9 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     lines.append(line)
             full = "\n".join(lines)
             if len(full) > 20:
+                from app.utils.clean_noise import make_content_preview
                 tender.full_content = full
-                tender.content_preview = full[:500] + "..." if len(full) > 500 else full
+                tender.content_preview = make_content_preview(full, tender.title)
         except Exception:
             pass
 

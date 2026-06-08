@@ -352,10 +352,15 @@ async def run_collection():
                     if detail_item.full_content:
                         try:
                             from app.database.db import get_db
+                            # 2026-06-08 修复: P1 写入前统一过 strip_title_dup, 避免 title 重复入库
+                            from app.utils.clean_noise import make_content_preview
+                            preview = detail_item.content_preview or make_content_preview(
+                                detail_item.full_content, detail_item.title
+                            )
                             get_db().update_full_content(
                                 item.url,
                                 detail_item.full_content,
-                                detail_item.content_preview or detail_item.full_content[:300]
+                                preview
                             )
                         except Exception as db_e:
                             logger.warning(f"  ⚠️ 详情写 DB 失败 [{task.task_id}]: {db_e}")
