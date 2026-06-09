@@ -461,6 +461,8 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     tender.full_content = cleaned
                     # 2026-06-08 修复: 同步生成 content_preview, 不依赖后续 fallback
                     tender.content_preview = make_content_preview(cleaned, tender.title)
+                    # 2026-06-09 修复: CQGGZY 详情页同步提取项目编号（CCGP 已在 ccgp.py:311 调用，CQGGZY 漏了）
+                    tender.project_no = extract_project_no(tender.title, cleaned) or ""
                     logger.debug(f"  详情页成功: {tender.title[:30]} ({len(cleaned)}字)")
             else:
                 logger.debug(f"  详情页空/无效: {tender.url}")
