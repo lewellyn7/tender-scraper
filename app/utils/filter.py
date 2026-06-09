@@ -151,7 +151,9 @@ class TenderFilter:
         full_content = self._get_field(item, "full_content", "")
         if not content_preview:
             if full_content and len(full_content) > 10:
-                content_preview = full_content[:300].strip() + ("..." if len(full_content) > 300 else "")
+                # 2026-06-08 修复: 详情阶段 fallback 也需要去 title 重复
+                from app.utils.clean_noise import make_content_preview
+                content_preview = make_content_preview(full_content, title, max_len=300)
             # 2026-06-05 修复：不在这里用 title 填充摘要。列表 API 不返回 content，
             # 如用 title 填充会导致内容摘要列始终是标题，不符合预期。
             # 正确做法是空着，等详情补采后写入。

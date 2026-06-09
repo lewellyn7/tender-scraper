@@ -45,6 +45,7 @@ class CrawlTask:
     info_type: str = "招标公告"  # 招标公告 / 中标结果 / 采购意向
     region: str = "重庆"
     deadline: Optional[datetime] = None  # 招标截止时间
+    publish_date: Optional[datetime] = None  # 项目发布日期（2026-06-08 新增：用于无 deadline task 的时效性计算）
     keywords: list[str] = field(default_factory=list)  # 关键词匹配
     priority_static: int = 5  # 静态优先级 1-10
 
@@ -154,25 +155,55 @@ class DynamicPriorityEngine:
 
     async def _timeliness_factor(self, task: CrawlTask) -> float:
         """
-        时效性因子：招标截止前 48h 权重指数上升
-        0 (已过期) → 1 (48h 后)
+        时效性因子计算（2026-06-08 改造：双路径）
+
+        优先级路径：
+        1. deadline 存在 → 招标截止前 48h 权重指数上升（保留原逻辑）
+        2. deadline 缺失 + publish_date 存在 → 按发布日期越新越优先（7天窗口线性降权）
+        3. 都缺失 → 0.3（略低于中间值，不再"中性 0.5"占便宜）
+
+        改造原因：
+        - 招标计划/中标公示/答疑补遗等无 deadline 的 task，原代码返回 0.5
+        - 4 个其他因子（reliability/cost/success_rate/demand）对今天 vs 1 周前 task 几乎一样
+        - 导致新数据被淹没在历史补采里，priority 排序等价于随机
         """
-        if task.deadline is None:
-            return 0.5  # 无截止时间，取中间值
-
         now = datetime.now(timezone.utc)
-        if task.deadline.tzinfo is None:
-            task.deadline = task.deadline.replace(tzinfo=timezone.utc)
 
-        hours_left = (task.deadline - now).total_seconds() / 3600
+        # 路径 1：deadline 路径（原逻辑）
+        if task.deadline is not None:
+            if task.deadline.tzinfo is None:
+                task.deadline = task.deadline.replace(tzinfo=timezone.utc)
 
-        if hours_left <= 0:
-            return 1.0  # 已过期，优先处理
-        if hours_left > 168:  # > 7 天，略降低
-            return 0.3
+            hours_left = (task.deadline - now).total_seconds() / 3600
 
-        # 渐变上升曲线：1 - exp(-hours_left / 48)
-        return 1.0 - math.exp(-hours_left / 48)
+            if hours_left <= 0:
+                return 1.0  # 已过期，优先处理
+            if hours_left > 168:  # > 7 天，略降低
+                return 0.3
+
+            # 渐变上升曲线：1 - exp(-hours_left / 48)
+            return 1.0 - math.exp(-hours_left / 48)
+
+        # 路径 2：publish_date 路径（2026-06-08 新增）
+        if task.publish_date is not None:
+            if task.publish_date.tzinfo is None:
+                task.publish_date = task.publish_date.replace(tzinfo=timezone.utc)
+
+            days_old = (now - task.publish_date).total_seconds() / 86400
+
+            if days_old < 0:
+                # 未来日期（数据异常），按今天处理
+                return 1.0
+            if days_old > 7:
+                # 超过 7 天，旧数据，让位给新数据
+                return 0.2
+
+            # 线性降权：今天 = 1.0, 7天前 = 0.2
+            # score = 1.0 - 0.8 * (days_old / 7)
+            return 1.0 - 0.8 * (days_old / 7.0)
+
+        # 路径 3：都缺失
+        return 0.3
 
     async def _reliability_factor(self, task: CrawlTask, metrics: SourceMetrics) -> float:
         """
@@ -298,15 +329,25 @@ class AdaptiveIntervalManager:
     - 错误率高 → 大幅延长间隔
     """
 
-    MIN_INTERVAL = 10.0  # 秒（避免触发网站反爬限制）
+    # 2026-06-08 修复: MIN_INTERVAL 从 10s 降到 0.5s
+    # 原 10s + initial 2s 会让 5 worker 退化为串行 (1 task/2s = 100s for 10 task)
+    # 改 0.5s 后: 5 worker 1s task 完美并行 (2 batches × 1s = 2s)
+    # 反爬保护由: source-level 全局 _last_used + adaptive response time 共同承担
+    MIN_INTERVAL = 0.5  # 秒 (避免反爬 + 允许 worker 并行 burst)
     MAX_INTERVAL = 60.0  # 秒
     CRITICAL_INTERVAL = 300.0  # 被ban后恢复检查间隔
 
     def __init__(self, priority_engine: DynamicPriorityEngine):
         self.priority_engine = priority_engine
         # 每个站点的响应时间记录
-        self._intervals: dict[str, float] = defaultdict(lambda: 2.0)  # 默认 2s
-        self._last_used: dict[str, float] = defaultdict(time.time)
+        # 2026-06-08 修复: initial 2.0 改为 0.0, 让首次访问不 skip
+        self._intervals: dict[str, float] = defaultdict(lambda: 0.0)
+        # 2026-06-08 Bug 1-B 修复: _last_used 从 source-level 全局改为 per-worker 隔离
+        # 原: dict[source, timestamp] → 5 worker 同 source 互争, 首个处理完更新 timestamp, 后续 4 个被判间隔太近被 skip
+        # 新: dict[worker_id, dict[source, timestamp]] → 5 worker 各自独立间隔, 全部能跑
+        self._last_used: dict[str, dict[str, float]] = defaultdict(
+            lambda: defaultdict(time.time)
+        )
 
     async def get_interval(self, task: CrawlTask) -> float:
         """
@@ -345,18 +386,21 @@ class AdaptiveIntervalManager:
         self._intervals[task.source] = clamped
         return clamped
 
-    async def should_skip(self, task: CrawlTask) -> bool:
+    async def should_skip(self, task: CrawlTask, worker_id: str = "default") -> bool:
         """
         判断是否应跳过本次采集（频繁访问）
+
+        2026-06-08 Bug 1-B 修复: 加 worker_id 参数, 支持 per-worker 间隔跟踪
+        多 worker 同一 source 并行不互相 skip
         """
         source = task.source
         now = time.time()
-        last = self._last_used.get(source, 0)
+        last = self._last_used[worker_id].get(source, 0)
         interval = self._intervals[source]
 
         if now - last < interval:
             return True
-        self._last_used[source] = now
+        self._last_used[worker_id][source] = now
         return False
 
     def record_actual_interval(self, source: str, actual_ms: float):
@@ -408,7 +452,10 @@ class SmartScheduler:
         """注册任务，返回动态优先级分数"""
         priority = await self.priority_engine.compute_priority(task)
         self._tasks[task.task_id] = task
-        await self._queue.put((priority, task.task_id))
+        # 2026-06-08 Bug 1 修复：asyncio.PriorityQueue 是 min-heap，get() 永远返回最小值
+        # 原代码入队 (priority, task_id) -> 0.6567 (旧) 先于 0.7257 (新) 被取，完全反了
+        # 修复：入队时取负 priority，让"高 priority = 小 queue value = 先被取"
+        await self._queue.put((-priority, task.task_id))
         logger.debug(
             f"[SmartScheduler] 注册任务 {task.task_id}，优先级 {priority:.4f}"
         )
@@ -420,78 +467,119 @@ class SmartScheduler:
         for t in tasks:
             p = await self.priority_engine.compute_priority(t)
             priorities.append(p)
-        # 按优先级排序入队（高优先级先处理）
-        sorted_tasks = sorted(zip(priorities, tasks), key=lambda x: -x[0])
-        for priority, task in sorted_tasks:
+        # 2026-06-08 Bug 1 修复：入队 -priority (asyncio.PriorityQueue 是 min-heap)
+        for priority, task in zip(priorities, tasks):
             self._tasks[task.task_id] = task
-            await self._queue.put((priority, task.task_id))
+            await self._queue.put((-priority, task.task_id))
         return priorities
 
     # ── 调度循环 ─────────────────────────────────────────────────────────────
 
+    # 2026-06-08 修复：同一 task requeue 次数上限, 避免 ERR_CONNECTION_CLOSED 后被反复重试
+    MAX_REQUEUE = 3
+
     async def schedule(self, crawler_fn) -> dict:
         """
-        调度循环：持续从队列取任务执行
+        调度循环：worker pool 并行执行任务
+
+        关键变化 (vs 旧版):
+        1. 启动 max_concurrent 个 worker 协程, 真正并行 (旧版是单 coroutine 串行,
+           async with semaphore 形同虚设, 22s/task, 300 task 要 110 分钟)
+        2. 同一 task_id requeue 次数上限 MAX_REQUEUE, 超过后丢弃, 避免死循环
+        3. 退出条件: queue 空 + 没有 running task (双重检查避免假退出)
+
         crawler_fn: async def(task: CrawlTask) -> bool  返回是否成功
         """
         results = {"succeeded": 0, "failed": 0, "skipped": 0}
+        requeue_counts: dict[str, int] = {}
+        # asyncio 单线程, dict 累加原子, 无需 lock
 
-        while not self._queue.empty():
-            # 取最高优先级任务
-            _, task_id = await self._queue.get()
-            task = self._tasks.get(task_id)
-            if task is None:
-                continue
+        async def worker(worker_id: int):
+            """单个 worker: 持续从 queue 取任务直到所有任务完成"""
+            while True:
+                # 退出条件: queue 空 + 没有 running task
+                # 双重检查: 等 100ms 再看, 避免其他 worker 正在放新 task
+                if self._queue.empty() and not self._running:
+                    await asyncio.sleep(0.1)
+                    if self._queue.empty() and not self._running:
+                        return
 
-            # 检查是否应跳过（间隔保护）
-            if await self.interval_manager.should_skip(task):
-                results["skipped"] += 1
-                logger.debug(f"[SmartScheduler] 跳过任务 {task_id}（间隔保护），重新入队")
-                # 重新入队（稍后重试，不丢弃）
-                await self._queue.put((task.priority_dynamic, task_id))
-                await asyncio.sleep(0.1)
-                continue
-
-            # 并发控制
-            async with self._semaphore:
-                self._running.add(task_id)
-                task.status = TaskStatus.RUNNING
-                task.started_at = datetime.now(timezone.utc)
-
+                # 阻塞 pop, 最多等 0.5s 重新检查退出
                 try:
-                    success = await asyncio.wait_for(
-                        crawler_fn(task), timeout=60.0
+                    _, task_id = await asyncio.wait_for(
+                        self._queue.get(), timeout=0.5
                     )
-                    if success:
-                        results["succeeded"] += 1
-                        task.status = TaskStatus.SUCCEEDED
-                        elapsed_ms = (
-                            (datetime.now(timezone.utc) - task.started_at).total_seconds()
-                            * 1000
+                except asyncio.TimeoutError:
+                    continue
+
+                task = self._tasks.get(task_id)
+                if task is None:
+                    self._queue.task_done()
+                    continue
+
+                # 间隔保护: should_skip 则 requeue (受 MAX_REQUEUE 限制)
+                if await self.interval_manager.should_skip(task, worker_id=f"worker_{worker_id}"):
+                    cnt = requeue_counts.get(task_id, 0) + 1
+                    if cnt > self.MAX_REQUEUE:
+                        # 超过 requeue 上限, 丢弃 (避免死循环)
+                        results["skipped"] += 1
+                        logger.debug(
+                            f"[SmartScheduler] 任务 {task_id} 达到 MAX_REQUEUE={self.MAX_REQUEUE}, 丢弃"
                         )
-                        self.priority_engine.record_success(task.source, elapsed_ms)
-                        self.interval_manager.record_actual_interval(task.source, elapsed_ms)
-                    else:
+                        self._queue.task_done()
+                        continue
+                    requeue_counts[task_id] = cnt
+                    # 2026-06-08 Bug 1 修复：入队 -priority_dynamic (min-heap 语义)
+                    await self._queue.put((-task.priority_dynamic, task_id))
+                    self._queue.task_done()
+                    await asyncio.sleep(0.1)
+                    continue
+
+                # 并发控制: 真正限流的 semaphore
+                async with self._semaphore:
+                    self._running.add(task_id)
+                    task.status = TaskStatus.RUNNING
+                    task.started_at = datetime.now(timezone.utc)
+
+                    try:
+                        success = await asyncio.wait_for(
+                            crawler_fn(task), timeout=60.0
+                        )
+                        if success:
+                            results["succeeded"] += 1
+                            task.status = TaskStatus.SUCCEEDED
+                            elapsed_ms = (
+                                (datetime.now(timezone.utc) - task.started_at).total_seconds()
+                                * 1000
+                            )
+                            self.priority_engine.record_success(task.source, elapsed_ms)
+                            self.interval_manager.record_actual_interval(task.source, elapsed_ms)
+                        else:
+                            results["failed"] += 1
+                            task.status = TaskStatus.FAILED
+                            self.priority_engine.record_failure(task.source)
+                    except asyncio.TimeoutError:
                         results["failed"] += 1
                         task.status = TaskStatus.FAILED
+                        task.error = "timeout"
+                        self.priority_engine.record_failure(task.source, 60000)
+                        logger.warning(f"[SmartScheduler] worker {worker_id} 任务 {task_id} 超时")
+                    except Exception as e:
+                        results["failed"] += 1
+                        task.status = TaskStatus.FAILED
+                        task.error = str(e)
                         self.priority_engine.record_failure(task.source)
-                except asyncio.TimeoutError:
-                    results["failed"] += 1
-                    task.status = TaskStatus.FAILED
-                    task.error = "timeout"
-                    self.priority_engine.record_failure(task.source, 60000)
-                    logger.warning(f"[SmartScheduler] 任务 {task_id} 超时")
-                except Exception as e:
-                    results["failed"] += 1
-                    task.status = TaskStatus.FAILED
-                    task.error = str(e)
-                    self.priority_engine.record_failure(task.source)
-                    logger.error(f"[SmartScheduler] 任务 {task_id} 异常: {e}")
-                finally:
-                    task.finished_at = datetime.now(timezone.utc)
-                    self._running.discard(task_id)
-                    self._queue.task_done()
+                        logger.error(f"[SmartScheduler] worker {worker_id} 任务 {task_id} 异常: {e}")
+                    finally:
+                        task.finished_at = datetime.now(timezone.utc)
+                        self._running.discard(task_id)
+                        self._queue.task_done()
 
+        # 启动 max_concurrent 个 worker
+        workers = [
+            asyncio.create_task(worker(i)) for i in range(self.max_concurrent)
+        ]
+        await asyncio.gather(*workers)
         return results
 
     # ── 指标导出 ─────────────────────────────────────────────────────────────

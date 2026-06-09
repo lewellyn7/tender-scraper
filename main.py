@@ -109,6 +109,7 @@ def _build_crawl_task(item, index: int) -> CrawlTask:
         info_type=getattr(item, "info_type", "招标公告"),
         region="重庆",
         deadline=getattr(item, "deadline", None),
+        publish_date=getattr(item, "publish_date", None),  # 2026-06-08 新增：透传 publish_date 用于时效性计算
         keywords=getattr(item, "keywords_matched", []),
         priority_static=priority_static,
     )
@@ -158,12 +159,19 @@ async def run_collection():
         # 2026-06-03 修复：分页采集直到 API 返回 < 50 条（原代码只采第 1 页，丢失 50+ 之后的数据）
         async def _fetch_all_pages(category: str) -> list:
             items_all: list = []
+            seen_urls: set = set()  # 2026-06-08 Bug 1 修复：跨 page 去重，list API 在多个 page 返回可能包含同一 url
             for page_num in range(1, 21):  # 最多 20 页（1000 条）安全保护
                 items = await crawler.fetch_list(
                     category=category, page_num=page_num,
                     start_date=start_date, end_date=end_date,
                 )
-                items_all.extend(items)
+                for it in items:
+                    url = getattr(it, "url", "") if not isinstance(it, dict) else it.get("url", "")
+                    if url and url in seen_urls:
+                        continue
+                    if url:
+                        seen_urls.add(url)
+                    items_all.append(it)
                 if len(items) < 50:
                     break
             return items_all
@@ -232,6 +240,107 @@ async def run_collection():
         if detail_items:
             logger.info(f"📄 使用 SmartScheduler 并行采集 {len(detail_items)} 个详情页...")
 
+            # 2026-06-08 Bug 1 修复：detail_items[:300] 是按列表 API newid 顺序取的，
+            # 列表 API 的 newid 排序 ≠ publish_date 排序，导致 6-8 的新数据都在 [1013-7965] 位置、
+            # 从未进入前 300 个 SmartScheduler 任务。需要先按 publish_date 预排序全部 matched_items，
+            # 再截前 detail_limit 个。
+            def _sort_key(item):
+                pd = getattr(item, "publish_date", None)
+                if pd is None:
+                    return (1, 0)  # 未知日期 → 降序底
+                return (0, -pd.timestamp())  # 有日期 → 按时间降序（负值倒置）
+            # 按来源均衡选择后重新按 publish_date 降序排序
+            # 注意：这里 detail_items 本身已经是来源均衡选择过的。需重做来源均衡：
+            # 先把全部 matched_items 按 publish_date 降序排，再按来源轮询取
+            all_sorted = sorted(matched_items, key=_sort_key)
+
+            # 重新按来源均衡
+            from collections import defaultdict
+            by_source_sorted = defaultdict(list)
+            for item in all_sorted:
+                src = "ccgp" if (hasattr(item, "source_url") and "ccgp" in (item.source_url or "")) else "cqggzy"
+                by_source_sorted[src].append(item)
+            detail_items_new = []
+            sources = list(by_source_sorted.keys())
+            max_per_source = max(5, detail_limit // len(sources)) if sources else detail_limit
+            # 轮询：首次从每源取 1 个，再从每源取下一个，... 直到每源达到 max_per_source
+            ptrs = {src: 0 for src in sources}
+            taken = {src: 0 for src in sources}
+            while len(detail_items_new) < detail_limit:
+                progressed = False
+                for src in sources:
+                    if taken[src] >= max_per_source:
+                        continue
+                    if ptrs[src] >= len(by_source_sorted[src]):
+                        continue
+                    detail_items_new.append(by_source_sorted[src][ptrs[src]])
+                    ptrs[src] += 1
+                    taken[src] += 1
+                    progressed = True
+                    if len(detail_items_new) >= detail_limit:
+                        break
+                if not progressed:
+                    break
+            detail_items = detail_items_new
+            logger.info(
+                f"  📊 预排序：matched_items ({len(matched_items)}) → 按 publish_date 降序后按来源均衡取前 {len(detail_items)}"
+            )
+
+            # 2026-06-08 Bug 1-C 修复: 24h 漏采回放
+            # 1. SELECT 最近 7 天发布 且 content_preview 为空 且 本轮未采集的 URL
+            # 2. 插入 detail_items 头部 (高优先级) + 去重
+            # 3. 避免: 每次重抓会导致调度变慢, 只选 (今天 0 点后发布 + 空 content)
+            try:
+                from sqlalchemy import text as sa_text, create_engine
+                from app.database.db import DATABASE_URL
+                tmp_engine = create_engine(DATABASE_URL)
+                with tmp_engine.connect() as conn:
+                    pending = conn.execute(sa_text("""
+                        SELECT id, url, title, publish_date
+                        FROM projects_cqggzy
+                        WHERE publish_date >= CURRENT_DATE - INTERVAL '7 days'
+                          AND (content_preview IS NULL OR length(content_preview) = 0)
+                          AND url NOT IN (
+                            SELECT url FROM projects_cqggzy
+                            WHERE scraped_at > NOW() - INTERVAL '24 hours'
+                              AND length(content_preview) > 0
+                          )
+                        ORDER BY publish_date DESC
+                        LIMIT 50
+                    """)).fetchall()
+                tmp_engine.dispose()
+                if pending:
+                    existing_urls = {it.url for it in detail_items}
+                    new_reprocess = []
+                    from app.models.tender import TenderInfo
+                    for r in pending:
+                        pid, url, title, pd = r[0], r[1], r[2], r[3]
+                        if url in existing_urls:
+                            continue
+                        ti = TenderInfo(
+                            url=url,
+                            title=title or "",
+                            publish_date=pd,
+                            source_url="",
+                        )
+                        new_reprocess.append(ti)
+                        existing_urls.add(url)
+                    if new_reprocess:
+                        logger.info(
+                            f"  🔁 24h 漏采回放: 添加 {len(new_reprocess)} 条待补采"
+                        )
+                        # 插到头部 (优先调)
+                        detail_items = new_reprocess + list(detail_items)
+            except Exception as e:
+                logger.warning(f"  ⚠️ 24h 漏采回放查询失败: {e}")
+            # DEBUG: 看预排序后前 5 个 task 的 publish_date + 后 5 个的 publish_date
+            for i in [0, 1, 2, 3, 4, -5, -4, -3, -2, -1]:
+                it = detail_items[i]
+                pd = getattr(it, "publish_date", None)
+                logger.info(
+                    f"    [DEBUG] detail_items[{i}] publish_date={pd} title={it.title[:30]}"
+                )
+
             # 构建 CrawlTask 列表
             crawl_tasks = [_build_crawl_task(item, i) for i, item in enumerate(detail_items)]
 
@@ -286,6 +395,23 @@ async def run_collection():
                             ai.contact_info = detail_item.contact_info
                             ai.attachments = detail_item.attachments
                             break
+                    # 2026-06-08 P1 修复: 详情成功立即写 DB, 避免 SIGTERM 丢掉全部 detail
+                    # (旧代码依赖 main.py:426 在 schedule 结束后一次性 upsert, 进程被杀则丢失)
+                    if detail_item.full_content:
+                        try:
+                            from app.database.db import get_db
+                            # 2026-06-08 修复: P1 写入前统一过 strip_title_dup, 避免 title 重复入库
+                            from app.utils.clean_noise import make_content_preview
+                            preview = detail_item.content_preview or make_content_preview(
+                                detail_item.full_content, detail_item.title
+                            )
+                            get_db().update_full_content(
+                                item.url,
+                                detail_item.full_content,
+                                preview
+                            )
+                        except Exception as db_e:
+                            logger.warning(f"  ⚠️ 详情写 DB 失败 [{task.task_id}]: {db_e}")
                     # 记录成功
                     try:
                         from app.services.health_monitor import get_health_monitor

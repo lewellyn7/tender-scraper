@@ -161,6 +161,7 @@ class CQGGZYCrawlerV2(BaseCrawler):
 
             tender_type = self.INFO_TYPE_MAP.get(category, "政府采购" if category == "gov_purchase" else "工程建设")
             results = []
+            seen_urls = set()  # 2026-06-08 Bug 1 修复：去重 list API 返回的重复 url
 
             for item in items:
                 title = item.get('title', '').strip()
@@ -202,6 +203,10 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     business_type=self._infer_business_type_by_url(full_url),  # 2026-06-05 P0-1
                     scraped_by=self.version,
                 )
+                # 2026-06-08 Bug 1 修复：去重同一 url，list API 在多个 page 返回中可能重复
+                if full_url in seen_urls:
+                    continue
+                seen_urls.add(full_url)
                 if pub_date:
                     tender.publish_date = pub_date
 
@@ -223,13 +228,22 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     }
                     tender.info_type = _CATEGORY_INFO_TYPE.get(_prefix9, '')
 
-                # 从 content 提取全文（API 已含完整正文，不再访问详情页）
+                # 从 content 提取全文
+                # 2026-06-08 改造：API 改版后不再返回 content 字段（参见 AGENTS.md 6-3 教训）
+                # 修复点：raw_content 为空时不要用 title 兑底填充 content_preview
+                # 原因：会导致 16.7% 项目摘要与 title 重复（“未清洗”表现）
+                # 正确逻辑：raw_content 有就提 full_content + 截取 content_preview，raw_content 无就留空（由详情阶段回填）
                 raw_content = item.get('content', '') or ''
                 if raw_content:
                     import re as re_module
                     clean = re_module.sub(r'<[^>]+>', '', raw_content)
                     clean = re_module.sub(r'\s+', ' ', clean).strip()
+                    from app.utils.clean_noise import make_content_preview
                     tender.full_content = clean  # 保留完整内容，不截断
+                    tender.content_preview = make_content_preview(clean, tender.title)
+                # else: content_preview 保持默认值空字符串
+                # 详情阶段 crawler_fn 会回填；upsert_projects 的 protected_cols={full_content, content_preview}
+                # 保证列表阶段写空不会冲掉详情阶段已回填的值
 
                 results.append(tender)
 
@@ -434,13 +448,15 @@ class CQGGZYCrawlerV2(BaseCrawler):
 
             if content and len(content) > 50 and '暂无内容' not in content:
                 # 2026-06-05: 使用 clean_noise 进一步去噪 + 识别空详情页
-                from app.utils.clean_noise import clean_text, is_empty_page
+                from app.utils.clean_noise import clean_text, is_empty_page, make_content_preview
                 cleaned = clean_text(content)
                 if is_empty_page(content) or len(cleaned) < 30:
                     # 整页只有 chrome 或空详情页 — 不入库
                     logger.debug(f"  详情页空(仅chrome): {tender.url}")
                 else:
                     tender.full_content = cleaned
+                    # 2026-06-08 修复: 同步生成 content_preview, 不依赖后续 fallback
+                    tender.content_preview = make_content_preview(cleaned, tender.title)
                     logger.debug(f"  详情页成功: {tender.title[:30]} ({len(cleaned)}字)")
             else:
                 logger.debug(f"  详情页空/无效: {tender.url}")
@@ -454,18 +470,37 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 await page.close()
 
     def _parse_detail_url(self, url: str) -> dict:
-        """从详情页 URL 解析 trade_id / uuid / categoryNum"""
-        # 格式: https://www.cqggzy.com/trade/014001/{uuid}?categoryNum=014001001001
+        """从详情页 URL 解析 trade_id / uuid / categoryNum
+
+        2026-06-08 修复: 014005 政府采购 2025-2026 重构后采用 19 位数字 ID
+        (e.g. /trade/014005/1638974459430088704) 而非标准 UUID 格式
+        (8-4-4-4-12). 实际访问测试: HTTP 200 + 正常 HTML 返回, 详情页能打开.
+        但 /trade/014005?title=... 是搜索页 URL, 不在此修复范围.
+
+        识别优先级:
+        1. 标准 UUID (014001 仍用)  → 8-4-4-4-12 hex
+        2. 数字 ID (014005 重构后)  → 16+ 位十进制 (可带 _分页后缀 如 164xxx_1)
+        3. 都匹配不上 → uuid='', 主路径跳过
+        """
         result = {'trade_id': '014001', 'uuid': '', 'category_num': ''}
         try:
+            # 1) 标准 UUID (014001 仍用)
             uuid_match = re.search(
                 r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', url
             )
             if uuid_match:
                 result['uuid'] = uuid_match.group(1)
-            tid_match = re.search(r'/trade/(01400[15])/', url)
+            else:
+                # 2) 数字 ID (014005 重构后, 16+ 位十进制, 可带 _分页)
+                # 实际: /trade/014005/164xxx_1?categoryNum=... 也合法
+                num_match = re.search(r'/trade/\d+/(\d{16,}(?:_\d+)?)(?:[?/]|$)', url)
+                if num_match:
+                    result['uuid'] = num_match.group(1)
+            # trade_id 解析 (014001 / 014005)
+            tid_match = re.search(r'/trade/(01400[15])(?:/|\?|$)', url)
             if tid_match:
                 result['trade_id'] = tid_match.group(1)
+            # categoryNum
             cat_match = re.search(r'[?&]categoryNum=([0-9]+)', url)
             if cat_match:
                 result['category_num'] = cat_match.group(1)
@@ -517,10 +552,9 @@ class CQGGZYCrawlerV2(BaseCrawler):
                         pass
                     full = await elem.inner_text()
                     if len(full) > 20:
+                        from app.utils.clean_noise import make_content_preview
                         tender.full_content = full
-                        tender.content_preview = (
-                            full[:500] + "..." if len(full) > 500 else full
-                        )
+                        tender.content_preview = make_content_preview(full, tender.title)
                         logger.info(f"  ✅ 正文提取成功 ({len(full)} 字)")
                         return
             except Exception:
@@ -542,8 +576,9 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     lines.append(line)
             full = "\n".join(lines)
             if len(full) > 20:
+                from app.utils.clean_noise import make_content_preview
                 tender.full_content = full
-                tender.content_preview = full[:500] + "..." if len(full) > 500 else full
+                tender.content_preview = make_content_preview(full, tender.title)
         except Exception:
             pass
 

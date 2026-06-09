@@ -56,3 +56,106 @@ def is_empty_page(text: str) -> bool:
             return True
     cleaned = clean_text(text)
     return len(cleaned) < 30
+
+
+def _norm_for_dup(s: str) -> str:
+    """规范化用于去重比较: 去空白 + 标点差异"""
+    if not s:
+        return ""
+    s = re.sub(r"\s+", "", s)
+    s = s.replace(" ", "")
+    return s
+
+
+def strip_title_dup(text: str, title: str, max_strip_lines: int = 10) -> str:
+    """2026-06-08 修复 (Bug 2.1): 详情页 .epoint-article-content 含 <h1>title</h1> + 表格,
+    inner_text() 把 title 也抓进来, 导致 content_preview 开头 = title 重复。
+
+    关键: 真实数据中, inner_text 输出的 full_content 是"单行" (HTML 标签被 strip),
+    title 重复以 "title + title + ..." 形式出现, 用 \\n split 失效.
+    需支持:
+    1. 多行形式: 连续 1-2 行 == title (用 \\n 分割)
+    2. 单行形式: 连续 N 次以 title 开头 (用 startswith)
+
+    行为:
+    - 跳过开头所有与 title 完全相等的行 (连空行)
+    - 单行内连续以 title 开头, 全部剥
+    - 容忍 title 出现在中间 (不删, 用户可能想看)
+    - title 为空 / text 为空 → 原样返回
+
+    Example:
+        text='<h1>title</h1>\\ntitle\\n项目编号：xxx' → '项目编号：xxx'
+        text='title title 项目编号：xxx' → '项目编号：xxx' (单行 startswith)
+    """
+    if not text or not title:
+        return text or ""
+    title = title.strip()
+    norm_title = _norm_for_dup(title)
+    if not norm_title:
+        return text
+
+    out = text
+    stripped = 0
+
+    # 阶段 1: 多行形式 — 连续 N 行 = title
+    lines = out.split('\n')
+    out_lines = []
+    started = False
+    for i, line in enumerate(lines):
+        if i >= max_strip_lines:
+            break
+        norm_line = _norm_for_dup(line)
+        if not norm_line:
+            if not started:  # 开头空行保留
+                out_lines.append(line)
+                continue
+            else:
+                continue  # 中间空行剥
+        if not started and (norm_line == norm_title or norm_title in norm_line or norm_line in norm_title):
+            stripped += 1
+            continue
+        # 遇到非 title 行
+        out_lines.append(line)
+        started = True
+        out_lines.extend(lines[i + 1:])
+        break
+
+    if out_lines:
+        out = "\n".join(out_lines)
+
+    # 阶段 2: 单行形式 — 连续 N 次以 title 开头 (inner_text 把所有内容合并到一行)
+    while True:
+        norm_out = _norm_for_dup(out[:500])  # 只看前 500 字符
+        if not norm_out.startswith(norm_title):
+            break
+        if not out.startswith(title):
+            # 边界: 规范化后等但原始不同 (可能含额外空格), 强制剥
+            out = out.lstrip()
+            if not out.startswith(title):
+                break
+        out = out[len(title):].lstrip()
+        stripped += 1
+        if stripped > 20:  # 安全保护
+            break
+
+    if stripped == 0:
+        return text
+
+    return out.strip()
+
+
+def make_content_preview(full_content: str, title: str, max_len: int = 500) -> str:
+    """2026-06-08 新增: 生成 content_preview 统一入口
+    1. clean_text 剥 UI 噪点 (面包屑/按钮等)
+    2. strip_title_dup 去掉 title 重复
+    3. 截断到 max_len + '...'
+    """
+    if not full_content:
+        return ''
+    cleaned = clean_text(full_content)
+    cleaned = strip_title_dup(cleaned, title)
+    if not cleaned:
+        return ''
+    if len(cleaned) > max_len:
+        return cleaned[:max_len] + '...'
+    return cleaned
