@@ -31,8 +31,17 @@ logs/
 # 临时文件
 *.tmp
 *.bak
+*.orig
 .DS_Store
 Thumbs.db
+
+# 数据库备份/导出 (不进 git, 防误提交大型文件)
+backup_*.tsv
+backup_*.csv
+backup_*.sql
+*.dump
+.pre-qual-feature/
+.wip/
 
 # IDE
 .idea/
