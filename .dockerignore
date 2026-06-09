@@ -21,6 +21,10 @@ env/
 *.swp
 *.swo
 
+# Backup / orig
+*.orig
+*.bak
+
 # Build
 Dockerfile*
 docker-compose*.yml
