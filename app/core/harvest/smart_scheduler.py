@@ -14,7 +14,7 @@ import math
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date as _date, datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -186,7 +186,11 @@ class DynamicPriorityEngine:
 
         # 路径 2：publish_date 路径（2026-06-08 新增）
         if task.publish_date is not None:
-            if task.publish_date.tzinfo is None:
+            # 2026-06-09 修复: publish_date 可能是 datetime.date（非 datetime），
+            # 那种情况没有 tzinfo 也没有 total_seconds()，需统一升级为 UTC datetime
+            if isinstance(task.publish_date, _date) and not isinstance(task.publish_date, datetime):
+                task.publish_date = datetime.combine(task.publish_date, datetime.min.time(), tzinfo=timezone.utc)
+            elif task.publish_date.tzinfo is None:
                 task.publish_date = task.publish_date.replace(tzinfo=timezone.utc)
 
             days_old = (now - task.publish_date).total_seconds() / 86400
