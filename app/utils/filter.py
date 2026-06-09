@@ -170,6 +170,8 @@ class TenderFilter:
         if not info_type:
             _url = self._get_field(item, "url") or self._get_field(item, "source_url", "")
             info_type = _classify_info_type_by_url(_url)
+        # 2026-06-09 fix: Bug 2 透传 project_no 到 row dict (否则 db.upsert 入库空字符串)
+        project_no = self._get_field(item, "project_no", "")
         project_overview = self._get_field(item, "project_overview", "")
         bidder_requirements = self._get_field(item, "bidder_requirements", "")
         submission_deadline = self._get_field(item, "submission_deadline", "")
@@ -200,6 +202,7 @@ class TenderFilter:
             "scraped_by": scraped_by,
             "business_type": business_type,
             "info_type": info_type,
+            "project_no": project_no,
             "project_overview": project_overview,
             "bidder_requirements": bidder_requirements,
             "submission_deadline": submission_deadline,
