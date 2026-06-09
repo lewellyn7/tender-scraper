@@ -384,6 +384,8 @@ async def run_collection():
                             mi.deadline = detail_item.deadline
                             mi.contact_info = detail_item.contact_info
                             mi.attachments = detail_item.attachments
+                            # 2026-06-09 修复: 详情阶段透传 project_no, 否则 Bug 1 修复无效
+                            mi.project_no = detail_item.project_no
                             break
                     # 同时更新 all_items
                     for ai in all_items:
@@ -394,6 +396,8 @@ async def run_collection():
                             ai.deadline = detail_item.deadline
                             ai.contact_info = detail_item.contact_info
                             ai.attachments = detail_item.attachments
+                            # 2026-06-09 修复: 详情阶段透传 project_no
+                            ai.project_no = detail_item.project_no
                             break
                     # 2026-06-08 P1 修复: 详情成功立即写 DB, 避免 SIGTERM 丢掉全部 detail
                     # (旧代码依赖 main.py:426 在 schedule 结束后一次性 upsert, 进程被杀则丢失)
