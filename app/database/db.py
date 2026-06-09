@@ -343,6 +343,7 @@ class Database(
                 "attachments_count", "attachments", "keywords_matched",
                 "source_url", "scraped_at", "scraped_by",
                 "contract_amount", "planned_publish_date", "tender_content",
+                "project_no",  # 2026-06-10 修复: Bug 4 真凶 — cols 列表缺 project_no 导致 row dict 里的 project_no 被忽略
             ]
             placeholders = ",".join(["%s"] * len(cols))
             # 2026-06-05 修复：保护 full_content/content_preview 不被空值覆盖
