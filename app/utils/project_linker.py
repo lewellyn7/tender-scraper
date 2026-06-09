@@ -123,6 +123,8 @@ def extract_project_no(title: str, content: str = "") -> Optional[str]:
         r"编号[：:]\s*([A-Z0-9\-]{4,32})",
         # 方括号格式（放在标准格式之前以优先匹配）
         r"\[([A-Za-z0-9][A-Za-z0-9\-]{7,35})\]",
+        # 2026-06-10 修复: 标题中的 (XXX...) 包裹格式（CQGGZY 列表页最常见）
+        r"\(([A-Z0-9]{6,16})\)",
         # 标准格式 XX-YYYY-NNNN 或 XX-YYYY-NNN
         r"\b([A-Z]{2,4}-\d{4}-\d{3,6})\b",
     ]
