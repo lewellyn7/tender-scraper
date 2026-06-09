@@ -108,7 +108,11 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 "inc_wd": "",
                 "exc_wd": "",
                 "fields": "",
-                "sort": '{"istop":"0","ordernum":"0","newid":"1"}',
+                # newid 排序方向: 0=按 newid 倒序（最新优先，符合采集场景预期）,
+                #               1=按 newid 升序（最旧优先，2026-06-09 调研确认此前误用此值，
+                #                  导致 pn=0 返回 2019-2020 老数据，6-6~6-9 最新项目永远在 pn=0
+                #                  远端，列表采集器只能靠翻大量页才能接近，6 天后仍采不到 6-9）
+                "sort": '{"istop":"0","ordernum":"0","newid":"0"}',
                 "ssort": "",
                 "cl": 10000,
                 "terminal": "",
