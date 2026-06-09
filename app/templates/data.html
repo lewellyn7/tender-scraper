@@ -46,13 +46,23 @@
       </div>
       <!-- 关键词搜索 -->
       <div class="flex-1 min-w-[200px] flex items-center gap-1">
-        <input type="text" id="searchKeyword" placeholder="搜索标题..." class="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600">
-        <span class="help-btn" data-tooltip="按标题关键词搜索
+        <input type="text" id="searchKeyword" placeholder="搜索标题...（多关键词 / -排除）" class="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600">
+        <span class="help-btn" data-tooltip="按标题 / 关键词标签 搜索
 
-• 支持中文/英文
-• 按回车键触发搜索
+基础：
+• 留空显示全部
+• 按回车键触发
 • 输入 / 也能快速聚焦到此框
-• 留空显示全部数据">?</span>
+
+多关键词（空格 或 逗号 分隔）：
+• AI 智能      → 包含 AI 或 智能（OR）
+• AI,智能,开源   → 逗号也能分隔
+
+负关键词（前缀 -）：
+• AI -音频      → 包含 AI 且不包含 音频
+• AI 智能 -音频 -开源 → 多正多负组合
+
+导出同步生效：表上看到的与 Excel/CSV 导出结果一致。">?</span>
       </div>
       <!-- 视图切换（逐条/按项目） -->
       <div class="flex items-center gap-1">
@@ -518,14 +528,50 @@
     return '其他';
   }
 
+  // 解析多关键词 + 负关键词（与后端 app/utils/search_parser.py 保持一致）
+  // 输入例: "AI 智能 -音频" -> {pos: ["ai","智能"], neg: ["音频"]}
+  function parseSearchKeyword(raw) {
+    if (!raw) return {pos: [], neg: []};
+    // 折叠负号后多余空格（"AI - 音频" -> "AI -音频"）避免负号在 split 中脱落
+    var s = raw.replace(/-\s+/g, '-').trim();
+    var tokens = s.split(/[\s,]+/);
+    var pos = [], neg = [], seenPos = {}, seenNeg = {};
+    for (var i = 0; i < tokens.length; i++) {
+      var t = tokens[i];
+      if (!t) continue;
+      var lower = t.toLowerCase();
+      if (lower.charAt(0) === '-') {
+        var n = lower.replace(/^-+/, '').trim();  // 去掉全部前导 - 避免 "---" 误判
+        if (n && !seenNeg[n]) { seenNeg[n] = 1; neg.push(n); }
+      } else {
+        if (!seenPos[lower]) { seenPos[lower] = 1; pos.push(lower); }
+      }
+    }
+    return {pos: pos, neg: neg};
+  }
+
+  // 判断单条记录是否通过关键词过滤
+  // 规则：positives 任一命中 OR 通过（OR 逻辑），negatives 任一命中则排除
+  function matchKeyword(textLower, pos, neg) {
+    if (!pos.length && !neg.length) return true;
+    if (pos.length && !pos.some(function(p) { return textLower.indexOf(p) !== -1; })) return false;
+    if (neg.length && neg.some(function(n) { return textLower.indexOf(n) !== -1; })) return false;
+    return true;
+  }
+
   function applyFilters() {
-    var kw = document.getElementById('searchKeyword').value.toLowerCase().trim();
+    var kwRaw = document.getElementById('searchKeyword').value;
+    var parsed = parseSearchKeyword(kwRaw);
     var type = document.getElementById('filterType').value;
     var infoType = document.getElementById('filterInfoType').value;
     var dateStart = document.getElementById('filterDateStart').value || '';
     var dateEnd = document.getElementById('filterDateEnd').value || '';
     filteredItems = allItems.filter(function(item) {
-      if (kw && !(item.title || '').toLowerCase().includes(kw) && !(item.keywords_matched || '').toLowerCase().includes(kw)) return false;
+      // 关键词：拼 title + keywords_matched 后转小走 OR/AND-NOT 逻辑
+      if (parsed.pos.length || parsed.neg.length) {
+        var textLower = ((item.title || '') + ' ' + (item.keywords_matched || '')).toLowerCase();
+        if (!matchKeyword(textLower, parsed.pos, parsed.neg)) return false;
+      }
       if (type && (item.business_type || item.type || item.tender_type || '') !== type) return false;
       if (infoType && (item.info_type || '') !== infoType) return false;
       if (selectedKeyword && !(item.keywords_matched || '').includes(selectedKeyword)) return false;
