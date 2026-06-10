@@ -634,9 +634,20 @@
           await authFetch("/api/favorites?project_url=" + encodeURIComponent(url), {method: "DELETE"});
         }
       } else {
+        // 收藏时从 item 取真实字段, 不能 hardcode title: ""
+        // (之前 hardcode "" 导致 DB 存空 title, 收藏页显示空卡片)
         await authFetch("/api/favorites", {
           method: "POST",
-          body: JSON.stringify({project_url: url, title: "", url: url})
+          body: JSON.stringify({
+            url: url,
+            project_url: url,
+            title: (item && item.title) || "",
+            tender_type: (item && (item.tender_type || item.type)) || "",
+            budget: (item && item.budget) || "",
+            publish_date: (item && item.publish_date) || "",
+            content_preview: (item && (item.content_preview || item.project_overview)) || "",
+            source_url: (item && (item.source_url || item.url)) || url,
+          })
         });
       }
       if (item) item.is_favorite = !isFav;
