@@ -23,6 +23,7 @@ project_no 提取失败 (85.2% 覆盖率).
 """
 import argparse
 import re
+import os
 import sys
 import time
 from datetime import datetime
@@ -52,7 +53,7 @@ HEADERS = {
 }
 
 
-def fetch_h1_block(url: str, timeout: int = 15) -> Optional[str]:
+def fetch_h1_block(url: str, timeout: int = int(os.environ.get('REPROCESS_TIMEOUT', '15'))) -> Optional[str]:
     """用 requests 抓 HTML, 提取所有 <h1> 文本拼接.
 
     失败/超时/无 h1 → 返回 None.
