@@ -83,6 +83,8 @@ def main():
 
     # 1. 选所有无 pno 记录
     where = "(project_no IS NULL OR project_no = '')"
+    # 2026-06-10: 排除"招标计划表" —— 按用户观察无项目编号 (合法空)
+    where += " AND title NOT LIKE '%招标计划表%'"
     if args.url_pattern:
         where += f" AND url ~ '{args.url_pattern}'"
 
