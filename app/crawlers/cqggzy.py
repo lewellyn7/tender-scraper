@@ -450,6 +450,21 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 body = re.sub(r'国家部委网站.*$', '', body, flags=re.DOTALL)
                 content = body.strip()
 
+            # 2026-06-10 修复: 抓所有 <h1> 标签内容（项目编号常在 title 下一行的 h1 里）
+            # CQGGZY 详情页结构: <h1>title</h1><h1>项目编号：XXX</h1>
+            # selectors 列表抓的是正文区, 不含 H1 块, 会丢失项目编号
+            try:
+                h1_texts = await page.eval_on_selector_all(
+                    'h1',
+                    'els => els.map(e => e.innerText.trim()).filter(t => t.length > 0)'
+                )
+                if h1_texts:
+                    h1_block = '\n'.join(h1_texts)
+                    content = (h1_block + '\n' + (content or '')).strip()
+                    logger.debug(f"  H1 块: {h1_block[:100]}")
+            except Exception as h1_err:
+                logger.debug(f"  H1 抓取失败 {tender.url}: {h1_err}")
+
             if content and len(content) > 50 and '暂无内容' not in content:
                 # 2026-06-05: 使用 clean_noise 进一步去噪 + 识别空详情页
                 from app.utils.clean_noise import clean_text, is_empty_page, make_content_preview
