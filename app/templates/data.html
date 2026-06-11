@@ -165,22 +165,36 @@
     <p class="text-sm mt-1">调整筛选条件或等待采集任务执行</p>
   </div>
 
-  <!-- 分页 -->
-  <div id="pagination" class="hidden flex flex-wrap justify-between items-center gap-3 px-4 py-3 bg-white rounded-lg shadow">
-    <div class="flex items-center gap-2">
-      <span class="text-xs text-gray-500">每页</span>
-      <select id="pageSizeSelect" class="px-2 py-1 text-sm border rounded hover:bg-gray-50">
-        <option value="10">10</option>
-        <option value="20">20</option>
-        <option value="50">50</option>
-      </select>
-      <span class="text-xs text-gray-500">条</span>
+  <!-- 分页（进度条拖拉拽 + 数字跳转） -->
+  <div id="pagination" class="hidden flex flex-col gap-3 px-4 py-3 bg-white rounded-lg shadow">
+    <!-- 第一行: 每页条数 + 信息 + 跳转控件 -->
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-gray-500">每页</span>
+        <select id="pageSizeSelect" class="px-2 py-1 text-sm border rounded hover:bg-gray-50">
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="50">50</option>
+        </select>
+        <span class="text-xs text-gray-500">条</span>
+      </div>
+      <p id="paginationInfo" class="text-xs text-gray-500"></p>
+      <div class="flex items-center gap-1.5">
+        <button type="button" id="prevPage" class="px-2.5 py-1.5 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled title="上一页">‹</button>
+        <input type="number" id="pageInput" value="1" min="1"
+          class="w-14 px-2 py-1 text-sm text-center border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+          title="输入页码后回车跳转" />
+        <span class="text-xs text-gray-500">/ <span id="totalPagesLabel">1</span></span>
+        <button type="button" id="nextPage" class="px-2.5 py-1.5 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled title="下一页">›</button>
+      </div>
     </div>
-    <p id="paginationInfo" class="text-xs text-gray-500"></p>
+    <!-- 第二行: 进度条 (slider) -->
     <div class="flex items-center gap-2">
-      <button type="button" id="prevPage" class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 disabled:opacity-50" disabled>上一页</button>
-      <span id="pageIndicator" class="px-1.5 py-1.5 text-sm text-gray-600 dark:text-gray-400"></span>
-      <button type="button" id="nextPage" class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 disabled:opacity-50" disabled>下一页</button>
+      <span class="text-xs text-gray-400 shrink-0">1</span>
+      <input type="range" id="pageSlider" min="1" max="1" value="1" step="1"
+        class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+        title="拖动滑块跳转到对应页" />
+      <span class="text-xs text-gray-400 shrink-0" id="sliderMaxLabel">1</span>
     </div>
   </div>
 </div>
@@ -448,34 +462,31 @@
     var start = (currentPage - 1) * pageSize + 1;
     var end = Math.min(currentPage * pageSize, totalItems);
     document.getElementById('paginationInfo').textContent = '显示 ' + start + '-' + end + ' / 共 ' + totalItems + ' 条';
+    // 按钮禁用
     document.getElementById('prevPage').disabled = currentPage <= 1;
     document.getElementById('nextPage').disabled = currentPage >= totalPages;
-    // Build page number buttons
-    var pageIndicator = document.getElementById('pageIndicator');
-    var maxShow = 7;
-    var pages = [];
-    if (totalPages <= maxShow) {
-      for (var i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      if (currentPage <= 4) {
-        for (var i = 1; i <= 5; i++) pages.push(i);
-        pages.push('...'); pages.push(totalPages);
-      } else if (currentPage >= totalPages - 3) {
-        pages.push(1); pages.push('...');
-        for (var i = totalPages - 4; i <= totalPages; i++) pages.push(i);
-      } else {
-        pages.push(1); pages.push('...');
-        for (var i = currentPage - 1; i <= currentPage + 1; i++) pages.push(i);
-        pages.push('...'); pages.push(totalPages);
-      }
-    }
-    pageIndicator.innerHTML = pages.map(function(p) {
-      if (p === '...') return '<span class="px-1.5 py-1.5 text-sm text-gray-400">…</span>';
-      if (p === currentPage) return '<button type="button" class="px-2.5 py-1.5 text-sm font-medium bg-blue-600 text-white rounded" onclick="goPage(' + p + ')">' + p + '</button>';
-      return '<button type="button" class="px-2.5 py-1.5 text-sm border rounded hover:bg-gray-50" onclick="goPage(' + p + ')">' + p + '</button>';
-    }).join('');
+    // 总页数 label
+    document.getElementById('totalPagesLabel').textContent = totalPages;
+    document.getElementById('sliderMaxLabel').textContent = totalPages;
+    // 数字输入框 (只更新值, 不触发 jump)
+    var pageInput = document.getElementById('pageInput');
+    if (document.activeElement !== pageInput) pageInput.value = currentPage;
+    pageInput.max = totalPages;
+    // 进度条 slider
+    var slider = document.getElementById('pageSlider');
+    slider.max = totalPages;
+    // input 事件持续触发 (拖动时), 节流避免每像素 jump
+    if (slider.value != currentPage) slider.value = currentPage;
   }
-  window.goPage = function(n) { currentPage = n; render(); window.scrollTo({top: 0, behavior: 'smooth'}); }
+  window.goPage = function(n) {
+    n = parseInt(n, 10);
+    if (isNaN(n) || n < 1) n = 1;
+    if (n > totalPages) n = totalPages;
+    if (n === currentPage) return;
+    currentPage = n;
+    render();
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
 
   function render() {
     if (currentView === 'card') {
@@ -741,6 +752,36 @@
   });
   document.getElementById('prevPage').addEventListener('click', function() { if (currentPage > 1) { currentPage--; render(); } });
   document.getElementById('nextPage').addEventListener('click', function() { if (currentPage < totalPages) { currentPage++; render(); } });
+
+  // 数字输入框跳转 (Enter 或 blur 触发)
+  var pageInputEl = document.getElementById('pageInput');
+  pageInputEl.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); goPage(this.value); this.blur(); }
+  });
+  pageInputEl.addEventListener('blur', function() {
+    var v = parseInt(this.value, 10);
+    if (!isNaN(v) && v >= 1 && v <= totalPages) goPage(v);
+    else this.value = currentPage;  // 越界回滚到 currentPage
+  });
+  pageInputEl.addEventListener('focus', function() { this.select(); });
+
+  // 进度条 slider 拖动跳转
+  var sliderEl = document.getElementById('pageSlider');
+  var sliderThrottle = null;
+  sliderEl.addEventListener('input', function() {
+    var v = parseInt(this.value, 10);
+    if (v === currentPage) return;
+    // 节流: 拖动时只更新 currentPage + render, 不滚动 (避免抖动)
+    currentPage = v;
+    if (sliderThrottle) return;
+    sliderThrottle = setTimeout(function() { sliderThrottle = null; render(); }, 80);
+  });
+  sliderEl.addEventListener('change', function() {
+    // 拖动结束: 强制 render 一次 (可能节流掉了末次)
+    if (sliderThrottle) { clearTimeout(sliderThrottle); sliderThrottle = null; }
+    currentPage = parseInt(this.value, 10);
+    render();
+  });
 
   // Restore view preference
   var savedView = localStorage.getItem('dataView');
