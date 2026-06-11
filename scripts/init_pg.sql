@@ -318,3 +318,35 @@ SELECT 'pgvector extension ready' AS status,
 FROM pg_extension e
 JOIN pg_namespace n ON n.oid = e.extnamespace
 WHERE e.extname = 'vector';
+
+-- ============================================================
+-- 2026-06-11: 回填记忆表 (按日回填 v2)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS backfill_tracker(
+    id SERIAL PRIMARY KEY,
+    target_date DATE NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    parent_category VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    expected_count INT DEFAULT 0,
+    actual_count INT DEFAULT 0,
+    diff_count INT DEFAULT 0,
+    worker_id VARCHAR(10),
+    started_at TIMESTAMP,
+    finished_at TIMESTAMP,
+    retry_count INT DEFAULT 0,
+    last_error TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(target_date, category)
+);
+
+CREATE INDEX IF NOT EXISTS idx_backfill_tracker_status ON backfill_tracker(status);
+CREATE INDEX IF NOT EXISTS idx_backfill_tracker_date ON backfill_tracker(target_date DESC);
+CREATE INDEX IF NOT EXISTS idx_backfill_tracker_parent_status ON backfill_tracker(parent_category, status);
+
+DROP TRIGGER IF EXISTS trg_backfill_tracker_updated_at ON backfill_tracker;
+CREATE TRIGGER trg_backfill_tracker_updated_at
+BEFORE UPDATE ON backfill_tracker
+FOR EACH ROW
+EXECUTE FUNCTION update_backfill_tracker_updated_at();
