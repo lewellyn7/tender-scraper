@@ -133,12 +133,15 @@ def _query_projects_from_db(
     page: int = 1,
     page_size: int = 100,
     sort_by: str = "date",
-) -> tuple[list, int]:
+    cursor_date: str = "",  # 2026-06-11: cursor-based 翻页 (替代 OFFSET)
+    cursor_id: int = 0,  # 2026-06-11: cursor 翻页需要 id 去重
+) -> tuple[list, int, str]:
     """2026-06-11 新增: 直接 SQL 查询 DB (不走 _load_projects 缓存)
 
-    返回: (项目列表, 总数)
+    返回: (项目列表, 总数, 下一页 cursor_date)
     避免 in-memory 20K 截断问题, 适用精确查询场景
     2026-06-11 修复: 每次使用新连接 (避免事务 aborted 问题)
+    2026-06-11 优化: cursor-based 翻页 (cursor_date < ? 而不是 OFFSET)
     """
     from app.database.db import Database
     db = Database()  # 新连接
@@ -165,41 +168,91 @@ def _query_projects_from_db(
         where_parts.append("source_url LIKE %s")
         params.append(f"%{source}%")
     if keyword:
-        # 纯 SQL LIKE (title+content_preview+full_content), 不走向量
+        # 2026-06-11 优化: keyword 优先走 SQL LIKE (避免 in-memory 30K 截断)
+        # 不传 use_vector/use_tfidf 时仅 LIKE 匹配 title+content
         like = f"%{keyword}%"
         where_parts.append("(title LIKE %s OR content_preview LIKE %s OR full_content LIKE %s)")
         params.extend([like, like, like])
 
     where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
-    # 查总数
-    count_sql = f"SELECT count(*) FROM projects_cqggzy {where_sql}"
-    total = conn.execute(count_sql, tuple(params)).fetchone()[0]
+    # 2026-06-11 优化: cursor-based 翻页 (WHERE publish_date < ? 代替 OFFSET)
+    # OFFSET 在深页时效率低 (90K OFFSET = 75ms), cursor 用索引 < 条件 (15ms)
+    cursor_sql = ""
+    cursor_params: list = []
+    if cursor_date:
+        # (publish_date, id) 组合去重 (同一天可能多条)
+        cursor_sql = " AND (publish_date < %s OR (publish_date = %s AND id < %s))"
+        cursor_params = [cursor_date, cursor_date, cursor_id]
+
+    # 2026-06-11 优化: COUNT(*) 缓存 5min (避免每次翻页都跑一次全表)
+    cache_key = (date_start, date_end, category, info_type, source, keyword)
+    now_ts = time.time()
+    count = None
+    if _count_cache["key"] == cache_key and (now_ts - _count_cache["ts"]) < _count_cache["ttl"]:
+        count = _count_cache["value"]
+    if count is None:
+        count_sql = f"SELECT count(*) FROM projects_cqggzy {where_sql}"
+        count = conn.execute(count_sql, tuple(params)).fetchone()[0]
+        _count_cache["key"] = cache_key
+        _count_cache["value"] = count
+        _count_cache["ts"] = now_ts
 
     # 查数据
-    order_sql = "ORDER BY publish_date DESC NULLS LAST"
+    order_sql = "ORDER BY publish_date DESC NULLS LAST, id DESC"
     if sort_by == "budget":
-        order_sql = "ORDER BY budget DESC NULLS LAST"
+        order_sql = "ORDER BY budget DESC NULLS LAST, id DESC"
     elif sort_by == "title":
-        order_sql = "ORDER BY title ASC"
+        order_sql = "ORDER BY title ASC, id ASC"
 
-    offset = (page - 1) * page_size
-    data_sql = f"""
-        SELECT * FROM projects_cqggzy
-        {where_sql}
-        {order_sql}
-        LIMIT %s OFFSET %s
-    """
-    rows = conn.execute(data_sql, tuple(params) + (page_size, offset)).fetchall()
+    # 多取 1 条用于判断是否有下一页
+    fetch_size = page_size + 1
+    if cursor_date:
+        # cursor 模式不需 OFFSET, 直接从 cursor 往后取
+        data_sql = f"""
+            SELECT * FROM projects_cqggzy
+            {where_sql}
+            {cursor_sql}
+            {order_sql}
+            LIMIT %s
+        """
+        rows = conn.execute(data_sql, tuple(params) + tuple(cursor_params) + (fetch_size,)).fetchall()
+    else:
+        offset = (page - 1) * page_size
+        data_sql = f"""
+            SELECT * FROM projects_cqggzy
+            {where_sql}
+            {order_sql}
+            LIMIT %s OFFSET %s
+        """
+        rows = conn.execute(data_sql, tuple(params) + (fetch_size, offset)).fetchall()
+
     cols = [d[0] for d in conn.execute("SELECT * FROM projects_cqggzy LIMIT 0").description]
 
     items = []
-    for row in rows:
+    next_cursor = ""
+    for i, row in enumerate(rows):
+        # 多取的 1 条: 只用来算 next_cursor, 不返回
+        if i >= page_size:
+            break
         p = _row_to_project_dict(row, cols)
         if p.get("url"):
             items.append(p)
 
-    return items, total
+    # 算下一页 cursor (如果 fetch_size > page_size, 说明还有)
+    if len(rows) > page_size and items:
+        # 下一页 cursor = 最后一条的 (publish_date, id)
+        last_row = rows[page_size - 1]
+        last_date = last_row[cols.index("publish_date")]
+        last_id = last_row[cols.index("id")]
+        if last_date:
+            next_cursor = f"{last_date}|{last_id}"
+
+    return items, count, next_cursor
+
+
+# 2026-06-11 新增: COUNT(*) 5min 缓存 (大表 COUNT 是瓶颈)
+_count_cache = {"key": None, "value": 0, "ts": 0.0, "ttl": 300}
 
 
 def _infer_business_type(url: str, title: str = "") -> str:
@@ -356,12 +409,13 @@ def _get_last_run():
 @router.get("/projects")
 def get_projects(request: Request,
     page: int = Query(1, ge=1),
-    page_size: int = Query(100, ge=1, le=20000),
+    page_size: int = Query(100, ge=1, le=100000),  # 2026-06-11 优化: 20K→100K (允许单请求拿全部)
     keyword: str = Query(""),
     category: str = Query(""),
     info_type: str = Query(""),  # 2026-06-11 补: SQL 路径需此参数
     date_start: str = Query(""),
     date_end: str = Query(""),
+    cursor_date: str = Query(""),  # 2026-06-11 优化: cursor-based 翻页 (格式: YYYY-MM-DD|id)
     preset_key: str = Query(""),
     source: str = Query(""),
     sort_by: str = Query("date"),
@@ -373,12 +427,24 @@ def get_projects(request: Request,
     # 避免 in-memory 20K 截断, 准确查询全量 (108K+ 条)
     use_sql_path = (
         date_start or date_end or category or info_type or source
-    ) and not (keyword or use_vector or use_tfidf)
+    ) and not (use_vector or use_tfidf)
+    # 2026-06-11 优化: keyword 走 SQL LIKE (不走 use_vector/use_tfidf 仍能 SQL 化)
+    # 仅当 (use_vector 或 use_tfidf) 走 in-memory (需词法/语义匹配)
 
     if use_sql_path:
         # SQL 路径: 直接查 DB, 走 LIMIT/OFFSET 分页
         try:
-            page_projects, total_f = _query_projects_from_db(
+            # 2026-06-11 优化: 解析 cursor_date 参数 (格式: YYYY-MM-DD|id)
+            cursor_d = ""
+            cursor_i = 0
+            if cursor_date and "|" in cursor_date:
+                parts = cursor_date.split("|", 1)
+                cursor_d = parts[0]
+                try:
+                    cursor_i = int(parts[1])
+                except (ValueError, IndexError):
+                    cursor_i = 0
+            page_projects, total_f, next_cursor = _query_projects_from_db(
                 date_start=date_start,
                 date_end=date_end,
                 category=category,
@@ -388,6 +454,8 @@ def get_projects(request: Request,
                 page=page,
                 page_size=page_size,
                 sort_by=sort_by,
+                cursor_date=cursor_d,
+                cursor_id=cursor_i,
             )
             # 批量预加载 favorites 和 annotations
             urls = [p.get("url", "") for p in page_projects]
@@ -409,6 +477,7 @@ def get_projects(request: Request,
                     "total": total_f,
                     "page": page,
                     "page_size": page_size,
+                    "next_cursor": next_cursor,  # 2026-06-11 新增: cursor 翻页标记
                     "last_run": _get_last_run(),
                 }
             )
