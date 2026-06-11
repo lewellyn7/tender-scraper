@@ -17,8 +17,13 @@ STOP_WORDS = {
 }
 
 
-def _load_projects_pg():
-    """从 PostgreSQL 加载项目数据（projects_cqggzy + projects_ccgp）"""
+def _load_projects_pg(start_date: str = "1970-01-01"):
+    """从 PostgreSQL 加载项目数据（projects_cqggzy + projects_ccgp）
+
+    Args:
+        start_date: ISO YYYY-MM-DD 格式, SQL 层过滤 publish_date >= start_date
+                    避免全表加载到 Python 内存 (10万+行)
+    """
     try:
         db = get_db()
         conn = db._get_conn()
@@ -47,11 +52,13 @@ def _load_projects_pg():
 
         rows_cqggzy, cols_cqggzy = [], []
         try:
+            # SQL 过滤: publish_date >= start_date 或 publish_date IS NULL
             cur.execute(f"""
                 SELECT {COMMON_COLS}, {CQGGZY_EXTRA}
                 FROM projects_cqggzy
+                WHERE publish_date >= %s OR publish_date IS NULL
                 ORDER BY publish_date DESC NULLS LAST, scraped_at DESC
-            """)
+            """, (start_date,))
             cols_cqggzy = [d[0] for d in cur.description]
             rows_cqggzy = cur.fetchall()
         except Exception as e:
@@ -63,8 +70,9 @@ def _load_projects_pg():
             cur.execute(f"""
                 SELECT {COMMON_COLS}, {CCGP_EXTRA}
                 FROM projects_ccgp
+                WHERE publish_date >= %s OR publish_date IS NULL
                 ORDER BY publish_date DESC NULLS LAST, scraped_at DESC
-            """)
+            """, (start_date,))
             rows_ccgp = cur.fetchall()
         except Exception as e:
             print(f"[analytics] ccgp skipped: {e}")
@@ -124,19 +132,16 @@ def _get_last_run():
 
 def get_analytics(days: int = Query(365, ge=1, le=3650)):
     """获取分析数据"""
-    rows, cols = _load_projects_pg()
-    projects = [_row_to_project(r, cols) for r in rows]
-
-    # 过滤指定天数内的项目
+    # SQL 层先过滤 (避免全表加载)
     try:
         start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     except Exception:
         start_date = "1970-01-01"
 
-    recent_projects = [
-        p for p in projects
-        if p.get("publish_date", "") >= start_date or not p.get("publish_date")
-    ]
+    rows, cols = _load_projects_pg(start_date=start_date)
+    projects = [_row_to_project(r, cols) for r in rows]
+    # SQL 已过滤, 近期项目 = 全部加载的项目
+    recent_projects = projects
 
     # 统计
     matched_projects = [p for p in recent_projects if p.get("keywords_matched")]

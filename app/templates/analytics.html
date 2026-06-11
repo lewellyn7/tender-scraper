@@ -140,9 +140,9 @@
 <script>
 // === Analytics Vanilla JS ===
 (function() {
-  // State
+  // State — days 从 #daysSelect 初始读取 (防止硬编码 365 覆盖默认 30)
   const state = {
-    days: '365',
+    days: document.getElementById('daysSelect')?.value || '30',
     stats: {},
     trend: {},
     budgetDist: {},
@@ -186,7 +186,8 @@ els.loadingEl.style.display = 'block';
     els.contentEl.style.display = 'none';
 
     try {
-      const res = await authFetch('/api/analytics?days=' + state.days);
+      // 加 _t 时间戳防浏览器/中间代理缓存
+      const res = await authFetch('/api/analytics?days=' + state.days + '&_t=' + Date.now());
       const data = await res.json();
 
       state.stats = data;
