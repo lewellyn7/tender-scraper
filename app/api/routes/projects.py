@@ -339,8 +339,16 @@ def get_projects(request: Request,
             filtered.sort(key=lambda p: url_scores.get(p.get("url", ""), 0), reverse=True)
 
     if category:
+        # 2026-06-11 修复: 业务类型 category 应检查 business_type (中文)
+        # 原代码只检查 tender_type (DB 中全空) / type (DB 中不存在) → 永远 0 结果
+        # 导出 CSV 端点之前修过 (用 URL 模式), 但 /api/projects 这个主入口漏了
+        # 主流程与序列化层 _load_projects 写的是中文 (工程招投标/政府采购)
         filtered = [
-            p for p in filtered if p.get("tender_type") == category or p.get("type") == category
+            p for p in filtered if (
+                p.get("business_type") == category
+                or p.get("tender_type") == category
+                or p.get("type") == category
+            )
         ]
     if date_start:
         filtered = [p for p in filtered if p.get("publish_date", "") >= date_start]
