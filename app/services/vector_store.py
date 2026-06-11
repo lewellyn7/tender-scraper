@@ -330,9 +330,12 @@ class PGVectorBackend(VectorBackend):
             for id_, emb, payload in zip(ids, embeddings, payloads):
                 import json
                 meta = json.dumps(payload, default=str)
+                # 2026-06-11 P0-2: 列类型从 vector(2560) 改为 halfvec(2560)
+                # 原因: vector HNSW 索引硬限制 2000 维, halfvec 允许 4000 维
+                # 精度: FP16 量化, 余弦距离排序结果与 FP32 几乎一致
                 cur.execute(
                     f"INSERT INTO {self._table} (doc_id, text, metadata, embedding) "
-                    f"VALUES (%s, %s, %s, %s::vector) "
+                    f"VALUES (%s, %s, %s, %s::halfvec) "
                     f"ON CONFLICT (doc_id) DO UPDATE SET "
                     f"text=excluded.text, metadata=excluded.metadata, embedding=excluded.embedding",
                     (id_, "", meta, emb),
@@ -353,10 +356,11 @@ class PGVectorBackend(VectorBackend):
             if filters:
                 parts = [f"metadata->>'{k}' = '{v}'" for k, v in filters.items()]
                 filter_cond = "WHERE " + " AND ".join(parts)
+            # 2026-06-11 P0-2: halfvec cast (匹配列类型)
             sql = (
-                f"SELECT doc_id, 1 - (embedding <=> %s::vector) AS score, metadata "
+                f"SELECT doc_id, 1 - (embedding <=> %s::halfvec) AS score, metadata "
                 f"FROM {self._table} {filter_cond} "
-                f"ORDER BY embedding <=> %s::vector LIMIT %s"
+                f"ORDER BY embedding <=> %s::halfvec LIMIT %s"
             )
             cur.execute(sql, (query_embedding, query_embedding, top_k))
             rows = cur.fetchall()
