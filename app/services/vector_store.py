@@ -315,7 +315,14 @@ class PGVectorBackend(VectorBackend):
         self._dim = dim
         self._table = table_name
         self._pool = _get_pg_pool()
-        logger.info(f"[vector:pgvector] table={table_name} dim={dim}")
+        # 2026-06-11 P0-C: 强制使用 HNSW 索引 (SET LOCAL 事务级, 8GB 表以下手动 plan)
+        # 默认: False (依赖 PG planner)
+        # 开启后: 14K 量级走 HNSW (~3ms vs Seq Scan 53ms)
+        # 代价: 大于阫值后跳过 Seq Scan (可能不如 planner 默认选择)
+        self._force_hnsw = os.getenv("VECTOR_FORCE_HNSW", "false").lower() in ("true", "1", "yes")
+        logger.info(
+            f"[vector:pgvector] table={table_name} dim={dim} force_hnsw={self._force_hnsw}"
+        )
 
     def _get_conn(self):
         return self._pool.getconn()
@@ -362,10 +369,37 @@ class PGVectorBackend(VectorBackend):
                 f"FROM {self._table} {filter_cond} "
                 f"ORDER BY embedding <=> %s::halfvec LIMIT %s"
             )
-            cur.execute(sql, (query_embedding, query_embedding, top_k))
-            rows = cur.fetchall()
-            cur.close()
-            return [{"id": r[0], "score": r[1], **r[2]} for r in rows]
+            # 2026-06-11 P0-C: 如果开启 force_hnsw, 用 SET LOCAL 事务级强制 HNSW
+            # SET LOCAL 作用于事务, 连接返回 pool 后不会污染其他用户
+            used_txn = False
+            if self._force_hnsw:
+                try:
+                    cur.execute("BEGIN")
+                    cur.execute("SET LOCAL enable_seqscan = off")
+                    used_txn = True
+                except Exception as e:
+                    logger.warning(f"[vector:pgvector] failed to enable force_hnsw: {e}")
+                    if used_txn:
+                        try:
+                            cur.execute("ROLLBACK")
+                        except Exception:
+                            pass
+                    used_txn = False
+                    cur = conn.cursor()  # 重置 cursor
+            try:
+                cur.execute(sql, (query_embedding, query_embedding, top_k))
+                rows = cur.fetchall()
+                if used_txn:
+                    cur.execute("COMMIT")
+                cur.close()
+                return [{"id": r[0], "score": r[1], **r[2]} for r in rows]
+            except Exception:
+                if used_txn:
+                    try:
+                        cur.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                raise
         finally:
             self._return_conn(conn)
 
