@@ -88,6 +88,120 @@ def _batch_load_favorites_and_annotations(urls: list, db):
 _CACHE_TTL = int(os.getenv("PROJECTS_CACHE_TTL", "300"))  # 5分钟
 
 
+def _row_to_project_dict(row, cols) -> dict:
+    """将 SQL row + cols 序列化为项目 dict (与 _load_projects 内的 row_to_project 同步)"""
+    d = dict(zip(cols, row))
+    return {
+        "title": d.get("title", ""),
+        "type": d.get("category", ""),
+        "publish_date": str(d.get("publish_date", "")) if d.get("publish_date") else "",
+        "publish_date_raw": d.get("publish_date_raw", ""),
+        "url": d.get("url", ""),
+        "source_url": d.get("url", ""),
+        "content_preview": (d.get("content_preview") or "").replace("\n", " "),
+        "budget": d.get("budget", ""),
+        "deadline": str(d.get("deadline", "")) if d.get("deadline") else "",
+        "region": d.get("region", ""),
+        "tender_type": d.get("tender_type", ""),
+        "keywords_matched": d.get("keywords_matched", ""),
+        "contact_name": d.get("contact_name", ""),
+        "contact_phone": d.get("contact_phone", ""),
+        "contact_email": d.get("contact_email", ""),
+        "attachments_count": d.get("attachments_count", 0) or 0,
+        "attachments": d.get("attachments", "[]"),
+        "scraped_at": str(d.get("created_at", "")) if d.get("created_at") else "",
+        "scraped_by": d.get("scraped_by", ""),
+        "business_type": d.get("business_type", ""),
+        "info_type": d.get("info_type", ""),
+        "project_no": d.get("project_no", ""),
+        "project_overview": (d.get("project_overview") or "").replace("\n", " "),
+        "bidder_requirements": d.get("bidder_requirements", ""),
+        "submission_deadline": d.get("submission_deadline", ""),
+        "bid_amount": d.get("bid_amount", ""),
+        "full_content": d.get("full_content", "") or "",
+        "tender_content": d.get("tender_content", "") or "",
+    }
+
+
+def _query_projects_from_db(
+    date_start: str = "",
+    date_end: str = "",
+    category: str = "",
+    info_type: str = "",
+    source: str = "",
+    keyword: str = "",
+    page: int = 1,
+    page_size: int = 100,
+    sort_by: str = "date",
+) -> tuple[list, int]:
+    """2026-06-11 新增: 直接 SQL 查询 DB (不走 _load_projects 缓存)
+
+    返回: (项目列表, 总数)
+    避免 in-memory 20K 截断问题, 适用精确查询场景
+    2026-06-11 修复: 每次使用新连接 (避免事务 aborted 问题)
+    """
+    from app.database.db import Database
+    db = Database()  # 新连接
+    conn = db._get_conn()
+
+    where_parts = []
+    params: list = []
+
+    if date_start:
+        where_parts.append("publish_date >= %s")
+        params.append(date_start)
+    if date_end:
+        where_parts.append("publish_date <= %s")
+        params.append(date_end)
+    if category:
+        # 中文 (工程招投标/政府采购), 检查 business_type (DB 实际有) + tender_type (历史可能)
+        # 不能查 type 列 (DB schema 中不存在) — 会让整个事务 abort
+        where_parts.append("(business_type = %s OR tender_type = %s)")
+        params.extend([category, category])
+    if info_type:
+        where_parts.append("info_type = %s")
+        params.append(info_type)
+    if source:
+        where_parts.append("source_url LIKE %s")
+        params.append(f"%{source}%")
+    if keyword:
+        # 纯 SQL LIKE (title+content_preview+full_content), 不走向量
+        like = f"%{keyword}%"
+        where_parts.append("(title LIKE %s OR content_preview LIKE %s OR full_content LIKE %s)")
+        params.extend([like, like, like])
+
+    where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
+
+    # 查总数
+    count_sql = f"SELECT count(*) FROM projects_cqggzy {where_sql}"
+    total = conn.execute(count_sql, tuple(params)).fetchone()[0]
+
+    # 查数据
+    order_sql = "ORDER BY publish_date DESC NULLS LAST"
+    if sort_by == "budget":
+        order_sql = "ORDER BY budget DESC NULLS LAST"
+    elif sort_by == "title":
+        order_sql = "ORDER BY title ASC"
+
+    offset = (page - 1) * page_size
+    data_sql = f"""
+        SELECT * FROM projects_cqggzy
+        {where_sql}
+        {order_sql}
+        LIMIT %s OFFSET %s
+    """
+    rows = conn.execute(data_sql, tuple(params) + (page_size, offset)).fetchall()
+    cols = [d[0] for d in conn.execute("SELECT * FROM projects_cqggzy LIMIT 0").description]
+
+    items = []
+    for row in rows:
+        p = _row_to_project_dict(row, cols)
+        if p.get("url"):
+            items.append(p)
+
+    return items, total
+
+
 def _infer_business_type(url: str, title: str = "") -> str:
     """根据 URL 和标题推理业务类型"""
     if "014005" in url or "order" in url:
@@ -245,6 +359,7 @@ def get_projects(request: Request,
     page_size: int = Query(100, ge=1, le=20000),
     keyword: str = Query(""),
     category: str = Query(""),
+    info_type: str = Query(""),  # 2026-06-11 补: SQL 路径需此参数
     date_start: str = Query(""),
     date_end: str = Query(""),
     preset_key: str = Query(""),
@@ -254,41 +369,90 @@ def get_projects(request: Request,
     use_vector: bool = Query(False),  # 修复 6-5: 默认改为 False (top_k=500 会返回 500 条松散相关结果，不如精确匹配可控)
 ):
     db = get_db()
-    projects, _ = _load_projects()
-    if preset_key:
-        p = db.get_preset(preset_key)
-        if p:
-            fc = p.get("filter_config", {})
-            keyword = keyword or fc.get("keyword", "")
-            category = category or fc.get("category", "")
-            date_start = date_start or fc.get("date_start", "")
-            date_end = date_end or fc.get("date_end", "")
+    # 2026-06-11 修复: 纯粹 date/category 筛选 (无 keyword/vector) 走 SQL 查 DB
+    # 避免 in-memory 20K 截断, 准确查询全量 (108K+ 条)
+    use_sql_path = (
+        date_start or date_end or category or info_type or source
+    ) and not (keyword or use_vector or use_tfidf)
 
-    vector_matched_urls = None
-    url_scores = {}
+    if use_sql_path:
+        # SQL 路径: 直接查 DB, 走 LIMIT/OFFSET 分页
+        try:
+            page_projects, total_f = _query_projects_from_db(
+                date_start=date_start,
+                date_end=date_end,
+                category=category,
+                info_type=info_type,
+                source=source,
+                keyword=keyword,
+                page=page,
+                page_size=page_size,
+                sort_by=sort_by,
+            )
+            # 批量预加载 favorites 和 annotations
+            urls = [p.get("url", "") for p in page_projects]
+            user_id = get_current_user_id_optional(request)
+            if user_id:
+                fav_map, ann_map = _batch_load_favorites_and_annotations(urls, db)
+                for p in page_projects:
+                    url = p.get("url", "")
+                    p["is_favorite"] = url in fav_map
+                    p["_fid"] = fav_map[url]["id"] if url in fav_map else None
+                    p["annotation"] = ann_map.get(url)
+            else:
+                for p in page_projects:
+                    p["is_favorite"] = False
+                    p["annotation"] = None
+            return JSONResponse(
+                {
+                    "projects": page_projects,
+                    "total": total_f,
+                    "page": page,
+                    "page_size": page_size,
+                    "last_run": _get_last_run(),
+                }
+            )
+        except Exception as e:
+            logger.error(f"_query_projects_from_db 失败, 回退 in-memory: {e}")
+            use_sql_path = False
 
-    filtered = projects
-    if keyword:
+    if not use_sql_path:
+        projects, _ = _load_projects()
+        if preset_key:
+            p = db.get_preset(preset_key)
+            if p:
+                fc = p.get("filter_config", {})
+                keyword = keyword or fc.get("keyword", "")
+                category = category or fc.get("category", "")
+                date_start = date_start or fc.get("date_start", "")
+                date_end = date_end or fc.get("date_end", "")
+
+        vector_matched_urls = None
+        url_scores = {}
+
         vector_attempted = False
         vector_had_url_overlap = False
-        if use_vector:
-            vector_attempted = True
-            try:
-                vs = get_vector_store()
-                vec_results = vs.search(query=keyword, top_k=500)
-                raw_vec_urls = {r["metadata"].get("url") for r in vec_results if r.get("metadata", {}).get("url")}
-                url_scores = {r["metadata"].get("url"): r["score"] for r in vec_results if r.get("metadata", {}).get("url")}
-                # 检测向量库 URL 与项目 URL 是否能匹配（修复 6-5: 老向量库 URL 格式过期问题）
-                project_url_set = {p.get("url", "") for p in projects}
-                vector_matched_urls = {u for u in raw_vec_urls if u in project_url_set}
-                vector_had_url_overlap = len(vector_matched_urls) > 0
-                logger.debug(
-                    f"[vector] 语义搜索 '{keyword[:20]}...' 召回 {len(raw_vec_urls)} 条, "
-                    f"URL 匹配 {len(vector_matched_urls)} 条, overlap={vector_had_url_overlap}"
-                )
-            except Exception as e:
-                logger.warning(f"[vector] 向量搜索失败，回退简单匹配: {e}")
-                vector_matched_urls = None
+
+        filtered = projects
+        if keyword:
+            if use_vector:
+                vector_attempted = True
+                try:
+                    vs = get_vector_store()
+                    vec_results = vs.search(query=keyword, top_k=500)
+                    raw_vec_urls = {r["metadata"].get("url") for r in vec_results if r.get("metadata", {}).get("url")}
+                    url_scores = {r["metadata"].get("url"): r["score"] for r in vec_results if r.get("metadata", {}).get("url")}
+                    # 检测向量库 URL 与项目 URL 是否能匹配（修复 6-5: 老向量库 URL 格式过期问题）
+                    project_url_set = {p.get("url", "") for p in projects}
+                    vector_matched_urls = {u for u in raw_vec_urls if u in project_url_set}
+                    vector_had_url_overlap = len(vector_matched_urls) > 0
+                    logger.debug(
+                        f"[vector] 语义搜索 '{keyword[:20]}...' 召回 {len(raw_vec_urls)} 条, "
+                        f"URL 匹配 {len(vector_matched_urls)} 条, overlap={vector_had_url_overlap}"
+                    )
+                except Exception as e:
+                    logger.warning(f"[vector] 向量搜索失败，回退简单匹配: {e}")
+                    vector_matched_urls = None
 
         # 修复 6-5: 向量库返回结果但 URL 与项目库不匹配（向量库过期）→ 回退简单匹配
         if (vector_attempted and not vector_had_url_overlap) or vector_matched_urls is None:
@@ -368,9 +532,10 @@ def get_projects(request: Request,
         filtered.sort(key=bnum, reverse=True)
     else:
         filtered.sort(key=lambda p: p.get("publish_date", "") or "", reverse=True)
-    total_f = len(filtered)
-    start = (page - 1) * page_size
-    page_projects = filtered[start : start + page_size]
+        total_f = len(filtered)
+        start = (page - 1) * page_size
+        page_projects = filtered[start : start + page_size]
+
     # 批量预加载 favorites 和 annotations（用户个性化数据，需登录）
     urls = [p.get("url", "") for p in page_projects]
     user_id = get_current_user_id_optional(request)
