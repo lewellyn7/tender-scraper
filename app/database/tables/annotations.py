@@ -16,10 +16,16 @@ class AnnotationsMixin:
         """同步写入 annotations（直接执行，不走队列）"""
         try:
             conn = self._get_conn()
+            # 2026-06-11 修复: SQLite 语法 INSERT OR REPLACE → PostgreSQL ON CONFLICT
+            # 原: DB 写入失败 + syntax error at or near "OR"
+            # 需先确保 PG 表 project_url 有 UNIQUE 约束 (参见 init_pg.sql:71 配套修改)
             conn.execute(
-                """INSERT OR REPLACE INTO annotations
+                """INSERT INTO annotations
                 (project_url, note, priority, tags, updated_at)
-                VALUES (?,?,?,?,CURRENT_TIMESTAMP)""",
+                VALUES (?,?,?,?,CURRENT_TIMESTAMP)
+                ON CONFLICT (project_url) DO UPDATE SET
+                note=EXCLUDED.note, priority=EXCLUDED.priority,
+                tags=EXCLUDED.tags, updated_at=CURRENT_TIMESTAMP""",
                 (project_url, note, priority, json.dumps(tags or [], ensure_ascii=False)),
             )
             conn.commit()
