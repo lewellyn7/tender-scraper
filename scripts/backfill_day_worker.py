@@ -238,6 +238,11 @@ class BackfillWorker:
         # 入库
         actual_count = 0
         try:
+            # 2026-06-11 修复: business_type 必须与主流程一致 (中文)
+            # 主流程 cqggzy.py:_infer_business_type_by_url 返回 "工程招投标" / "政府采购"
+            # 原代码传英文 parent (engineering/gov_purchase) → 105,796 条数据 business_type 错位
+            parent_cn = "工程招投标" if parent == "engineering" else "政府采购" if parent == "gov_purchase" else parent
+
             rows = []
             for item in all_items:
                 if isinstance(item, dict):
@@ -249,7 +254,7 @@ class BackfillWorker:
                         "title": getattr(item, 'title', ''),
                         "category": getattr(item, 'category', category),
                         "info_type": getattr(item, 'info_type', category),
-                        "business_type": parent,
+                        "business_type": parent_cn,
                         "publish_date": getattr(item, 'publish_date', None),
                         "publish_date_raw": getattr(item, 'publish_date_raw', ''),
                         "source_url": getattr(item, 'source_url', ''),
