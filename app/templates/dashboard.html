@@ -122,7 +122,7 @@
     // ── Init ──────────────────────────────────────────────────────────
     function initData() {
         document.getElementById('skeletonLoader').style.display = 'grid';
-        fetch('/api/projects?page_size=100', {headers: authHeaders()})
+        fetch('/api/projects?page_size=1000', {headers: authHeaders()})
             .then(function(res) { return res.json(); })
             .then(function(data) {
                 projects = data.data || data.projects || [];
