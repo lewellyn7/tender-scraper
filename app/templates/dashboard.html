@@ -294,20 +294,39 @@
 
             var paginationHtml = '';
             if (totalImpPages > 1) {
-                var sliderId = 'impSlider_' + sourceName.replace(/[^a-zA-Z0-9]/g, '_');
+                var safeId = sourceName.replace(/[^a-zA-Z0-9]/g, '_');
+                var sliderId = 'impSlider_' + safeId;
+                var inputId = 'impPage_' + safeId;
+                var infoId = 'impInfo_' + safeId;
+                // 两行结构: 上行信息+数字输入+上下页, 下行 slider+两端标签
+                // (2026-06-12: 与 data 页面 commit 8a98c35 一致, 并加 200ms 节流
+                //  避免 dashboard 多 source 全表重渲染卡顿)
                 paginationHtml =
-                    '<div class="mt-4 pt-3 border-t border-gray-100">' +
-                        '<div class="flex items-center justify-between mb-2">' +
-                            '<span class="text-xs text-gray-400">第 ' + page + ' / ' + totalImpPages + ' 页，共 ' + totalImp + ' 条</span>' +
+                    '<div class="flex flex-col gap-2 mt-4 pt-3 border-t border-gray-100">' +
+                        // 第一行
+                        '<div class="flex items-center justify-between">' +
+                            '<span id="' + infoId + '" class="text-xs text-gray-400">第 ' + page + ' / ' + totalImpPages + ' 页，共 ' + totalImp + ' 条</span>' +
                             '<div class="flex items-center gap-1.5">' +
                                 '<button type="button" onclick="impPrev(\'' + escHtml(sourceName) + '\')" class="px-2 py-1 text-xs border rounded hover:bg-gray-50 ' + (page <= 1 ? 'opacity-30 pointer-events-none' : '') + '">‹</button>' +
+                                '<input type="number" id="' + inputId + '" value="' + page + '" min="1" max="' + totalImpPages + '" ' +
+                                    'class="w-14 px-2 py-1 text-xs text-center border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" ' +
+                                    'onfocus="this.select()" ' +
+                                    'onblur="impClamp(\'' + escHtml(sourceName) + '\')" ' +
+                                    'onkeydown="if(event.key===\'Enter\'){event.preventDefault();impGo(\'' + escHtml(sourceName) + '\', this.value); this.blur();}" />' +
+                                '<span class="text-xs text-gray-400">/ ' + totalImpPages + '</span>' +
                                 '<button type="button" onclick="impNext(\'' + escHtml(sourceName) + '\')" class="px-2 py-1 text-xs border rounded hover:bg-gray-50 ' + (page >= totalImpPages ? 'opacity-30 pointer-events-none' : '') + '">›</button>' +
                             '</div>' +
                         '</div>' +
-                        '<input type="range" id="' + sliderId + '" min="1" max="' + totalImpPages + '" value="' + page + '" step="1" ' +
-                            'class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600" ' +
-                            'oninput="impGo(\'' + escHtml(sourceName) + '\', this.value)" ' +
-                            'title="拖动滑块跳转到对应页" />' +
+                        // 第二行: slider + 两端标签
+                        '<div class="flex items-center gap-2">' +
+                            '<span class="text-xs text-gray-400 shrink-0">1</span>' +
+                            '<input type="range" id="' + sliderId + '" min="1" max="' + totalImpPages + '" value="' + page + '" step="1" ' +
+                                'class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600" ' +
+                                'oninput="impSliderInput(\'' + escHtml(sourceName) + '\', this.value)" ' +
+                                'onchange="impGo(\'' + escHtml(sourceName) + '\', this.value)" ' +
+                                'title="拖动滑块跳转到对应页" />' +
+                            '<span class="text-xs text-gray-400 shrink-0">' + totalImpPages + '</span>' +
+                        '</div>' +
                     '</div>';
             }
 
@@ -482,6 +501,11 @@
     }
 
     // ── Important projects pagination ─────────────────────────────
+    // 2026-06-12: 加 200ms 节流避免 dashboard 多 source 全表重渲染卡顿
+    // - impGo: 数字 input Enter/失焦 + slider onchange 触发 (立即重渲染)
+    // - impSliderInput: slider oninput 触发 (只更新 input + 节流重渲染)
+    // - impClamp: 数字 input 失焦时越界回滚到 currentPage
+    var _impRenderThrottle = {};
     window.impPrev = function(sourceName) {
         var page = impPages[sourceName] || 1;
         if (page <= 1) return;
@@ -495,7 +519,13 @@
         if (isNaN(page) || page < 1) page = 1;
         var totalImpPages = Math.max(1, Math.ceil(source.important.length / impPageSize));
         if (page > totalImpPages) page = totalImpPages;
+        if (page === impPages[sourceName]) return;  // 没变, 不重渲染
         impPages[sourceName] = page;
+        // 数字 input 立即重渲染, slider onchange 也立即重渲染 (松手时)
+        if (_impRenderThrottle[sourceName]) {
+            clearTimeout(_impRenderThrottle[sourceName]);
+            _impRenderThrottle[sourceName] = null;
+        }
         renderSourceGroups();
     };
     window.impNext = function(sourceName) {
@@ -506,6 +536,53 @@
         if (page >= Math.ceil(total / impPageSize)) return;
         impPages[sourceName] = page + 1;
         renderSourceGroups();
+    };
+    // slider 拖动: 实时更新 currentPage + 数字 input, 200ms 节流重渲染
+    // (不立即重渲染, 避免每像素触发全表 renderSourceGroups 卡顿)
+    window.impSliderInput = function(sourceName, val) {
+        var page = parseInt(val, 10);
+        if (isNaN(page)) return;
+        var safeId = sourceName.replace(/[^a-zA-Z0-9]/g, '_');
+        // 实时同步数字 input (不重渲染整个 group)
+        var input = document.getElementById('impPage_' + safeId);
+        if (input && document.activeElement !== input) input.value = page;
+        // 更新 info span ("第 X / Y 页, 共 Z 条")
+        var info = document.getElementById('impInfo_' + safeId);
+        if (info) {
+            var source = bySource[sourceName];
+            if (source) {
+                var totalImpPages = Math.max(1, Math.ceil(source.important.length / impPageSize));
+                info.textContent = '第 ' + page + ' / ' + totalImpPages + ' 页，共 ' + source.important.length + ' 条';
+            }
+        }
+        // 状态更新 (不重渲染 cards, 仅同步 state)
+        impPages[sourceName] = page;
+        // 200ms 节流: 高频拖动时只 render 最后一次
+        if (_impRenderThrottle[sourceName]) return;
+        _impRenderThrottle[sourceName] = setTimeout(function() {
+            _impRenderThrottle[sourceName] = null;
+            renderSourceGroups();
+        }, 200);
+    };
+    // 数字 input 失焦: 越界回滚到 currentPage
+    window.impClamp = function(sourceName) {
+        var source = bySource[sourceName];
+        if (!source) return;
+        var safeId = sourceName.replace(/[^a-zA-Z0-9]/g, '_');
+        var input = document.getElementById('impPage_' + safeId);
+        if (!input) return;
+        var totalImpPages = Math.max(1, Math.ceil(source.important.length / impPageSize));
+        var page = parseInt(input.value, 10);
+        var cur = impPages[sourceName] || 1;
+        if (isNaN(page) || page < 1 || page > totalImpPages) {
+            // 越界或空: 回滚到 currentPage
+            input.value = cur;
+            return;
+        }
+        if (page !== cur) {
+            impPages[sourceName] = page;
+            renderSourceGroups();
+        }
     };
 
     function clearDateFilter() {
