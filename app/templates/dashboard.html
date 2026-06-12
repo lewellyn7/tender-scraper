@@ -231,6 +231,7 @@
             if (!grouped[source]) {
                 grouped[source] = {
                     total: 0, matched: 0, govCount: 0, engCount: 0,
+                    subTypeCounts: {},
                     important: [], budgetTotal: 0, budgets: []
                 };
             }
@@ -238,6 +239,9 @@
             if (p.keywords_matched) grouped[source].matched++;
             if (p.business_type === '政府采购') grouped[source].govCount++;
             if (p.business_type === '工程招投标') grouped[source].engCount++;
+            if (p.tender_type) {
+                grouped[source].subTypeCounts[p.tender_type] = (grouped[source].subTypeCounts[p.tender_type] || 0) + 1;
+            }
 
             if (p.budget || p.keywords_matched || p.project_overview || p.bidder_requirements || p.bid_amount || p.content_preview) {
                 grouped[source].important.push(p);
@@ -327,6 +331,25 @@
             if (source.engCount) {
                 badges += '<span class="px-3 py-1 bg-green-500 bg-opacity-50 rounded-full text-xs text-white">工程招投标: ' + source.engCount + '</span>';
             }
+            // 子分类 badges (按计数降序)
+            var subTypeEntries = Object.entries(source.subTypeCounts || {}).sort(function(a, b) { return b[1] - a[1]; });
+            var subTypeColors = {
+                '采购公告': 'bg-cyan-500',
+                '采购结果公告': 'bg-teal-500',
+                '招标公告': 'bg-indigo-500',
+                '中标结果公示': 'bg-purple-500',
+                '中标候选人公示': 'bg-pink-500',
+                '答疑补遗': 'bg-yellow-500',
+                '招标计划': 'bg-orange-500',
+                '变更公告': 'bg-rose-500',
+                '工程建设': 'bg-green-500',
+                '政府采购': 'bg-blue-500'
+            };
+            subTypeEntries.forEach(function(entry) {
+                var k = entry[0], v = entry[1];
+                var color = subTypeColors[k] || 'bg-gray-500';
+                badges += '<span class="px-3 py-1 ' + color + ' bg-opacity-50 rounded-full text-xs text-white">' + k + ': ' + v + '</span>';
+            });
 
             html +=
                 '<div class="bg-white rounded-lg shadow mb-6 overflow-hidden">' +
