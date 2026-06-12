@@ -1,6 +1,7 @@
 """标注路由"""
 
 from fastapi import APIRouter, Body, Query, Depends, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from loguru import logger
 
@@ -15,7 +16,7 @@ def get_annotations(limit: int = Query(500, ge=1, le=1000), user_id: str = Depen
     """获取所有标注"""
     db = get_db()
     annotations = db.get_all_annotations(limit=limit)
-    return JSONResponse({"annotations": annotations})
+    return JSONResponse({"annotations": jsonable_encoder(annotations)})
 
 
 @router.get("/{project_url}")
