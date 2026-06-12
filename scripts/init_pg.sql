@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS annotations(
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- 2026-06-11 添加: 补全 UNIQUE 约束, 配合 add_annotation 的 ON CONFLICT (project_url) DO UPDATE
+CREATE UNIQUE INDEX IF NOT EXISTS idx_annotations_project_url_unique ON annotations(project_url);
 CREATE INDEX IF NOT EXISTS idx_annotations_project ON annotations(project_url);
 
 -- ============================================================

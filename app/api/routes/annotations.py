@@ -32,13 +32,22 @@ def get_annotation(project_url: str, user_id: str = Depends(get_current_user)):
 @router.post("")
 def add_annotation(
     request: Request,
-    project_url: str = Body(...),
-    note: str = Body(""),
-    priority: str = Body("normal"),
-    tags: list = Body([]),
+    data: dict = Body(...),
 ):
-    """添加/更新标注"""
+    """添加/更新标注
+
+    2026-06-11 修复: 端点签名错配 — 之前期望 4 个独立 Body 字段
+    (project_url, note, priority, tags), 但前端 base.html authFetch
+    总是发 1 个 dict body, 导致 FastAPI 把整个 dict 当作 project_url
+    参数值, db 写入失败.
+    修复: 改成 data: dict = Body(...) 模式, 与 annotations_presets.py:33
+    完全一致, 前端 POST /api/annotations 的 dict body 可被正确解析.
+    """
     user = get_current_user(request)
+    project_url = data.get("project_url", "")
+    note = data.get("note", "")
+    priority = data.get("priority", "normal")
+    tags = data.get("tags", [])
     db = get_db()
     try:
         success = db.add_annotation(project_url, note, priority, tags)
