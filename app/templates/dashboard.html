@@ -85,7 +85,7 @@
         <span class="text-sm font-medium text-gray-600 dark:text-gray-300">类型：</span>
         <button id="filterAll" class="px-4 py-2 rounded-lg text-sm font-medium transition bg-blue-600 text-white">全部 (<span id="countAll">0</span>)</button>
         <button id="filterGov" class="px-4 py-2 rounded-lg text-sm font-medium transition bg-gray-200 text-gray-700">政府采购 (<span id="countGov">0</span>)</button>
-        <button id="filterEng" class="px-4 py-2 rounded-lg text-sm font-medium transition bg-gray-200 text-gray-700">工程建设 (<span id="countEng">0</span>)</button>
+        <button id="filterEng" class="px-4 py-2 rounded-lg text-sm font-medium transition bg-gray-200 text-gray-700">工程招投标 (<span id="countEng">0</span>)</button>
 
         <div class="h-6 w-px bg-gray-300 mx-2"></div>
 
@@ -150,8 +150,8 @@
     // ── Bind filter button counts ─────────────────────────────────────
     function bindFilterCounts() {
         document.getElementById('countAll').textContent = projects.length;
-        document.getElementById('countGov').textContent = projects.filter(function(p) { return p.tender_type === '政府采购'; }).length;
-        document.getElementById('countEng').textContent = projects.filter(function(p) { return p.tender_type === '工程建设'; }).length;
+        document.getElementById('countGov').textContent = projects.filter(function(p) { return p.business_type === '政府采购'; }).length;
+        document.getElementById('countEng').textContent = projects.filter(function(p) { return p.business_type === '工程招投标'; }).length;
     }
 
     // ── Set active filter button ─────────────────────────────────────
@@ -159,7 +159,7 @@
         var allBtns = [
             { id: 'filterAll', type: 'all' },
             { id: 'filterGov', type: '政府采购' },
-            { id: 'filterEng', type: '工程建设' }
+            { id: 'filterEng', type: '工程招投标' }
         ];
         allBtns.forEach(function(b) {
             var el = document.getElementById(b.id);
@@ -219,8 +219,8 @@
             }
             grouped[source].total++;
             if (p.keywords_matched) grouped[source].matched++;
-            if (p.tender_type === '政府采购') grouped[source].govCount++;
-            if (p.tender_type === '工程建设') grouped[source].engCount++;
+            if (p.business_type === '政府采购') grouped[source].govCount++;
+            if (p.business_type === '工程招投标') grouped[source].engCount++;
 
             if (p.budget || p.keywords_matched || p.project_overview || p.bidder_requirements || p.bid_amount || p.content_preview) {
                 grouped[source].important.push(p);
@@ -308,7 +308,7 @@
                 badges += '<span class="px-3 py-1 bg-blue-500 bg-opacity-50 rounded-full text-xs text-white">政府采购: ' + source.govCount + '</span>';
             }
             if (source.engCount) {
-                badges += '<span class="px-3 py-1 bg-green-500 bg-opacity-50 rounded-full text-xs text-white">工程建设: ' + source.engCount + '</span>';
+                badges += '<span class="px-3 py-1 bg-green-500 bg-opacity-50 rounded-full text-xs text-white">工程招投标: ' + source.engCount + '</span>';
             }
 
             html +=
@@ -335,7 +335,7 @@
 
     // ── Build a single project card HTML ─────────────────────────────
     function buildProjectCard(project) {
-        var typeClass = project.tender_type === '政府采购'
+        var typeClass = project.business_type === '政府采购'
             ? 'bg-blue-100 text-blue-800'
             : 'bg-green-100 text-green-800';
 
@@ -532,8 +532,8 @@
         processBySource();
     });
     document.getElementById('filterEng').addEventListener('click', function() {
-        filterType = '工程建设';
-        setActiveFilterBtn('工程建设');
+        filterType = '工程招投标';
+        setActiveFilterBtn('工程招投标');
         processBySource();
     });
 
