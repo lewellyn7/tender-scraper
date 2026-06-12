@@ -508,6 +508,9 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     tender.content_preview = make_content_preview(cleaned, tender.title)
                     # 2026-06-09 修复: CQGGZY 详情页同步提取项目编号（CCGP 已在 ccgp.py:311 调用，CQGGZY 漏了）
                     tender.project_no = extract_project_no(tender.title, cleaned) or ""
+                    # 2026-06-12 P2 新增 : 从正文提取发布日期 (兜底 , 列表阶段 URL 没提时会用 )
+                    if not tender.publish_date:
+                        tender.publish_date = _extract_publish_date_from_content(cleaned)
                     logger.debug(f"  详情页成功: {tender.title[:30]} ({len(cleaned)}字)")
             else:
                 logger.debug(f"  详情页空/无效: {tender.url}")
@@ -764,3 +767,47 @@ class CQGGZYCrawlerV2(BaseCrawler):
     async def _smart_wait(self) -> None:
         """智能随机等待 (0.3-0.8s)"""
         await asyncio.sleep(0.3 + random.random() * 0.5)
+
+
+# ─── 全局 helper 函数 (模块级) ────────────────────────────────────────────────
+
+def _extract_publish_date_from_content(content: str):
+    """从正文提取发布日期 (兜底，列表阶段 URL 没提时会用).
+
+    规则:
+    - 优先 '发布日期 [：:]\s*20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?'
+    - 次选 '公告时间 [：:]\s*20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?'
+    - 再次 '日期 [：:]\s*20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?'
+    - 纯文本兜底：'20\d{2}年\d{1,2}月\d{1,2}日' 或 '20\d{2}-\d{1,2}-\d{1,2}'
+
+    返回：date 对象 或 None
+    """
+    if not content:
+        return None
+    import datetime as dt_mod
+    import re
+    patterns_date = [
+        (r'发布日期 [：:]\s*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?)', 'label'),
+        (r'公告时间 [：:]\s*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?)', 'label'),
+        (r'日期 [：:]\s*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?)', 'label'),
+        (r'(20\d{2}年\d{1,2}月\d{1,2}日)', 'cn'),
+        (r'(20\d{2}-\d{1,2}-\d{1,2})', 'iso'),
+    ]
+    for ptn, fmt in patterns_date:
+        mm = re.search(ptn, content)
+        if mm:
+            raw = mm.group(1)
+            try:
+                if fmt == 'cn':
+                    return dt_mod.datetime.strptime(raw, '%Y年%m月%d日').date()
+                elif fmt == 'iso':
+                    return dt_mod.datetime.strptime(raw, '%Y-%m-%d').date()
+                else:
+                    # label：可能是 '2026 年 6 月 26 日' 或 '2026-06-26'
+                    if '年' in raw and '月' in raw:
+                        return dt_mod.datetime.strptime(raw.replace('年', '-').replace('月', '-').rstrip('日'), '%Y-%m-%d').date()
+                    elif '-' in raw:
+                        return dt_mod.datetime.strptime(raw, '%Y-%m-%d').date()
+            except Exception:
+                continue
+    return None
