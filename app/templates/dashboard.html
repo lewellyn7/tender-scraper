@@ -432,18 +432,8 @@
                 '</div>';
         }
 
+        // business_type + info_type 已在标题右边的 tender_type 徽章旁, 不重复
         var typeRowHtml = '';
-        if (project.business_type || project.info_type) {
-            var btHtml = project.business_type
-                ? '<span class="px-2 py-0.5 bg-gray-100 rounded text-xs">' + escHtml(project.business_type) + '</span>'
-                : '';
-            var itHtml = project.info_type
-                ? '<span class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">' + escHtml(project.info_type) + '</span>'
-                : '';
-            if (btHtml || itHtml) {
-                typeRowHtml = '<div class="flex items-center space-x-2">' + btHtml + itHtml + '</div>';
-            }
-        }
 
         var contactHtml = '';
         if (project.contact_name || project.contact_phone) {
@@ -462,7 +452,7 @@
             publishHtml = '<div class="text-xs text-gray-400">发布: ' + escHtml(project.publish_date) + '</div>';
         }
 
-        var infoRows = [typeRowHtml, budgetHtml, bidHtml, overviewHtml, reqHtml, deadlineHtml, previewHtml, contactHtml, publishHtml]
+        var infoRows = [budgetHtml, bidHtml, overviewHtml, reqHtml, deadlineHtml, previewHtml, contactHtml, publishHtml]
             .filter(function(r) { return r !== ''; })
             .join('');
 
