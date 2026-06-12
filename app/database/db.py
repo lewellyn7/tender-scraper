@@ -309,19 +309,41 @@ class Database(
         except Exception as e:
             logger.warning(f"upsert_project_overview: {e}")
 
-    def update_full_content(self, url: str, full_content: str, content_preview: str) -> None:
-        """按 URL 更新 full_content 和 content_preview（补采脚本用）"""
-        if not url or not full_content:
+    def update_detail_fields(self, url: str, fields: dict) -> None:
+        """按 URL 更新详情相关字段 (2026-06-12 增强: 写 6 字段防 6-10 重复 BUG)
+        字段 (任选):
+          - full_content: 详情页正文
+          - content_preview: 摘要 (≤500 字)
+          - info_type: 招标公告/采购公告/招标计划/中标候选人公示/...
+          - publish_date: 发布日期 (YYYY-MM-DD 字符串)
+          - project_no: 项目编号
+          - keywords_matched: 关键词 (逗号分隔)
+        """
+        if not url or not fields:
+            return
+        # 过滤空值 (None / "") — 避免用空值覆盖已有数据
+        valid = {k: v for k, v in fields.items()
+                 if v is not None and v != "" and k in {
+                     "full_content", "content_preview", "info_type",
+                     "publish_date", "project_no", "keywords_matched"
+                 }}
+        if not valid:
             return
         try:
             conn = self._get_conn()
-            conn.execute(
-                "UPDATE projects_cqggzy SET full_content = %s, content_preview = %s WHERE url = %s",
-                (full_content, content_preview, url),
-            )
+            set_clause = ", ".join([f"{k} = %s" for k in valid.keys()])
+            sql = f"UPDATE projects_cqggzy SET {set_clause} WHERE url = %s"
+            conn.execute(sql, list(valid.values()) + [url])
             conn.commit()
         except Exception as e:
-            logger.warning(f"update_full_content: {e}")
+            logger.warning(f"update_detail_fields: {e}")
+
+    def update_full_content(self, url: str, full_content: str, content_preview: str) -> None:
+        """[保留兼容] 按 URL 更新 full_content 和 content_preview, 转调 update_detail_fields"""
+        return self.update_detail_fields(url, {
+            "full_content": full_content,
+            "content_preview": content_preview,
+        })
 
     def upsert_projects(self, rows: list):
         """批量 upsert 项目到 projects_cqggzy 表（URL 去重）

@@ -401,19 +401,42 @@ async def run_collection():
                             break
                     # 2026-06-08 P1 修复: 详情成功立即写 DB, 避免 SIGTERM 丢掉全部 detail
                     # (旧代码依赖 main.py:426 在 schedule 结束后一次性 upsert, 进程被杀则丢失)
-                    if detail_item.full_content:
+                    # 2026-06-12 P0 修复: 详情阶段写 6 字段 (full_content / content_preview /
+                    #   info_type / publish_date / project_no / keywords_matched)
+                    # 修复 6-10 19:53 类型 BUG: 当时只写 full_content+content_preview, 导致
+                    #   info_type/publish_date/project_no 仍空, 关键词未匹配
+                    if detail_item.full_content or detail_item.info_type or detail_item.publish_date or detail_item.project_no:
                         try:
                             from app.database.db import get_db
-                            # 2026-06-08 修复: P1 写入前统一过 strip_title_dup, 避免 title 重复入库
                             from app.utils.clean_noise import make_content_preview
+                            from app.services.keywords_service import KeywordsService
                             preview = detail_item.content_preview or make_content_preview(
-                                detail_item.full_content, detail_item.title
+                                detail_item.full_content or detail_item.title,
+                                detail_item.title
                             )
-                            get_db().update_full_content(
-                                item.url,
-                                detail_item.full_content,
-                                preview
-                            )
+                            # 跑关键词匹配 (取 matched include, exclude 命中则清空)
+                            kw_str = ""
+                            if detail_item.full_content or detail_item.title:
+                                text = (detail_item.title or "") + " " + (detail_item.full_content or "")
+                                match_result = KeywordsService().match(text)
+                                if match_result:
+                                    include = match_result.get("include", [])
+                                    exclude = match_result.get("exclude", [])
+                                    # exclude 命中 → 整条不匹配
+                                    if not exclude and include:
+                                        kw_str = ", ".join([k["keyword"] for k in include])
+                            # publish_date 转字符串 (DetailItem 是 date / datetime 混合)
+                            pd_str = ""
+                            if detail_item.publish_date:
+                                pd_str = detail_item.publish_date.strftime("%Y-%m-%d") if hasattr(detail_item.publish_date, "strftime") else str(detail_item.publish_date)
+                            get_db().update_detail_fields(item.url, {
+                                "full_content": detail_item.full_content,
+                                "content_preview": preview,
+                                "info_type": detail_item.info_type,
+                                "publish_date": pd_str,
+                                "project_no": detail_item.project_no,
+                                "keywords_matched": kw_str,
+                            })
                         except Exception as db_e:
                             logger.warning(f"  ⚠️ 详情写 DB 失败 [{task.task_id}]: {db_e}")
                     # 记录成功
