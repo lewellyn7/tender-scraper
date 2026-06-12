@@ -444,9 +444,12 @@
       var titleAttr = overviewRaw ? ' title="' + overviewRaw.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '"' : '';
       // 6-12 修复: 表格行高保持一致
       // - 标题 line-clamp-2 (2 行上限) + 原始 title 作 hover 提示
-      // - 内容预览 min-h-[3.75rem] 强制 3 行高度, 避免空内容时行高变矮
+      // - 内容预览 style="min-height:3.75rem" 强制 3 行高度, 避免空内容时行高变矮
+      //   注: 用 inline style 不用 min-h-[3.75rem] Tailwind class, 因为
+      //   tailwind-built.css 是 2025-04-10 编译的, 之后 2 个月所有 class
+      //   改动未重新编译 (没 build script), inline style 不依赖编译
       var titleCellHtml = '<div class="line-clamp-2" title="' + escHtml(item.title) + '">' + escHtml(item.title) + '</div>';
-      var overviewCell = '<div class="line-clamp-3 min-h-[3.75rem]"' + titleAttr + '>' + escHtml(overviewText || '\u65e0\u5185\u5bb9') + '</div>';
+      var overviewCell = '<div class="line-clamp-3" style="min-height:3.75rem;"' + titleAttr + '>' + escHtml(overviewText || '\u65e0\u5185\u5bb9') + '</div>';
       return '<tr class="hover:bg-gray-50">' +
         '<td class="px-4 py-3">' + favBtn + '</td>' +
         '<td class="w-80 px-4 py-3 text-sm font-medium text-gray-900 align-top" style="max-width:20rem;overflow-wrap:break-word;">' + titleCellHtml + '</td>' +
