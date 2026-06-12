@@ -450,6 +450,14 @@
     document.getElementById('paginationInfo').textContent = '显示 ' + start + '-' + end + ' / 共 ' + totalItems + ' 条';
     document.getElementById('prevPage').disabled = currentPage <= 1;
     document.getElementById('nextPage').disabled = currentPage >= totalPages;
+    // 滑动条 sync
+    var slider = document.getElementById('pageSlider');
+    if (slider) {
+      slider.max = totalPages;
+      if (document.activeElement !== slider) slider.value = currentPage;
+    }
+    var sliderMaxLabel = document.getElementById('sliderMaxLabel');
+    if (sliderMaxLabel) sliderMaxLabel.textContent = totalPages;
     // Build page number buttons
     var pageIndicator = document.getElementById('pageIndicator');
     var maxShow = 7;

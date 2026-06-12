@@ -86,17 +86,6 @@
         <button id="filterAll" class="px-4 py-2 rounded-lg text-sm font-medium transition bg-blue-600 text-white">全部 (<span id="countAll">0</span>)</button>
         <button id="filterGov" class="px-4 py-2 rounded-lg text-sm font-medium transition bg-gray-200 text-gray-700">政府采购 (<span id="countGov">0</span>)</button>
         <button id="filterEng" class="px-4 py-2 rounded-lg text-sm font-medium transition bg-gray-200 text-gray-700">工程招投标 (<span id="countEng">0</span>)</button>
-        <select id="filterSubType" class="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm">
-            <option value="">子分类 (全部)</option>
-            <option value="采购公告">采购公告</option>
-            <option value="采购结果公告">采购结果公告</option>
-            <option value="招标公告">招标公告</option>
-            <option value="中标结果公示">中标结果公示</option>
-            <option value="中标候选人公示">中标候选人公示</option>
-            <option value="答疑补遗">答疑补遗</option>
-            <option value="招标计划">招标计划</option>
-            <option value="变更公告">变更公告</option>
-        </select>
 
         <div class="h-6 w-px bg-gray-300 mx-2"></div>
 
@@ -124,7 +113,6 @@
     var projects = [];
     var bySource = {};
     var filterType = 'all';
-    var filterSubType = '';
     var dateStart = '';
     var dateEnd = '';
     var dateRangePreset = null;
@@ -211,11 +199,6 @@
         // 默认子分类白名单 (始终生效)
         if (ALLOWED_SUB_TYPES && ALLOWED_SUB_TYPES.length > 0) {
             filtered = filtered.filter(function(p) { return ALLOWED_SUB_TYPES.indexOf(p.tender_type) >= 0; });
-        }
-
-        // 子分类过滤 (与业务大类 + 白名单叠加)
-        if (filterSubType) {
-            filtered = filtered.filter(function(p) { return p.tender_type === filterSubType; });
         }
 
         // Date filter
@@ -311,15 +294,20 @@
 
             var paginationHtml = '';
             if (totalImpPages > 1) {
+                var sliderId = 'impSlider_' + sourceName.replace(/[^a-zA-Z0-9]/g, '_');
                 paginationHtml =
-                    '<div class="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">' +
-                        '<span class="text-xs text-gray-400">第 ' + page + ' / ' + totalImpPages + ' 页，共 ' + totalImp + ' 条</span>' +
-                        '<div class="flex items-center gap-2">' +
-                            '<button type="button" onclick="impPrev(\'' + escHtml(sourceName) + '\')" class="px-2 py-1 text-xs border rounded hover:bg-gray-50 ' + (page <= 1 ? 'opacity-30 pointer-events-none' : '') + '">‹</button>' +
-                            '<input type="number" id="impPage_' + escHtml(sourceName.replace(/[^a-zA-Z0-9]/g, '_')) + '" value="' + page + '" min="1" max="' + totalImpPages + '" class="w-12 text-center text-xs border rounded py-1" onchange="impGo(\' + escHtml(sourceName) + \',this.value)" onkeydown="if(event.key=="Enter"){event.preventDefault();impGo(\' + escHtml(sourceName) + \',this.value);}" />' +
-                            '<span class="text-xs text-gray-400">/' + totalImpPages + '</span>' +
-                            '<button type="button" onclick="impNext(\'' + escHtml(sourceName) + '\')" class="px-2 py-1 text-xs border rounded hover:bg-gray-50 ' + (page >= totalImpPages ? 'opacity-30 pointer-events-none' : '') + '">›</button>' +
+                    '<div class="mt-4 pt-3 border-t border-gray-100">' +
+                        '<div class="flex items-center justify-between mb-2">' +
+                            '<span class="text-xs text-gray-400">第 ' + page + ' / ' + totalImpPages + ' 页，共 ' + totalImp + ' 条</span>' +
+                            '<div class="flex items-center gap-1.5">' +
+                                '<button type="button" onclick="impPrev(\'' + escHtml(sourceName) + '\')" class="px-2 py-1 text-xs border rounded hover:bg-gray-50 ' + (page <= 1 ? 'opacity-30 pointer-events-none' : '') + '">‹</button>' +
+                                '<button type="button" onclick="impNext(\'' + escHtml(sourceName) + '\')" class="px-2 py-1 text-xs border rounded hover:bg-gray-50 ' + (page >= totalImpPages ? 'opacity-30 pointer-events-none' : '') + '">›</button>' +
+                            '</div>' +
                         '</div>' +
+                        '<input type="range" id="' + sliderId + '" min="1" max="' + totalImpPages + '" value="' + page + '" step="1" ' +
+                            'class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600" ' +
+                            'oninput="impGo(\'' + escHtml(sourceName) + '\', this.value)" ' +
+                            'title="拖动滑块跳转到对应页" />' +
                     '</div>';
             }
 
@@ -584,11 +572,6 @@
     document.getElementById('filterEng').addEventListener('click', function() {
         filterType = '工程招投标';
         setActiveFilterBtn('工程招投标');
-        processBySource();
-    });
-
-    document.getElementById('filterSubType').addEventListener('change', function() {
-        filterSubType = this.value;
         processBySource();
     });
 
