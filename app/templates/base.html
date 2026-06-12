@@ -112,6 +112,15 @@ h1 .help-btn, h2 .help-btn { margin-left: 6px; }
         function authFetch(url, options) {
             options = options || {};
             options.headers = Object.assign({}, authHeaders(), options.headers || {});
+            // 2026-06-11 fix(data-fav): 为带 body 的非 GET 请求自动设 Content-Type
+            // 原因: 之前 fetch 不设 header, 浏览器默认 text/plain;charset=UTF-8
+            //      → FastAPI Body(...) 期待 JSON, 返回 422
+            // 安全: 调用方手动设了 Content-Type 不会被覆盖 (Object.assign 后)
+            if (options.body && !options.headers['Content-Type'] && !options.headers['content-type']) {
+                var isJson = typeof options.body === 'string' &&
+                             (options.body.trim().startsWith('{') || options.body.trim().startsWith('['));
+                options.headers['Content-Type'] = isJson ? 'application/json' : 'text/plain;charset=UTF-8';
+            }
             return fetch(url, options);
         }
         function show(el) { if (el) el.classList.remove('hidden'); }

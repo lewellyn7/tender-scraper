@@ -626,17 +626,18 @@
     var item = allItems.find(function(f) { return f.url === url; });
     if (!item) item = filteredItems.find(function(f) { return f.url === url; });
     try {
+      var res;
       if (isFav) {
         var id = item && (item._fid || item.id);
         if (id) {
-          await authFetch("/api/favorites/id/" + id, {method: "DELETE"});
+          res = await authFetch("/api/favorites/id/" + id, {method: "DELETE"});
         } else {
-          await authFetch("/api/favorites?project_url=" + encodeURIComponent(url), {method: "DELETE"});
+          res = await authFetch("/api/favorites?project_url=" + encodeURIComponent(url), {method: "DELETE"});
         }
       } else {
         // 收藏时从 item 取真实字段, 不能 hardcode title: ""
         // (之前 hardcode "" 导致 DB 存空 title, 收藏页显示空卡片)
-        await authFetch("/api/favorites", {
+        res = await authFetch("/api/favorites", {
           method: "POST",
           body: JSON.stringify({
             url: url,
@@ -650,9 +651,23 @@
           })
         });
       }
+      // 2026-06-11 fix(data-fav): 检查 res.ok, 避免 UI 假状态
+      // 原因: fetch 4xx/5xx 不抛错, 之前成功 false 也被当成成功 toggle, 刷新后状态丢失
+      if (!res || !res.ok) {
+        var detail = '';
+        try { var j = await res.json(); detail = j.detail || j.error || JSON.stringify(j); } catch(_) {}
+        var msg = (isFav ? '取消收藏失败' : '收藏失败') + ' (' + (res ? res.status : 'no-response') + '): ' + detail;
+        console.error(msg);
+        if (typeof showToast === 'function') showToast(msg, 'error');
+        return;  // 不 toggle, 不 render (避免 UI 假状态)
+      }
       if (item) item.is_favorite = !isFav;
       render();
-    } catch(err) { console.error('收藏操作失败', err); }
+      if (typeof showToast === 'function') showToast(isFav ? '已取消收藏' : '已添加到收藏', 'success');
+    } catch(err) {
+      console.error('收藏操作失败', err);
+      if (typeof showToast === 'function') showToast('收藏操作失败: ' + (err.message || err), 'error');
+    }
   };
 
   window.switchView = switchView;
