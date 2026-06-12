@@ -527,32 +527,25 @@
         impPages[sourceName] = page + 1;
         renderSourceGroups();
     };
-    // slider 拖动: 实时更新 currentPage + 数字 input, 200ms 节流重渲染
-    // (不立即重渲染, 避免每像素触发全表 renderSourceGroups 卡顿)
+    // slider 拖动: 只同步 input + info + state, 完全不渲染
+    // (onchange / 松手时 impGo 才渲染, 彻底避免拖动时卡顿)
     window.impSliderInput = function(sourceName, val) {
         var page = parseInt(val, 10);
         if (isNaN(page)) return;
         var safeId = sourceName.replace(/[^a-zA-Z0-9]/g, '_');
-        // 实时同步数字 input (不重渲染整个 group)
+        // 实时同步数字 input
         var input = document.getElementById('impPage_' + safeId);
         if (input && document.activeElement !== input) input.value = page;
-        // 更新 info span ("第 X / Y 页, 共 Z 条")
+        // 实时更新 info span
         var info = document.getElementById('impInfo_' + safeId);
-        if (info) {
-            var source = bySource[sourceName];
-            if (source) {
-                var totalImpPages = Math.max(1, Math.ceil(source.important.length / impPageSize));
-                info.textContent = '第 ' + page + ' / ' + totalImpPages + ' 页，共 ' + source.important.length + ' 条';
-            }
+        var source = bySource[sourceName];
+        if (info && source) {
+            var totalImpPages = Math.max(1, Math.ceil(source.important.length / impPageSize));
+            info.textContent = '第 ' + page + ' / ' + totalImpPages + ' 页，共 ' + source.important.length + ' 条';
         }
-        // 状态更新 (不重渲染 cards, 仅同步 state)
+        // 更新 state (onchange 时 impGo 会从 state 取值再渲染)
         impPages[sourceName] = page;
-        // 200ms 节流: 高频拖动时只 render 最后一次
-        if (_impRenderThrottle[sourceName]) return;
-        _impRenderThrottle[sourceName] = setTimeout(function() {
-            _impRenderThrottle[sourceName] = null;
-            renderSourceGroups();
-        }, 200);
+        // ⚠️ 不调 renderSourceGroups, 不节流, 完全不渲染
     };
     // 数字 input 失焦: 越界回滚到 currentPage
     window.impClamp = function(sourceName) {
