@@ -69,16 +69,29 @@ def _batch_load_favorites_and_annotations(urls: list, db):
             f"SELECT id, project_url, status FROM favorites WHERE project_url IN ({placeholders})",
             urls
         ).fetchall()
-        fav_map = {row["project_url"]: row for row in fav_rows}
+        # 6-12 修复: 转纯 dict + 拍平字段 (id 提取 + status 提取)
+        # 避免 _DictRow 包含 datetime 等不可 JSON 序列化的字段
+        fav_map = {
+            row["project_url"]: {"id": row["id"], "status": row["status"]}
+            for row in fav_rows
+        }
     except Exception:
         pass
 
     try:
         ann_rows = db._get_conn().execute(
-            f"SELECT project_url, note, priority FROM annotations WHERE project_url IN ({placeholders})",
+            f"SELECT project_url, note, priority, tags FROM annotations WHERE project_url IN ({placeholders})",
             urls
         ).fetchall()
-        ann_map = {row["project_url"]: row for row in ann_rows}
+        # 6-12 修复: 转纯 dict (避免 _DictRow 含 datetime 字段泄漏到 JSONResponse)
+        ann_map = {
+            row["project_url"]: {
+                "note": row["note"],
+                "priority": row["priority"],
+                "tags": row["tags"],
+            }
+            for row in ann_rows
+        }
     except Exception:
         pass
 
