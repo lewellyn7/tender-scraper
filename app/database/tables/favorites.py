@@ -186,19 +186,21 @@ class FavoritesMixin:
         limit: int = 500,
         offset: int = 0,
     ) -> List[dict]:
-        """获取收藏列表（支持用户/状态过滤 + 分页）"""
+        """获取收藏列表（支持用户/状态过滤 + 分页，关联 annotations）"""
         uid = user_id or ""
         try:
             c = self._get_conn()
             where, params = self._build_favorites_where(uid, status)
             rows = c.execute(
-                f"""SELECT * FROM favorites
+                f"""SELECT f.*, a.note AS ann_note, a.priority AS ann_priority, a.tags AS ann_tags
+                    FROM favorites f
+                    LEFT JOIN annotations a ON a.project_url = f.project_url
                     {where}
-                    ORDER BY updated_at DESC
+                    ORDER BY f.updated_at DESC
                     LIMIT ? OFFSET ?""",
                 (*params, limit, offset),
             ).fetchall()
-            return [dict(r) for r in rows]
+            return [self._attach_annotation(dict(r)) for r in rows]
         except Exception as e:
             logger.error(f"get_favorites: {e}")
             return []
@@ -218,15 +220,21 @@ class FavoritesMixin:
             return 0
 
     def get_favorite(self, project_url: str, user_id: str = None) -> Optional[dict]:
-        """获取单条收藏"""
+        """获取单条收藏（关联 annotations 表）"""
         uid = user_id or ""
         try:
             c = self._get_conn()
             row = c.execute(
-                "SELECT * FROM favorites WHERE project_url=? AND user_id=?",
-                (project_url, uid)
+                """SELECT f.*, a.note AS ann_note, a.priority AS ann_priority, a.tags AS ann_tags
+                   FROM favorites f
+                   LEFT JOIN annotations a ON a.project_url = f.project_url
+                   WHERE f.project_url=? AND f.user_id=?""",
+                (project_url, uid),
             ).fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            d = dict(row)
+            return self._attach_annotation(d)
         except Exception as e:
             logger.error(f"get_favorite: {e}")
             return None
@@ -238,25 +246,49 @@ class FavoritesMixin:
         tender_type: Optional[str] = None,
         limit: int = 20,
     ) -> List[dict]:
-        """全文检索收藏"""
+        """全文检索收藏（关联 annotations）"""
         uid = user_id or ""
         try:
             c = self._get_conn()
             like = f"%{query}%"
             params = [uid, like, like, like]
-            sql = """SELECT * FROM favorites
-                     WHERE user_id=?
-                       AND (title LIKE ? OR tender_type LIKE ? OR budget LIKE ?)"""
+            sql = """SELECT f.*, a.note AS ann_note, a.priority AS ann_priority, a.tags AS ann_tags
+                     FROM favorites f
+                     LEFT JOIN annotations a ON a.project_url = f.project_url
+                     WHERE f.user_id=?
+                       AND (f.title LIKE ? OR f.tender_type LIKE ? OR f.budget LIKE ?)"""
             if tender_type:
-                sql += " AND tender_type = ?"
+                sql += " AND f.tender_type = ?"
                 params.append(tender_type)
-            sql += " ORDER BY updated_at DESC LIMIT ?"
+            sql += " ORDER BY f.updated_at DESC LIMIT ?"
             params.append(limit)
             rows = c.execute(sql, params).fetchall()
-            return [dict(r) for r in rows]
+            return [self._attach_annotation(dict(r)) for r in rows]
         except Exception as e:
             logger.error(f"search_favorites: {e}")
             return []
+
+    @staticmethod
+    def _attach_annotation(row: dict) -> dict:
+        """把 ann_note/ann_priority/ann_tags 字段组合成 annotation dict，移除临时字段。
+
+        2026-06-12 添加: 让 /api/favorites 列表能直接返回 annotation 字段供前端显示。
+        LEFT JOIN 拿不到 annotation 行时 (ann_*) 全为 None → annotation = None。
+        """
+        if row is None:
+            return None
+        ann_note = row.pop("ann_note", None)
+        ann_priority = row.pop("ann_priority", None)
+        ann_tags = row.pop("ann_tags", None)
+        if ann_note is None and ann_priority is None and ann_tags is None:
+            row["annotation"] = None
+        else:
+            row["annotation"] = {
+                "note": ann_note or "",
+                "priority": ann_priority or "normal",
+                "tags": ann_tags or [],
+            }
+        return row
 
     # ─── internal ──────────────────────────────────────────────────
 
