@@ -442,10 +442,14 @@
       var overviewRaw = ((item.project_overview || item.content_preview) || '').replace(/<[^>]+>/g, '');
       var overviewText = overviewRaw.length > 200 ? overviewRaw.slice(0, 200) + '\u2026' : overviewRaw;
       var titleAttr = overviewRaw ? ' title="' + overviewRaw.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '"' : '';
-      var overviewCell = '<div class="line-clamp-3"' + titleAttr + '>' + escHtml(overviewText || '\u65e0\u5185\u5bb9') + '</div>';
+      // 6-12 修复: 表格行高保持一致
+      // - 标题 line-clamp-2 (2 行上限) + 原始 title 作 hover 提示
+      // - 内容预览 min-h-[3.75rem] 强制 3 行高度, 避免空内容时行高变矮
+      var titleCellHtml = '<div class="line-clamp-2" title="' + escHtml(item.title) + '">' + escHtml(item.title) + '</div>';
+      var overviewCell = '<div class="line-clamp-3 min-h-[3.75rem]"' + titleAttr + '>' + escHtml(overviewText || '\u65e0\u5185\u5bb9') + '</div>';
       return '<tr class="hover:bg-gray-50">' +
         '<td class="px-4 py-3">' + favBtn + '</td>' +
-        '<td class="w-80 px-4 py-3 text-sm font-medium text-gray-900 align-top" style="max-width:20rem;overflow-wrap:break-word;white-space:pre-wrap;">' + escHtml(item.title) + '</td>' +
+        '<td class="w-80 px-4 py-3 text-sm font-medium text-gray-900 align-top" style="max-width:20rem;overflow-wrap:break-word;">' + titleCellHtml + '</td>' +
         '<td class="w-24 px-4 py-3 text-sm text-gray-500 align-top truncate">' + escHtml(item.business_type || item.category || '-') + '</td>' +
         '<td class="w-28 px-4 py-3 align-top">' + infoBadge + '</td>' +
         '<td class="w-28 px-4 py-3 text-sm text-gray-500 align-top">' + escHtml(item.publish_date || '-') + '</td>' +
