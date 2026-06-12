@@ -249,6 +249,36 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 # 详情阶段 crawler_fn 会回填；upsert_projects 的 protected_cols={full_content, content_preview}
                 # 保证列表阶段写空不会冲掉详情阶段已回填的值
 
+
+                # 2026-06-12 P0 修复: 列表阶段调 KeywordsService + cp 兜底拼装
+                # 修 2 永久 BUG:
+                #   1. keywords_matched 99.1% 空 (采集器从未调 KeywordsService)
+                #   2. content_preview 86.5% 空 (raw_content 永远空, 留空等详情, 详情可能失败)
+                try:
+                    from app.services.keywords_service import KeywordsService
+                    _text = tender.title + " " + (raw_content or "")
+                    _match = KeywordsService().match(_text)
+                    if _match:
+                        _inc = _match.get("include", [])
+                        _exc = _match.get("exclude", [])
+                        if _inc and not _exc:
+                            tender.keywords_matched = [k["keyword"] for k in _inc]
+                except Exception as _kw_e:
+                    logger.debug(f"  KeywordsService 失败 (忽略): {_kw_e}")
+
+                # cp 兜底: raw_content 空 + 详情没抓 (6-10 BUG 验证) 时, 用 title+其他字段拼
+                if not tender.content_preview and tender.title:
+                    _cp_parts = [tender.title]
+                    if tender.info_type:
+                        _cp_parts.append(f"[{tender.info_type}]")
+                    if hasattr(tender, 'budget') and tender.budget:
+                        _cp_parts.append(f"预算: {tender.budget}")
+                    if hasattr(tender, 'deadline') and tender.deadline:
+                        _cp_parts.append(f"截止: {tender.deadline}")
+                    if hasattr(tender, 'project_no') and tender.project_no:
+                        _cp_parts.append(f"项目编号: {tender.project_no}")
+                    tender.content_preview = "\n".join(_cp_parts)[:500]
+
                 results.append(tender)
 
             logger.debug(f"  API 获取 {len(results)} 条（pn={pn}）")
