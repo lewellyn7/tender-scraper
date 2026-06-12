@@ -361,6 +361,15 @@ async def run_collection():
                 item = task_id_item_map.get(task.task_id)
                 if item is None:
                     return False
+                # 2026-06-12 P2 优化: 招标计划表跳过详情 fetch
+                # 原因: 招标计划表 CQGGZY 上没有详情正文 (页面直接显示计划表, 无 SPA 详情页),
+                #   抓详情纯浪费 5-8s/条, 11883 条 × 5s = 16.5h 周期
+                # 答疑补遗 / 终止公告: 有详情正文, **保留 fetch**
+                # 改: 列表阶段已采集的字段足够, 跳过 fetch
+                _title = (item.title or "").strip()
+                if _title.endswith("招标计划表"):
+                    logger.debug(f"  跳过详情 fetch (招标计划表): {_title[:30]}")
+                    return True
                 # 根据来源选择采集器
                 # 2026-06-02：CCGP 停采后 ccgp_crawler=None，理论上不会调用（任务已被过滤）
                 # 加 None check 双重保险
