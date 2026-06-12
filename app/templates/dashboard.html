@@ -198,12 +198,22 @@
     }
 
     // ── Process & render by source ───────────────────────────────────
+    // 2026-06-12 默认只显示的子分类 (招标公告 + 采购公告)
+    // 避免 dashboard 出现 中标结果公示/答疑补造 等重复信息淹没主表
+    // 用户可改 ALLOWED_SUB_TYPES 或在 console 调 setAllowedSubTypes(arr)
+    var ALLOWED_SUB_TYPES = ['招标公告', '采购公告'];
+
     function processBySource() {
         var filtered = filterType === 'all'
             ? projects
             : projects.filter(function(p) { return p.business_type === filterType; });
 
-        // 子分类过滤 (与业务大类叠加)
+        // 默认子分类白名单 (始终生效)
+        if (ALLOWED_SUB_TYPES && ALLOWED_SUB_TYPES.length > 0) {
+            filtered = filtered.filter(function(p) { return ALLOWED_SUB_TYPES.indexOf(p.tender_type) >= 0; });
+        }
+
+        // 子分类过滤 (与业务大类 + 白名单叠加)
         if (filterSubType) {
             filtered = filtered.filter(function(p) { return p.tender_type === filterSubType; });
         }
