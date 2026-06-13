@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import routes_n8n, routes_users
 from app.api.routes.system import router as system_router
+from app.core.safety_guard import check_production_safety
 from app.api.metrics import router as metrics_router
 from app.api.routes import api_router
 from app.api.routes.document_upload import router as document_upload_router
@@ -182,4 +183,6 @@ async def health_check():
 # /metrics 和 /metrics/* 子路由现在全部由 FastAPI 自身处理（见上方 app.include_router）
 
 if __name__ == "__main__":
+    # P0-3: production 环境 startup 安全断言 (defense-in-depth)
+    check_production_safety()
     uvicorn.run(app, host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", 9099)))
