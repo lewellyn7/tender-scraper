@@ -270,7 +270,8 @@ services:
         max-size: 100m
         max-file: "5"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import redis; r=redis.from_url('redis://:CHANGE_ME_redis_password@redis:6379/0'); r.ping(); exit(0)\" || exit 1"]
+      # P1-2: 优先打 /health/live (inspect collector 状态), 退化到 redis.ping()
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/live', timeout=2)\" || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
