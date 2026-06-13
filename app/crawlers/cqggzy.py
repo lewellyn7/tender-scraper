@@ -585,7 +585,14 @@ class CQGGZYCrawlerV2(BaseCrawler):
         except Exception:
             pass
 
+        # 2026-06-13 修复: 'div.app-detail' 加到最前面
+        # 原因: CQGGZY 详情页有多个 .content 元素，第一个只是"招标条件"段落(~180 字符)
+        #       .app-detail 是 CQGGZY 详情页官方正文容器，包含完整 H1 + 表格 (~2300+ 字符)
+        #       query_selector 取第一个匹配 → 之前只抓 180 字符就退出
+        # 注意: 答疑补遗页面本身就是短(~30-100 字符 "详见附件"), 用 > 20 阈值让 .app-detail 命中
+        #       (答疑补遗 .app-detail 也只含 "详见附件 + 附件列表", ~80-200 字符)
         selectors = [
+            "div.app-detail",  # 优先：CQGGZY 详情页官方正文容器 (含 H1 + 全部表格/附件)
             ".epoint-article-content", "#mainContent", ".epoint-article",
             ".content", ".article", ".detail-content", "#content",
             ".main-content", ".text-content", ".news-content",
@@ -609,7 +616,7 @@ class CQGGZYCrawlerV2(BaseCrawler):
                         from app.utils.clean_noise import make_content_preview
                         tender.full_content = full
                         tender.content_preview = make_content_preview(full, tender.title)
-                        logger.info(f"  ✅ 正文提取成功 ({len(full)} 字)")
+                        logger.info(f"  ✅ 正文提取成功 ({len(full)} 字) [{selector}]")
                         return
             except Exception:
                 continue
