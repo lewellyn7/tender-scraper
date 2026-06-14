@@ -25,6 +25,7 @@ from loguru import logger
 
 from app.core.browser import StealthBrowser
 from app.core.harvest.smart_scheduler import CrawlTask, SmartScheduler, TaskStatus
+from app.core.safety_guard import check_production_safety
 from app.core.session_memory import SessionMemory, SessionMemoryConfig
 from app.crawlers.cqggzy import CQGGZYCrawlerV2
 from app.crawlers.ccgp import CCGPCrawlerV3
@@ -580,4 +581,6 @@ def main():
 
 
 if __name__ == "__main__":
+    # P0-3: production 环境 startup 安全断言 (defense-in-depth)
+    check_production_safety()
     main()
