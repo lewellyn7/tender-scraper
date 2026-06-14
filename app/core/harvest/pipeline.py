@@ -34,6 +34,7 @@ from app.core.harvest.vectorize import _upsert_to_vector_store
 from app.core.session_memory import SessionMemory, SessionMemoryConfig
 from app.crawlers.ccgp import CCGPCrawlerV3
 from app.crawlers.cqggzy import CQGGZYCrawlerV2
+from app.database.db import get_db
 from app.services.vector_store import get_vector_store_indexed
 from app.utils.filter import TenderFilter
 from app.utils.report import ReportGenerator

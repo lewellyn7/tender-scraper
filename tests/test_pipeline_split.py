@@ -235,6 +235,8 @@ class TestAllImportsRequired:
         # 试着 import 所有可能的符号
         symbols = ["os", "asyncio", "json", "time", "datetime", "timedelta", "logger",
                    "StealthBrowser", "_build_crawl_task", "CrawlTask", "SmartScheduler",
+                   "get_db",
+                   "get_vector_store_indexed", "TenderFilter", "ReportGenerator", "settings",
                    "TaskStatus", "_upsert_to_vector_store", "SessionMemory",
                    "SessionMemoryConfig", "CCGPCrawlerV3", "CQGGZYCrawlerV2",
                    "get_vector_store_indexed", "TenderFilter", "ReportGenerator", "settings",
