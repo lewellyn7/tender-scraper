@@ -21,6 +21,7 @@
 """
 import asyncio
 import json
+import os
 import time
 from datetime import datetime, timedelta
 
@@ -38,11 +39,15 @@ from app.utils.filter import TenderFilter
 from app.utils.report import ReportGenerator
 from config.settings import settings
 
+
+
 # 采集源开关（2026-06-02 决策，与原 main.py 一致）
 ENABLE_CCGP = False  # 设为 True 重新启用 CCGP 采集（需先修复 XHR 端点问题）
 
 
 # ── 以下代码 100% 等价于 main.py:119-569，仅 imports 调整 ──────────────
+
+
 async def run_collection():
     """执行一次完整的数据采集任务"""
     logger.info("=" * 60)
@@ -183,7 +188,6 @@ async def run_collection():
             all_sorted = sorted(matched_items, key=_sort_key)
 
             # 重新按来源均衡
-            from collections import defaultdict
             by_source_sorted = defaultdict(list)
             for item in all_sorted:
                 src = "ccgp" if (hasattr(item, "source_url") and "ccgp" in (item.source_url or "")) else "cqggzy"
@@ -387,7 +391,6 @@ async def run_collection():
                 except Exception as e:
                     logger.warning(f"  ⚠️ 详情采集失败 [{task.task_id}]: {e}")
                     try:
-                        from app.services.health_monitor import get_health_monitor
                         latency_ms = (time.monotonic() - t0) * 1000
                         get_health_monitor().record_crawl_fail(latency_ms)
                     except Exception:
@@ -450,7 +453,6 @@ async def run_collection():
 
         # 11. 写入 PostgreSQL（projects_cqggzy 表）
         try:
-            from app.database.db import get_db
             db = get_db()
             db.upsert_projects(standardized_all)
             logger.info(f"📦 PostgreSQL 写入：{len(standardized_all)} 条")

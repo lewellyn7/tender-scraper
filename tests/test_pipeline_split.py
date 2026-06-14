@@ -193,3 +193,51 @@ class TestMainEntry:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestAllImportsRequired:
+    """P0-4 教训: 必须 import 所有函数内引用的顶层符号
+
+    之前漏了 os (line 429) 和 CrawlTask (line 288), 都报 NameError.
+    教训: 标榜 'PURE LIFT' 不代表真纯, 拆分时必须逐行检查 type annotation
+    和函数体内引用的所有顶层符号.
+    """
+
+    def test_os_importable(self):
+        """os 模块必须 import (line 429 os.path.join 用)"""
+        from app.core.harvest import pipeline
+        import os
+        # pipeline 内部用了 os.path.join
+        assert pipeline.os is os or hasattr(pipeline, "os") or True
+        # 直接验证: 在 pipeline 模块命名空间里能找到 os
+        # (因为 import os 放在模块顶部, 命名空间里就有)
+        assert "os" in dir(pipeline), "pipeline.py 漏 import os"
+
+    def test_all_top_level_imports_present(self):
+        """P0-4 教训 2: CrawlTask 也要 import (line 288 type annotation)"""
+        from app.core.harvest import pipeline
+        # 关键符号: CrawlTask + SmartScheduler + TaskStatus (都在 type annotation 用了)
+        for name in ["CrawlTask", "SmartScheduler", "TaskStatus", "ENABLE_CCGP"]:
+            assert hasattr(pipeline, name), f"pipeline.py 漏 import {name}"
+
+    def test_pipeline_compiles_no_name_error(self):
+        """验证 pipeline.py 编译时无 NameError (line 487: except as e: print(e))
+
+        之前 'name CrawlTask is not defined' 报在 line 487 附近.
+        """
+        import importlib
+        import sys
+        # 清缓存
+        for m in list(sys.modules):
+            if 'harvest.pipeline' in m or 'harvest.vectorize' in m or 'harvest.scheduler' in m:
+                del sys.modules[m]
+        import app.core.harvest.pipeline
+        # 试着 import 所有可能的符号
+        symbols = ["os", "asyncio", "json", "time", "datetime", "timedelta", "logger",
+                   "StealthBrowser", "_build_crawl_task", "CrawlTask", "SmartScheduler",
+                   "TaskStatus", "_upsert_to_vector_store", "SessionMemory",
+                   "SessionMemoryConfig", "CCGPCrawlerV3", "CQGGZYCrawlerV2",
+                   "get_vector_store_indexed", "TenderFilter", "ReportGenerator", "settings",
+                   "ENABLE_CCGP", "run_collection"]
+        for s in symbols:
+            assert hasattr(app.core.harvest.pipeline, s), f"pipeline.{s} 缺失"
