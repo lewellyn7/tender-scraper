@@ -28,7 +28,7 @@ from loguru import logger
 
 from app.core.browser import StealthBrowser
 from app.core.harvest.scheduler import _build_crawl_task
-from app.core.harvest.smart_scheduler import SmartScheduler, TaskStatus
+from app.core.harvest.smart_scheduler import CrawlTask, SmartScheduler, TaskStatus
 from app.core.harvest.vectorize import _upsert_to_vector_store
 from app.core.session_memory import SessionMemory, SessionMemoryConfig
 from app.crawlers.ccgp import CCGPCrawlerV3

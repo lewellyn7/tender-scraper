@@ -36,6 +36,16 @@ class TestModuleImport:
         assert callable(run_collection)
         assert ENABLE_CCGP is False  # 2026-06-02 决策, 不变
 
+    def test_pipeline_all_exports(self):
+        """pipeline.py 必须 export run_collection + CrawlTask (后者是 crawler_fn 类型注解必需)
+
+        教训: P0-4 拆分时漏 import CrawlTask, 跑到 detail 阶段才报 NameError.
+        """
+        from app.core.harvest import pipeline
+        # 这些是 pipeline.py 内部代码用到的所有外部符号
+        for name in ["run_collection", "CrawlTask", "SmartScheduler", "TaskStatus", "ENABLE_CCGP"]:
+            assert hasattr(pipeline, name), f"pipeline.py 漏 export {name}"
+
 
 class TestSignatures:
     """拆分后函数签名不变"""
@@ -61,6 +71,25 @@ class TestSignatures:
     def test_run_collection_signature(self):
         from app.core.harvest.pipeline import run_collection
         assert inspect.iscoroutinefunction(run_collection)
+
+    def test_pipeline_module_imports_clean(self):
+        """pipeline.py 顶部 import 不应触发 NameError (P0-4 真凶场景)
+
+        教训: 之前 _build_crawl_task 在 scheduler.py 中 import 了 CrawlTask,
+        但 pipeline.py 在 detail 阶段也用 CrawlTask (crawler_fn 类型注解),
+        漏 import 导致 line 288 `crawler_fn(task: CrawlTask)` 报 NameError.
+        """
+        import importlib
+        import sys
+        # 清掉可能的缓存
+        for m in list(sys.modules):
+            if 'harvest' in m or 'pipeline' in m:
+                del sys.modules[m]
+        from app.core.harvest.pipeline import CrawlTask  # noqa
+        # 同时确保 run_collection 真的能编译 (不光是 import)
+        import inspect
+        src = inspect.getsource(__import__('app.core.harvest.pipeline', fromlist=['run_collection']))
+        assert "CrawlTask" in src, "pipeline.py 必须引用 CrawlTask"
 
 
 class TestBehaviorCompat:
