@@ -129,6 +129,11 @@ class CollectorWorker:
                     logger.info(f"[Collector] 收到触发: {payload}")
                     result = await loop.run_in_executor(None, _run_collection_sync)
                     _publish_result(result)
+                    # P1-2: 更新 health state
+                    from app.workers.collector_health import CollectorState
+                    status = result.get("status", "ok") if isinstance(result, dict) else "ok"
+                    count = result.get("total", 0) if isinstance(result, dict) else 0
+                    CollectorState.record_crawl(status, count=count)
                 except json.JSONDecodeError:
                     logger.warning(f"[Collector] 非 JSON 消息: {message['data']}")
         except Exception as e:
@@ -180,15 +185,22 @@ def trigger_collection(blocking: bool = False) -> dict:
 
 def main():
     import signal
+    from app.workers.collector_health import start_health_server, stop_health_server
+
     worker = CollectorWorker()
 
     def signal_handler(sig, frame):
         logger.info(f"[Collector] 收到信号 {sig}，停止中...")
         worker.stop()
+        stop_health_server()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+
+    # P1-2: 启动 health server (端口 8001) — docker healthcheck 探针
+    health_port = int(os.getenv("COLLECTOR_HEALTH_PORT", "8001"))
+    start_health_server(host="0.0.0.0", port=health_port)
 
     worker.start(blocking=True)
 
