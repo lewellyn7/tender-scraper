@@ -82,6 +82,7 @@ services:
     - MINIMAX_BASE_URL=https://api.minimax.chat/v1
     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-lewellyn}
     - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-team}
     - VECTOR_STORE_BACKEND=pgvector
     extra_hosts:
