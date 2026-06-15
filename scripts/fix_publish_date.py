@@ -41,8 +41,11 @@ DB_CONFIG = {
     'password': os.environ.get('DB_PASSWORD', ''),
 }
 
-# info_type 白名单: 只回填"原始公告"类型, 排除含"首次公告日期"引用的变更公告
-INFO_TYPE_WHITELIST = ('采购公告', '招标公告', '答疑补遗')
+# info_type 白名单: 全部 info_type
+# 2026-06-15 v2 修复: 第一次脚本白名单太严 (只有采购公告/招标公告/答疑补遗),
+# 导致 333 条 (173 变更公告 + 99 招标公告外的 + 45 采购结果 + 7 中标结果 + 6 中标候选人 + 2 招标计划 + 1 终止) 未修复
+# 验证: 变更公告里"首次公告日期: 2025-X-X"会被新逻辑正确提取 (最早优先, 在"更正日期"前)
+INFO_TYPE_WHITELIST = None  # None = 全部, 也可显式列 ('采购公告', '招标公告', '答疑补遗', '变更公告', '采购结果公告', '中标结果公示', '中标候选人公示', '招标计划', '终止公告')
 
 
 def main():
@@ -75,25 +78,35 @@ def main():
     conn.commit()
 
     # 2. 拉受影响记录
-    placeholders = ','.join(['%s'] * len(INFO_TYPE_WHITELIST))
-    sql = f'''
-        SELECT id, title, publish_date, full_content, created_at
-        FROM projects_cqggzy
-        WHERE publish_date_raw IS NULL
-          AND full_content IS NOT NULL AND full_content != ''
-          AND info_type IN ({placeholders})
-        ORDER BY id
-    '''
-    if args.limit:
-        sql += f' LIMIT {args.limit}'
-    cur.execute(sql, INFO_TYPE_WHITELIST)
+    if INFO_TYPE_WHITELIST is None:
+        sql = '''
+            SELECT id, title, publish_date, full_content, created_at, info_type
+            FROM projects_cqggzy
+            WHERE publish_date_raw IS NULL
+              AND full_content IS NOT NULL AND full_content != ''
+            ORDER BY id
+        '''
+        cur.execute(sql)
+    else:
+        placeholders = ','.join(['%s'] * len(INFO_TYPE_WHITELIST))
+        sql = f'''
+            SELECT id, title, publish_date, full_content, created_at, info_type
+            FROM projects_cqggzy
+            WHERE publish_date_raw IS NULL
+              AND full_content IS NOT NULL AND full_content != ''
+              AND info_type IN ({placeholders})
+            ORDER BY id
+        '''
+        if args.limit:
+            sql += f' LIMIT {args.limit}'
+        cur.execute(sql, INFO_TYPE_WHITELIST)
     records = cur.fetchall()
     print(f'→ 待处理: {len(records)} 条\n')
 
     stats = {'updated': 0, 'unchanged': 0, 'would_future': 0, 'no_extract': 0, 'skipped': 0}
     samples = []
 
-    for rid, title, old_pd, content, created_at in records:
+    for rid, title, old_pd, content, created_at, itype in records:
         new_pd = _extract_publish_date_from_content(content or '')
         if new_pd is None:
             stats['no_extract'] += 1
@@ -102,8 +115,14 @@ def main():
             stats['unchanged'] += 1
             continue
         if new_pd > created_at.date():
-            stats['would_future'] += 1
-            continue
+            # 允许 new_pd <= created_at + 2天 (created_at 是采集日, 公告当天/后1-2天发布正常)
+            # 4 条 original future 案例: new_pd=6-9/6-10, created_at=6-8/6-9, 实际合理
+            from datetime import timedelta
+            if new_pd <= created_at.date() + timedelta(days=2):
+                pass  # 允许
+            else:
+                stats['would_future'] += 1
+                continue
 
         # 需要更新
         if not args.dry_run:
