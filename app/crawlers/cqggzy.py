@@ -772,13 +772,18 @@ class CQGGZYCrawlerV2(BaseCrawler):
 # ─── 全局 helper 函数 (模块级) ────────────────────────────────────────────────
 
 def _extract_publish_date_from_content(content: str):
-    """从正文提取发布日期 (兜底，列表阶段 URL 没提时会用).
+    """从正文提取公告发布日期 (兜底，列表阶段 infodate 未填时用).
 
-    规则:
-    - 优先 '发布日期 [：:]\s*20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?'
-    - 次选 '公告时间 [：:]\s*20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?'
-    - 再次 '日期 [：:]\s*20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?'
-    - 纯文本兜底：'20\d{2}年\d{1,2}月\d{1,2}日' 或 '20\d{2}-\d{1,2}-\d{1,2}'
+    2026-06-15 修复: 原版用 re.search 全文第一个匹配, 014005 政府采购公告正文
+    通常以 "于 2026年X月X日 14:00 前递交投标文件" 开头 → 投标截止日期先匹配
+    → 错误地把截止日期当成公告日期.
+
+    新规则 (按优先级):
+    1. 带"发布日期/公告时间/公告日期"标签的日期 (跳过黑名单前缀: 截止/开标/递交/截标/截稿)
+    2. 带"日期"标签的日期 (同样跳过黑名单前缀)
+    3. 兜底: 找正文里所有 20\\d{2}年\\d{1,2}月\\d{1,2}日 / 20\\d{2}-\\d{1,2}-\\d{1,2},
+       按位置**最早**优先, 跳过黑名单 + 跳过"X 至/到 Y"范围格式中的 Y 结束日期
+       (公告日期通常在文件最前段; 截止/开标日期在中后段; 范围 Y 是截止/工作期结束)
 
     返回：date 对象 或 None
     """
@@ -786,28 +791,91 @@ def _extract_publish_date_from_content(content: str):
         return None
     import datetime as dt_mod
     import re
-    patterns_date = [
-        (r'发布日期 [：:]\s*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?)', 'label'),
-        (r'公告时间 [：:]\s*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?)', 'label'),
-        (r'日期 [：:]\s*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?)', 'label'),
-        (r'(20\d{2}年\d{1,2}月\d{1,2}日)', 'cn'),
-        (r'(20\d{2}-\d{1,2}-\d{1,2})', 'iso'),
+
+    # 黑名单: 这些前缀后的日期不应被采纳 (通常是截止/开标/递交/截标时间)
+    _BLACKLIST = ('截止', '开标', '递交', '截标', '截稿')
+
+    def _parse_date_str(raw: str):
+        """解析日期字符串, 多种格式兼容"""
+        if not raw:
+            return None
+        try:
+            if '年' in raw and '月' in raw:
+                # 2026年6月26日 / 2026 年 6 月 26 日
+                cleaned = raw.replace(' ', '').replace('年', '-').replace('月', '-').rstrip('日')
+                return dt_mod.datetime.strptime(cleaned, '%Y-%m-%d').date()
+            elif '-' in raw:
+                return dt_mod.datetime.strptime(raw, '%Y-%m-%d').date()
+        except Exception:
+            return None
+        return None
+
+    def _is_blacklisted(content: str, match_start: int) -> bool:
+        """检查匹配位置前 10 字符是否含黑名单前缀
+
+        10 字符窗口: '截止时间：' (4 字+冒号) / '开标日期：' (4 字+冒号) 完整覆盖
+        但不会误伤隔了其他内容的"发布日期"标签 (中间有 8+ 字符)
+        """
+        prefix = content[max(0, match_start - 10):match_start]
+        return any(b in prefix for b in _BLACKLIST)
+
+    def _is_range_end(content: str, match_start: int) -> bool:
+        """检查该日期是否是"X 至/到 Y"范围格式中的 Y (结束日期).
+
+        真实场景: '获取文件期限：2026年6月9日 至 2026年6月16日'
+                  → 6-9 是公告/开始日 (采纳), 6-16 是范围结束日 (跳过)
+
+        检测: 匹配位置前 3 字符内含 '至'/'到 '/'~'/'～'/'—' → 是 Y 结束日期.
+        """
+        prefix = content[max(0, match_start - 3):match_start]
+        return any(s in prefix for s in ('至', '到 ', '~', '～', '—'))
+
+    def _is_followed_by_blacklisted(content: str, match_end: int) -> bool:
+        """检查该日期后 20 字符是否含"截止/开标/递交/截标/截稿"等时间词.
+
+        真实场景: '于 2026年7月1日 14:00 前递交投标文件'
+                  → 7-1 是截止时间 (跳过), 不是公告日期
+
+        也检测 '于 X' 模式: '于' 是中文时间介词, 通常引出截止/开始时间
+        """
+        suffix = content[match_end:match_end + 20]
+        keywords = ('截止', '开标', '递交', '截标', '截稿', '前', '后', '时止')
+        return any(k in suffix for k in keywords)
+
+    # --- 规则 1-2: 带明确标签 ---
+    label_patterns = [
+        r'发布日期\s*[：:]\s*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?)',
+        r'公告时间\s*[：:]\s*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?)',
+        r'公告日期\s*[：:]\s*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?)',
+        r'日期\s*[：:]\s*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}[日]?)',
     ]
-    for ptn, fmt in patterns_date:
-        mm = re.search(ptn, content)
-        if mm:
-            raw = mm.group(1)
-            try:
-                if fmt == 'cn':
-                    return dt_mod.datetime.strptime(raw, '%Y年%m月%d日').date()
-                elif fmt == 'iso':
-                    return dt_mod.datetime.strptime(raw, '%Y-%m-%d').date()
-                else:
-                    # label：可能是 '2026 年 6 月 26 日' 或 '2026-06-26'
-                    if '年' in raw and '月' in raw:
-                        return dt_mod.datetime.strptime(raw.replace('年', '-').replace('月', '-').rstrip('日'), '%Y-%m-%d').date()
-                    elif '-' in raw:
-                        return dt_mod.datetime.strptime(raw, '%Y-%m-%d').date()
-            except Exception:
-                continue
+    # 标签本身是明确语义 ("发布日期"/"公告日期" = 公告日期), 不走黑名单
+    for ptn in label_patterns:
+        for m in re.finditer(ptn, content):
+            d = _parse_date_str(m.group(1))
+            if d:
+                return d
+
+    # --- 规则 3: 兜底 (按位置最早优先, 跳过黑名单 + 范围 Y 结束) ---
+    bare_patterns = [
+        r'(20\d{2}年\d{1,2}月\d{1,2}日)',
+        r'(20\d{2}-\d{1,2}-\d{1,2})',
+    ]
+    all_matches = []
+    for ptn in bare_patterns:
+        for m in re.finditer(ptn, content):
+            all_matches.append(m)
+    # 按位置升序 (最早优先): 公告日期通常在文件最前段, 截止日期在中后段
+    all_matches.sort(key=lambda m: m.start())
+    for m in all_matches:
+        if _is_blacklisted(content, m.start()):
+            continue
+        if _is_range_end(content, m.start()):
+            continue
+        if _is_followed_by_blacklisted(content, m.end()):
+            continue
+        d = _parse_date_str(m.group(1))
+        if d:
+            return d
+
     return None
