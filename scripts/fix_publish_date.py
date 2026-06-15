@@ -108,10 +108,21 @@ def main():
 
     for rid, title, old_pd, content, created_at, itype in records:
         new_pd = _extract_publish_date_from_content(content or '')
+        use_fallback = False
         if new_pd is None:
-            stats['no_extract'] += 1
-            continue
-        if new_pd == old_pd:
+            # 2026-06-15 v3 增强: fc 里无明确公告日时, 用 created_at::date 兑底
+            # 现象: 150 条 "采购结果公告" fc 里0个日期 (模板页无公告日标签) + 1 条 613078 (1个被黑名单挡)
+            # created_at = 采集日 ≈ 公告发布日, 列表 API 看到即入 DB
+            # 保护: info_type in 结果类 (这类公告 fc 里常没有日期) + created_at > 今天 - 180 天
+            from datetime import date
+            if itype in ('采购结果公告', '中标结果公示', '中标候选人公示', '终止公告') and (date.today() - created_at.date()).days <= 180:
+                new_pd = created_at.date()
+                use_fallback = True
+                stats['no_extract'] += 1
+            else:
+                stats['no_extract'] += 1
+                continue
+        if new_pd == old_pd and not use_fallback:
             stats['unchanged'] += 1
             continue
         if new_pd > created_at.date():
