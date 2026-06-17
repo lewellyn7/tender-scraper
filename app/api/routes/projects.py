@@ -237,16 +237,27 @@ def _clear_cache():
 
 
 def _get_last_run():
-    """从 PostgreSQL 获取最近采集时间"""
+    """从 PostgreSQL 获取最近采集时间
+
+    6-17 修复: collection_tasks.last_run_at 全为 NULL（采集器从未写入），
+    fallback 到 projects_cqggzy.created_at 作为项目级别的"最近采集"代理。
+    TODO: 待 collector 写入 collection_tasks.last_run_at 后移除 fallback。
+    """
     try:
         db = get_db()
         conn = db._get_conn()
         cur = conn.cursor()
         cur.execute("SELECT MAX(last_run_at) FROM collection_tasks WHERE last_run_at IS NOT NULL")
         row = cur.fetchone()
-        cur.close()
         if row and row[0]:
+            cur.close()
             return str(row[0])
+        # Fallback: 用 projects_cqggzy.created_at 作为代理（DB 启动以来最近的项目采集时间）
+        cur.execute("SELECT MAX(created_at) FROM projects_cqggzy")
+        row2 = cur.fetchone()
+        cur.close()
+        if row2 and row2[0]:
+            return str(row2[0])
     except Exception:
         pass
     return "-"

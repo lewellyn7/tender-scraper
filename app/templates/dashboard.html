@@ -122,6 +122,11 @@
     // ── Init ──────────────────────────────────────────────────────────
     function initData() {
         document.getElementById('skeletonLoader').style.display = 'grid';
+        // 6-17 修复: 并行拉取 favorites 总数（与 projects 同步）
+        var favPromise = fetch('/api/favorites?limit=1', {headers: authHeaders()})
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(d) { return d && typeof d.total === 'number' ? d.total : null; })
+            .catch(function() { return null; });
         fetch('/api/projects?page_size=1000', {headers: authHeaders()})
             .then(function(res) { return res.json(); })
             .then(function(data) {
@@ -139,12 +144,18 @@
                 console.error('加载数据失败:', e);
                 document.getElementById('skeletonLoader').style.display = 'none';
             });
+        favPromise.then(function(n) { updateFavoritesCount(n); });
     }
 
     // ── Update stat cards ────────────────────────────────────────────
     function updateStats(stats) {
         document.getElementById('statFiltered').textContent = stats.filtered;
         document.getElementById('statLastRun').textContent = stats.last_run;
+    }
+    // 6-17 修复: 加 statFavorites 更新（与 /api/projects 并行拉取）
+    function updateFavoritesCount(n) {
+        var el = document.getElementById('statFavorites');
+        if (el) el.textContent = (n == null ? '-' : n);
     }
 
     // ── Bind filter button counts ─────────────────────────────────────
@@ -527,8 +538,10 @@
         impPages[sourceName] = page + 1;
         renderSourceGroups();
     };
-    // slider 拖动: 只同步 input + info + state, 完全不渲染
-    // (onchange / 松手时 impGo 才渲染, 彻底避免拖动时卡顿)
+    // slider 拖动: 只同步 input + info, 不更新 state 不渲染
+    // (onchange / 松手时 impGo 才更新 state + 渲染, 彻底避免拖动时卡顿)
+    // 6-17 修复: 不再在 oninput 里提前 impPages[sourceName]=page, 否则
+    //  impGo 检查 page === impPages[...] 会认为没变, 直接 return, slider 永远不重渲染
     window.impSliderInput = function(sourceName, val) {
         var page = parseInt(val, 10);
         if (isNaN(page)) return;
@@ -543,9 +556,7 @@
             var totalImpPages = Math.max(1, Math.ceil(source.important.length / impPageSize));
             info.textContent = '第 ' + page + ' / ' + totalImpPages + ' 页，共 ' + source.important.length + ' 条';
         }
-        // 更新 state (onchange 时 impGo 会从 state 取值再渲染)
-        impPages[sourceName] = page;
-        // ⚠️ 不调 renderSourceGroups, 不节流, 完全不渲染
+        // ⚠️ 不更新 impPages, 不调 renderSourceGroups (onchange 时 impGo 会取 slider value 重渲染)
     };
     // 数字 input 失焦: 越界回滚到 currentPage
     window.impClamp = function(sourceName) {
