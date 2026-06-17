@@ -237,10 +237,14 @@ def _clear_cache():
 
 
 def _get_last_run():
-    """从 PostgreSQL 获取最近采集时间
+    """从 PostgreSQL 获取最近采集时间（按 Asia/Shanghai 时区显示）
 
-    6-17 修复: collection_tasks.last_run_at 全为 NULL（采集器从未写入），
-    fallback 到 projects_cqggzy.created_at 作为项目级别的"最近采集"代理。
+    6-17 修复:
+    1. collection_tasks.last_run_at 全为 NULL（采集器从未写入），
+       fallback 到 projects_cqggzy.created_at。
+    2. created_at 列是 timestamp without tz，PG 视其为 session tz (UTC) wall clock，
+       直接 str() 返回的是 UTC 时间。Dashboard 需要 Shanghai wall clock。
+       SQL 端用双重 AT TIME ZONE 转换: timestamp→timestamptz(UTC)→wall clock(Shanghai)。
     TODO: 待 collector 写入 collection_tasks.last_run_at 后移除 fallback。
     """
     try:
@@ -252,12 +256,16 @@ def _get_last_run():
         if row and row[0]:
             cur.close()
             return str(row[0])
-        # Fallback: 用 projects_cqggzy.created_at 作为代理（DB 启动以来最近的项目采集时间）
-        cur.execute("SELECT MAX(created_at) FROM projects_cqggzy")
+        # Fallback: projects_cqggzy.created_at (timestamp without tz, 视为 UTC)
+        # 转换为 Asia/Shanghai wall clock 字符串
+        cur.execute(
+            "SELECT (MAX(created_at) AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::text "
+            "FROM projects_cqggzy"
+        )
         row2 = cur.fetchone()
         cur.close()
         if row2 and row2[0]:
-            return str(row2[0])
+            return row2[0]
     except Exception:
         pass
     return "-"
