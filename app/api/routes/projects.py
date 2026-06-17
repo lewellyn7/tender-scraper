@@ -237,16 +237,35 @@ def _clear_cache():
 
 
 def _get_last_run():
-    """从 PostgreSQL 获取最近采集时间"""
+    """从 PostgreSQL 获取最近采集时间（按 Asia/Shanghai 时区显示）
+
+    6-17 修复:
+    1. collection_tasks.last_run_at 全为 NULL（采集器从未写入），
+       fallback 到 projects_cqggzy.created_at。
+    2. created_at 列是 timestamp without tz，PG 视其为 session tz (UTC) wall clock，
+       直接 str() 返回的是 UTC 时间。Dashboard 需要 Shanghai wall clock。
+       SQL 端用双重 AT TIME ZONE 转换: timestamp→timestamptz(UTC)→wall clock(Shanghai)。
+    TODO: 待 collector 写入 collection_tasks.last_run_at 后移除 fallback。
+    """
     try:
         db = get_db()
         conn = db._get_conn()
         cur = conn.cursor()
         cur.execute("SELECT MAX(last_run_at) FROM collection_tasks WHERE last_run_at IS NOT NULL")
         row = cur.fetchone()
-        cur.close()
         if row and row[0]:
+            cur.close()
             return str(row[0])
+        # Fallback: projects_cqggzy.created_at (timestamp without tz, 视为 UTC)
+        # 转换为 Asia/Shanghai wall clock 字符串
+        cur.execute(
+            "SELECT (MAX(created_at) AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::text "
+            "FROM projects_cqggzy"
+        )
+        row2 = cur.fetchone()
+        cur.close()
+        if row2 and row2[0]:
+            return row2[0]
     except Exception:
         pass
     return "-"
@@ -457,10 +476,40 @@ def get_stats(request: Request):
     get_current_user_id_required(request)  # require auth
     db = get_db()
     projects, total = _load_projects()
+    # 6-17 修复: 今日新增 + 本周采集 + 详情完整率
+    from datetime import datetime, timezone, timedelta
+    tz_sh = timezone(timedelta(hours=8))
+    now_sh = datetime.now(tz_sh)
+    today_str = now_sh.date().isoformat()
+    # ISO 周一为周首 (weekday(): Mon=0..Sun=6)
+    week_start = now_sh.date() - timedelta(days=now_sh.weekday())
+    week_start_str = week_start.isoformat()
+    today_count = sum(
+        1 for p in projects
+        if p.get("publish_date") and str(p.get("publish_date")).startswith(today_str)
+    )
+    weekly_count = sum(
+        1 for p in projects
+        if p.get("publish_date") and str(p.get("publish_date")) >= week_start_str
+    )
+    # 详情完整率（最近 7 天 publish_date 中 full_content 非空占比）
+    # TODO: 这是代理指标，crawl_executions/task_executions 暂无数据
+    # 真正"采集成功率"待 collector 写入这些表后切换
+    week_7_start = (now_sh.date() - timedelta(days=6)).isoformat()
+    recent = [p for p in projects
+              if p.get("publish_date") and str(p.get("publish_date")) >= week_7_start]
+    recent_fc = sum(1 for p in recent if p.get("full_content"))
+    detail_completeness = (
+        f"{(recent_fc / len(recent) * 100):.1f}%" if recent else "—"
+    )
     return JSONResponse(
         {
             "total": total,
             "filtered": len([p for p in projects if p.get("keywords_matched")]),
+            "today": today_count,
+            "weekly_count": weekly_count,
+            # 临时: 详情完整率代理成功率（DB 暂无真成功率数据）
+            "success_rate": detail_completeness,
             "last_run": _get_last_run(),
             "db_stats": {},
         }
