@@ -142,7 +142,7 @@
 (function() {
   // State
   const state = {
-    days: '365',
+    days: '30',
     stats: {},
     trend: {},
     budgetDist: {},
@@ -207,9 +207,9 @@ els.loadingEl.style.display = 'block';
   function updateSummary() {
     const s = state.stats.summary || {};
     if (els.statTotal) els.statTotal.textContent = s.total || 0;
-    els.budgetCount.textContent = state.budgetDist.reduce(function(r, n) { return r + (n.count || 0); }, 0);
-    els.govCount.textContent = '-';
-    els.engCount.textContent = '-';
+    if (els.govCount)   els.govCount.textContent   = s.gov_count   || 0;
+    if (els.engCount)   els.engCount.textContent   = s.eng_count   || 0;
+    if (els.budgetCount) els.budgetCount.textContent = s.budget_count || 0;
   }
 
   function getKwClass(count) {
