@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
+from loguru import logger
 import re
 from collections import Counter
 
@@ -237,147 +238,205 @@ router.get("")(get_analytics)
 def get_health():
     """健康度仪表盘
 
-    策略：
-    - HealthMonitor (in-memory) 提供当前进程采集指标
-    - DB 提供吞吐量/总计数（跨进程准）
-    - 两者合并：HealthMonitor 优先，throughput 从 DB 推算
+    策略 (2026-06-17 重构):
+    - 主数据源: 从 projects_cqggzy/projects_ccgp DB 推算 (跨进程准确)
+    - 兜底: in-memory HealthMonitor (进程内)
+    - trends_7d/trends_30d: DB 按日聚合, 不依赖内存快照
+
+    Bug 修复:
+    - crawl_avg_latency_ms: 用 scraped_at - publish_date 推算 (公告→入库时差)
+    - crawl_items_per_hour: 用 24h 总数 / 24 (避免 1h=0 误判)
+    - crawl_success_rate: 7 日 full_content 完整率
+    - trends_7d/trends_30d: DB 按日聚合
     """
     try:
-        from app.services.health_monitor import get_health_monitor
-        hm = get_health_monitor()
-        status = hm.get_current_status()
-
-        # 跨进程指标：从 DB 推算 throughput + stats
+        # 主数据源: DB 推算
         db_status = _compute_health_from_db()
-        if db_status:
-            db_throughput = db_status.get("metrics", {}).get("crawl_items_per_hour", {})
-            if db_throughput and db_throughput.get("value", 0) > 0:
-                status["metrics"]["crawl_items_per_hour"] = db_throughput
-            # 记录状态：并提供一个"24h 实际数据量" 便于前端展示
-            stats = db_status.get("stats", {})
-            if stats.get("records_per_day", 0) > 0:
-                status["metrics"]["records_per_day"] = {
-                    "value": stats["records_per_day"],
-                    "label": "24小时采集量",
-                    "target": 5000,
-                    "unit": "项/日",
-                    "score": min(100, (stats["records_per_day"] / 5000) * 100),
-                }
-                # 重算 overall_score（加上新指标）
-                scores = [m.get("score", 100) for m in status["metrics"].values()]
-                status["overall_score"] = round(sum(scores) / len(scores), 1)
-            status["stats"] = stats
-            status["data_source"] = "health_monitor+db"
-        else:
-            status["data_source"] = "health_monitor"
-        return JSONResponse(status)
+        if db_status and db_status.get("metrics"):
+            db_status["data_source"] = "db"
+            return JSONResponse(db_status)
+
+        # 兜底: in-memory HealthMonitor
+        try:
+            from app.services.health_monitor import get_health_monitor
+            hm = get_health_monitor()
+            status = hm.get_current_status()
+            status["data_source"] = "health_monitor_fallback"
+            return JSONResponse(status)
+        except Exception as e:
+            return JSONResponse({
+                "status": "ok",
+                "services": {},
+                "message": f"All health sources unavailable: {e}",
+                "data_source": "none",
+            })
     except Exception as e:
         return JSONResponse({
             "status": "ok",
             "services": {},
-            "message": f"Health monitor not available: {e}",
+            "message": f"Health check failed: {e}",
             "data_source": "none",
         })
 
 
 def _compute_health_from_db() -> dict:
-    """从 DB 推算健康度指标（兑底逻辑）。
+    """从 DB 推算健康度指标 (主数据源)
 
-    计算：
-    - crawl_items_per_hour: 过去 1 小时 project_records 增量
-    - crawl_success_rate: 采集成功率（这里简化为 1.0 假设都成功）
-    - crawl_avg_latency_ms: 0（DB 不存延迟）
+    计算 (基于 projects_cqggzy + projects_ccgp):
+    - crawl_items_per_hour: 24h 总数 / 24 = 平均项/时
+    - crawl_avg_latency_ms: AVG(scraped_at - publish_date) * 1000 (公告→入库时差, 7 日内 full_content)
+    - crawl_success_rate: COUNT(full_content) / COUNT(*) (7 日内)
+    - self_heal_rate / ban_escape_rate: 1.0 兜底 (DB 无事件, 未来落库再升级)
+    - trends_7d / trends_30d: 按日聚合 (从 projects_cqggzy)
     """
-    from app.database import get_db
-    from datetime import datetime, timedelta
-
     try:
-        db = get_db()
-        c = db._get_conn()
-        one_hour_ago = datetime.now() - timedelta(hours=1)
-        one_day_ago = datetime.now() - timedelta(days=1)
-
-        # 1 小时增量
-        cur = c.cursor()
-        # 尝试 PG（%s），失败回退 SQLite（?）
-        try:
-            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > %s", (one_hour_ago,))
-            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > %s", (one_day_ago,))
-        except Exception:
-            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > ?", (one_hour_ago,))
-            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > ?", (one_day_ago,))
-        # cur 现在指向最后一个查询（24h），重新查 1h
-        try:
-            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > %s", (one_hour_ago,))
-        except Exception:
-            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > ?", (one_hour_ago,))
-        rows_per_hour = cur.fetchone()[0]
-        try:
-            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > %s", (one_day_ago,))
-        except Exception:
-            cur.execute("SELECT COUNT(*) FROM project_records WHERE created_at > ?", (one_day_ago,))
-        rows_per_day = cur.fetchone()[0]
-
-        # 总量
-        cur.execute("SELECT COUNT(*) FROM project_records")
-        total_records = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM projects")
-        total_projects = cur.fetchone()[0]
-
-        # 计算 health score
         from app.services.health_monitor import HEALTH_METRICS
 
-        def _score(metric_key, value):
-            target = HEALTH_METRICS[metric_key]["target"]
-            config = HEALTH_METRICS[metric_key]
-            if metric_key in ("crawl_items_per_hour",):
-                # 越高越好
-                return min(100, (value / target) * 100) if target else 100
-            elif metric_key in ("crawl_avg_latency_ms",):
-                # 越低越好
-                return min(100, (target / max(value, 1)) * 100) if target else 100
-            else:
-                return min(100, max(0, (value / target) * 100)) if target else 100
+        db = get_db()
+        c = db._get_conn()
+        cur = c.cursor()
 
-        s_rate = _score("crawl_success_rate", 1.0)
-        s_latency = _score("crawl_avg_latency_ms", 0)
-        s_throughput = _score("crawl_items_per_hour", rows_per_hour)
-        s_heal = _score("self_heal_rate", 1.0)
-        s_ban = _score("ban_escape_rate", 1.0)
+        def _score(metric_key, value):
+            meta = HEALTH_METRICS.get(metric_key, {})
+            target = meta.get("target", 1)
+            direction = meta.get("direction", "higher")
+            if direction == "higher":
+                return min(100, max(0, (value / target) * 100)) if target else 100
+            else:  # lower is better
+                return min(100, max(0, (target / max(value, 1)) * 100)) if target else 100
+
+        # 1. 24h 吞吐 (跨表) - 避免 1h=0 误判
+        one_day_ago = datetime.now() - timedelta(days=1)
+        try:
+            cur.execute(
+                "SELECT COUNT(*) FROM projects_cqggzy WHERE created_at > %s",
+                (one_day_ago,),
+            )
+        except Exception:
+            cur.execute(
+                "SELECT COUNT(*) FROM projects_cqggzy WHERE created_at > ?",
+                (one_day_ago,),
+            )
+        rows_per_day_cqggzy = cur.fetchone()[0] or 0
+
+        try:
+            cur.execute(
+                "SELECT COUNT(*) FROM projects_ccgp WHERE created_at > %s",
+                (one_day_ago,),
+            )
+        except Exception:
+            try:
+                cur.execute(
+                    "SELECT COUNT(*) FROM projects_ccgp WHERE created_at > ?",
+                    (one_day_ago,),
+                )
+            except Exception:
+                rows_per_day_ccgp = 0
+            else:
+                rows_per_day_ccgp = cur.fetchone()[0] or 0
+        else:
+            rows_per_day_ccgp = cur.fetchone()[0] or 0
+        rows_per_day = rows_per_day_cqggzy + rows_per_day_ccgp
+        throughput = rows_per_day / 24.0  # 项/时 (24h 平均)
+
+        # 2. 平均采集延迟 - 公告→入库时差 (7 日内有 full_content)
+        try:
+            cur.execute("""
+                SELECT AVG(
+                    EXTRACT(EPOCH FROM (scraped_at::timestamp - publish_date::timestamp)) * 1000
+                )::bigint
+                FROM projects_cqggzy
+                WHERE publish_date IS NOT NULL
+                  AND scraped_at IS NOT NULL
+                  AND full_content IS NOT NULL AND full_content != ''
+                  AND scraped_at::timestamp > publish_date::timestamp
+                  AND created_at > NOW() - INTERVAL '7 days'
+            """)
+        except Exception:
+            cur.execute("""
+                SELECT AVG(
+                    (julianday(scraped_at) - julianday(publish_date)) * 86400 * 1000
+                )
+                FROM projects_cqggzy
+                WHERE publish_date IS NOT NULL
+                  AND scraped_at IS NOT NULL
+                  AND full_content IS NOT NULL AND full_content != ''
+                  AND scraped_at > publish_date
+                  AND created_at > datetime('now', '-7 days')
+            """)
+        latency_row = cur.fetchone()
+        latency_ms = float(latency_row[0]) if latency_row and latency_row[0] else 0.0
+
+        # 3. 采集成功率 - 7 日内 full_content 完整率
+        try:
+            cur.execute("""
+                SELECT
+                  COUNT(*) FILTER (WHERE full_content IS NOT NULL AND full_content != '') as with_fc,
+                  COUNT(*) as total
+                FROM projects_cqggzy
+                WHERE created_at > NOW() - INTERVAL '7 days'
+            """)
+        except Exception:
+            cur.execute("""
+                SELECT
+                  SUM(CASE WHEN full_content IS NOT NULL AND full_content != '' THEN 1 ELSE 0 END) as with_fc,
+                  COUNT(*) as total
+                FROM projects_cqggzy
+                WHERE created_at > datetime('now', '-7 days')
+            """)
+        fc_row = cur.fetchone()
+        with_fc = fc_row[0] or 0
+        total_7d = fc_row[1] or 0
+        success_rate = (with_fc / total_7d) if total_7d > 0 else 1.0
+
+        # 4. self_heal / ban_escape 兑底 (DB 无事件)
+        self_heal = 1.0
+        ban_escape = 1.0
+
+        # 5. 计算 health scores
+        s_rate = _score("crawl_success_rate", success_rate)
+        s_latency = _score("crawl_avg_latency_ms", latency_ms)
+        s_throughput = _score("crawl_items_per_hour", throughput)
+        s_heal = _score("self_heal_rate", self_heal)
+        s_ban = _score("ban_escape_rate", ban_escape)
         overall = round((s_rate + s_latency + s_throughput + s_heal + s_ban) / 5, 1)
+
+        # 6. trends_7d / trends_30d 按日聚合
+        trends_7d = _compute_daily_health_trends(cur, days=7)
+        trends_30d = _compute_daily_health_trends(cur, days=30)
 
         return {
             "metrics": {
                 "crawl_success_rate": {
-                    "value": 1.0,
+                    "value": round(success_rate, 4),
                     "label": "采集成功率",
                     "target": HEALTH_METRICS["crawl_success_rate"]["target"],
                     "unit": "%",
                     "score": s_rate,
                 },
                 "crawl_avg_latency_ms": {
-                    "value": 0.0,
+                    "value": round(latency_ms, 1),
                     "label": "平均采集延迟",
                     "target": HEALTH_METRICS["crawl_avg_latency_ms"]["target"],
                     "unit": "ms",
                     "score": s_latency,
                 },
                 "crawl_items_per_hour": {
-                    "value": rows_per_hour,
+                    "value": round(throughput, 2),
                     "label": "采集吞吐量",
                     "target": HEALTH_METRICS["crawl_items_per_hour"]["target"],
                     "unit": "项/时",
                     "score": s_throughput,
                 },
                 "self_heal_rate": {
-                    "value": 1.0,
+                    "value": self_heal,
                     "label": "自愈率",
                     "target": HEALTH_METRICS["self_heal_rate"]["target"],
                     "unit": "%",
                     "score": s_heal,
                 },
                 "ban_escape_rate": {
-                    "value": 1.0,
+                    "value": ban_escape,
                     "label": "封禁逃脱率",
                     "target": HEALTH_METRICS["ban_escape_rate"]["target"],
                     "unit": "%",
@@ -385,13 +444,96 @@ def _compute_health_from_db() -> dict:
                 },
             },
             "overall_score": overall,
+            "trends_7d": trends_7d,
+            "trends_30d": trends_30d,
             "stats": {
-                "records_per_hour": rows_per_hour,
+                "records_per_day_cqggzy": rows_per_day_cqggzy,
+                "records_per_day_ccgp": rows_per_day_ccgp,
                 "records_per_day": rows_per_day,
-                "total_records": total_records,
-                "total_projects": total_projects,
+                "success_rate_7d": round(success_rate, 4),
+                "avg_latency_ms_7d": round(latency_ms, 1),
             },
         }
     except Exception as e:
-        logger.warning(f"DB health fallback failed: {e}")
+        logger.warning(f"DB health compute failed: {e}")
         return {}
+
+
+def _compute_daily_health_trends(cur, days: int) -> list:
+    """按日聚合过去 N 天的健康度指标 (从 projects_cqggzy 推算)
+
+    返回 [{date, crawl_success_rate, crawl_avg_latency_ms, crawl_items_per_hour, overall_score}, ...]
+    """
+    try:
+        from app.services.health_monitor import HEALTH_METRICS
+    except ImportError:
+        HEALTH_METRICS = {}
+
+    def _score_higher(value, target):
+        if target <= 0:
+            return 100.0
+        return min(100, (value / target) * 100)
+
+    def _score_lower(value, target):
+        if value <= 0:
+            return 50.0
+        return min(100, (target / value) * 100)
+
+    target_rate = HEALTH_METRICS.get("crawl_success_rate", {}).get("target", 0.95)
+    target_latency = HEALTH_METRICS.get("crawl_avg_latency_ms", {}).get("target", 2000)
+    target_throughput = HEALTH_METRICS.get("crawl_items_per_hour", {}).get("target", 100)
+
+    try:
+        cur.execute(f"""
+            SELECT
+              DATE(created_at) as day,
+              COUNT(*) as total,
+              COUNT(*) FILTER (WHERE full_content IS NOT NULL AND full_content != '') as with_fc,
+              AVG(EXTRACT(EPOCH FROM (scraped_at::timestamp - publish_date::timestamp)) * 1000)
+                FILTER (WHERE publish_date IS NOT NULL
+                  AND full_content IS NOT NULL AND full_content != ''
+                  AND scraped_at::timestamp > publish_date::timestamp) as avg_latency_ms
+            FROM projects_cqggzy
+            WHERE created_at > NOW() - INTERVAL '{int(days)} days'
+            GROUP BY DATE(created_at)
+            ORDER BY 1
+        """)
+    except Exception:
+        cur.execute(f"""
+            SELECT
+              DATE(created_at) as day,
+              COUNT(*) as total,
+              SUM(CASE WHEN full_content IS NOT NULL AND full_content != '' THEN 1 ELSE 0 END) as with_fc,
+              AVG((julianday(scraped_at) - julianday(publish_date)) * 86400 * 1000)
+                FILTER (WHERE publish_date IS NOT NULL
+                  AND full_content IS NOT NULL AND full_content != ''
+                  AND scraped_at > publish_date) as avg_latency_ms
+            FROM projects_cqggzy
+            WHERE created_at > datetime('now', '-{int(days)} days')
+            GROUP BY DATE(created_at)
+            ORDER BY 1
+        """)
+
+    result = []
+    for row in cur.fetchall():
+        day, total, with_fc, avg_latency = row
+        success_rate = (with_fc / total) if total > 0 else 0
+        throughput = (total or 0) / 24.0
+        latency = float(avg_latency) if avg_latency else 0.0
+
+        s_rate = _score_higher(success_rate, target_rate)
+        s_latency = _score_lower(latency, target_latency)
+        s_throughput = _score_higher(throughput, target_throughput)
+        s_heal = 100.0  # 兜底
+        s_ban = 100.0   # 兜底
+        overall = round((s_rate + s_latency + s_throughput + s_heal + s_ban) / 5, 1)
+        result.append({
+            "date": str(day),
+            "crawl_success_rate": round(success_rate, 4),
+            "crawl_avg_latency_ms": round(latency, 1),
+            "crawl_items_per_hour": round(throughput, 2),
+            "self_heal_rate": 1.0,
+            "ban_escape_rate": 1.0,
+            "overall_score": overall,
+        })
+    return result
