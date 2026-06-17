@@ -457,10 +457,19 @@ def get_stats(request: Request):
     get_current_user_id_required(request)  # require auth
     db = get_db()
     projects, total = _load_projects()
+    # 6-17 修复: 今日新增 = publish_date = 今日的项目数（按 Asia/Shanghai 日期）
+    from datetime import datetime, timezone, timedelta
+    tz_sh = timezone(timedelta(hours=8))
+    today_str = datetime.now(tz_sh).date().isoformat()
+    today_count = sum(
+        1 for p in projects
+        if p.get("publish_date") and str(p.get("publish_date")).startswith(today_str)
+    )
     return JSONResponse(
         {
             "total": total,
             "filtered": len([p for p in projects if p.get("keywords_matched")]),
+            "today": today_count,
             "last_run": _get_last_run(),
             "db_stats": {},
         }

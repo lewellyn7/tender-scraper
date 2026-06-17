@@ -623,7 +623,7 @@
       var stats = statsRes.ok ? await statsRes.json() : null;
       if (stats) {
         document.getElementById('statTotal').textContent = stats.total || allItems.length;
-        document.getElementById('statFiltered').textContent = stats.filtered || '0';
+        document.getElementById('statFiltered').textContent = stats.today || '0';
         document.getElementById('statRate').textContent = stats.success_rate || '—';
         document.getElementById('statLastRun').textContent = stats.last_run || '—';
       } else {
