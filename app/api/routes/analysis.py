@@ -64,18 +64,30 @@ def _resolve_period(
     return d_start, d_end, {"label": desc, "year": year, "quarter": quarter}
 
 
-def _category_filter(category: str) -> str:
+def _category_filter(category: str, info_type: Optional[str] = None) -> str:
     """category 参数 → SQL info_type 过滤.
 
     政府采购 → info_type='采购结果公告'
     工程招投标 → info_type IN ('中标候选人公示', '中标结果公示')
+
+    info_type 可选进一步过滤:
+    - '中标结果公示' 只看最终中标人 (含金额)
+    - '中标候选人公示' 只看第一候选人 (常无金额)
+    - None / 'all' 不过滤
     """
     if category == "政府采购":
-        return "info_type = '采购结果公告'"
+        base = "info_type = '采购结果公告'"
     elif category == "工程招投标":
-        return "info_type IN ('中标候选人公示', '中标结果公示')"
+        base = "info_type IN ('中标候选人公示', '中标结果公示')"
     else:
         raise ValueError(f"category must be 政府采购|工程招投标, got {category}")
+
+    if info_type and info_type != "all":
+        # 限定到指定 info_type (覆盖默认 base filter)
+        if info_type not in ('采购结果公告', '中标候选人公示', '中标结果公示'):
+            raise ValueError(f"info_type must be 中标结果公示|中标候选人公示|all, got {info_type}")
+        return f"info_type = '{info_type}'"
+    return base
 
 
 # ─── 端点 1: 排名聚合 ────────────────────────────────────────────────────────
@@ -88,13 +100,14 @@ async def bid_rank(
     quarter: Optional[int] = Query(None, description="1-4 (period=quarter 必填)"),
     date_start: Optional[date] = Query(None, description="period=custom 必填"),
     date_end: Optional[date] = Query(None, description="period=custom 必填"),
+    info_type: Optional[str] = Query(None, description="进一步过滤: 中标结果公示 (只看中标人) / 中标候选人公示 / all"),
     sort_by: str = Query("amount", description="amount / count"),
     limit: int = Query(50, ge=1, le=500, description="默认 50, 最大 500"),
 ):
     """按中标单位聚合: 项目数 + 金额合计 + 均值 + 首次/末次中标日期."""
     try:
         d_start, d_end, desc = _resolve_period(period, year, quarter, date_start, date_end)
-        info_filter = _category_filter(category)
+        info_filter = _category_filter(category, info_type)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 

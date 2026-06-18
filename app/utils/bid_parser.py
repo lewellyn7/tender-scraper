@@ -261,16 +261,182 @@ def parse_tender_candidate(content: str) -> list[dict]:
 
 # ─── 工程招投标 · 中标结果公示 ──────────────────────────────────────────────
 
+# 中标公告后面常见的补足/附件文本 (不是公司名, 需要划断)
+_NOISE_SUFFIX_PATTERNS = [
+    r'\s+中标结果公示\.pdf.*$',  # 附件 PDF 名
+    r'\s+申请履约保函.*$',
+    r'\s+低价风险担保保函.*$',
+    r'\s+社会信用代码\s*[:：]?\s*[A-Z0-9]{15,30}.*$',  # 联合体成员的信用代码 (15-30 字符)
+    r'\s+法定代表人[：:].*$',
+    r'\s+招标代理.*$',
+    r'\s+电话[：:].*$',
+    r'\s+联系[人]?[:：].*$',
+    r'\s+咨询受理联系人[：:].*$',
+    r'\s+联系电话[：:].*$',
+    r'\s+开标时间.*$',
+    r'\s+招标人：.*$',
+    r'\s+工商注册号.*$',
+    r'\s+组织机构.*$',
+    r'\s+投诉受理部门.*$',
+    r'\s*[(（]联合体(?:牵头人|成员(?:单位)?)?[)）]?.*$',  # "（联合体牵头人）" / "（联合体成员单位"
+]
+
+
+def _strip_noise_suffix(name: str) -> str:
+    """去掉公司名后的 PDF/信用代码/法人/电话等噪声"""
+    if not name:
+        return name
+    for pat in _NOISE_SUFFIX_PATTERNS:
+        name = re.sub(pat, '', name)
+    return name.strip()
+
+
+def _split_multi_winners(raw: str) -> list[str]:
+    """
+    多个公司用 '、' / ',' / ';' 隔开 → 返回清洗后的名字列表.
+    过滤掉企业资质/业绩/PDF附件这类噪声.
+    """
+    if not raw:
+        return []
+    # 先去除后缀噪声 (PDF/社会信用代码/法人/电话) — 这些可能以空格跟在名字后面
+    raw = _strip_noise_suffix(raw)
+    # 再按 顿号/逗号/分号 切 (优先顿号)
+    parts = re.split(r'[、,;]', raw)
+    out = []
+    for p in parts:
+        name = p.strip()
+        if not name:
+            continue
+        # 过滤填充语: "企业资质：xxx" / "企业业绩：xxx" 经常跟在公司名后面
+        if '：' in name:
+            name = name.split('：', 1)[0].strip()
+        if ':' in name:
+            name = name.split(':', 1)[0].strip()
+        # 过滤纯填充语
+        if not name or name in ('企业资质', '企业业绩'):
+            continue
+        # 过滤太长 (>50) 的 — 多半是吃到下一段
+        if len(name) > 50:
+            name = name[:50].strip()
+        if not name:
+            continue
+        out.append(name)
+    return out
+
+
 def parse_tender_result(content: str) -> list[dict]:
     """
     工程招投标·中标结果公示 解析.
-    格式:
-      中标人(单位)名称：xxx公司
-      中标金额：1234.56万元
-    或:
-      推荐中标候选人：xxx公司 (公示结束后变中标人)
+    支持 3 种格式 (真实 244 条样本分布):
+      A 类 (老 2019-):  拟 中 标 人 xxx  +  中标金额 (万元) 3044
+      B 类 (新 2024+):  中标人信息\n单位名称 xxx  +  中标金额（费率、单价等） 1180000.00元
+      C 类 (老规范):   中标人(单位)名称：xxx  +  中标金额：xxx 万元
     """
+    if not content:
+        return []
     results = []
+
+    # === 名字提取 (按优先级) ===
+    winner_names: list[str] = []
+
+    # 模式 1 (A 类, 老): "拟 中 标 人" 中间允许空格 + 名字到行尾/段落
+    # 样本: "拟 中 标 人 河南坤宇市政园林工程有限公司 中标金额 (万元) 3044 工商注册号 91410726..."
+    # 重要: 用非贪婪 + 显式停点 (中标金额/工商注册号/组织机构/投诉受理), 避免匹到信用代码段
+    m1 = re.search(
+        r'拟\s*中\s*标\s*人[：:\s]+([^\n]+?)(?=\s*(?:中标金额|工商注册号|组织机构|投诉受理|招标人|社会信用代码|法定代表人|$))',
+        content
+    )
+    if m1:
+        names = _split_multi_winners(m1.group(1))
+        if names:
+            winner_names = names
+
+    # 模式 2 (B 类, 新): "中标人信息\n单位名称 xxx" 块状格式
+    if not winner_names:
+        m2 = re.search(r'中标人信息[^\n]*\n\s*单位名称\s*([^\n]+)', content)
+        if m2:
+            names = _split_multi_winners(m2.group(1))
+            if names:
+                winner_names = names
+
+    # 模式 3 (C 类, 规范): "中标人(单位)名称：xxx" 或 "中标人：xxx" / "中标人名称：xxx"
+    if not winner_names:
+        m3 = re.search(
+            r'(?:中标人|中标单位)(?:\(?单位\)?名称|名称)?[：:]\s*([^\n]{2,80})',
+            content
+        )
+        if m3:
+            names = _split_multi_winners(m3.group(1))
+            if names:
+                winner_names = names
+
+    # 模式 4 (转换): 推荐/确定 中标候选人
+    if not winner_names:
+        m4 = re.search(
+            r'(?:确定|推荐)\s*中标候选人?[：:]\s*([^\n]{2,80})',
+            content
+        )
+        if m4:
+            names = _split_multi_winners(m4.group(1))
+            if names:
+                winner_names = names
+
+    if not winner_names:
+        return results
+
+    # === 金额提取 (按优先级) ===
+    amt_text = None
+    # 模式 1 (A 类, 老): "中标金额 (万元) 3044" — 单位在括号, 数字在后面
+    # 重要: 必须保留括号单位标识, 传给 parse_amount 才会被识别为万元
+    amt_m = re.search(
+        r'中标金额\s*[(（]\s*((?:万元|元)|费率[、,]?单价(?:等)?)\s*[)）]\s*([0-9.,]+?)(?=\s|$|元|万)',
+        content
+    )
+    if amt_m:
+        unit_in_paren = amt_m.group(1)
+        if '万元' in unit_in_paren:
+            unit_hint = '万元'
+        else:
+            unit_hint = '元'
+        amt_text = amt_m.group(2).strip() + unit_hint
+    if not amt_text:
+        # 模式 2 (B 类, 新): "中标金额（费率、单价等） 1180000.00元" / "中标金额：1180000.00元"
+        # 或 "中标金额 1180000.00元，其中：..." (无括号)
+        # 金额后可以接 "元," / "元，" / "元其中" 等说明文字
+        amt_m = re.search(r'中标金额[（(][^）)]*[)）]?\s*([0-9.,]+?)\s*(?:元|万元)', content)
+        if amt_m:
+            unit_m = re.search(r'(?:元|万元)\s*$', amt_m.group(0))
+            unit = '万元' if unit_m and '万' in unit_m.group(0) else '元'
+            amt_text = amt_m.group(1).strip() + unit
+        if not amt_text:
+            # 2b: 简单 "中标金额：100万" / "中标金额 100万" 无括号也无括号补充
+            amt_m = re.search(r'中标金额[：:]?\s*([0-9.,]+\s*(?:元|万元))', content)
+            if amt_m:
+                amt_text = amt_m.group(1).strip()
+    if not amt_text:
+        # 模式 3 (规范): "中标金额：xxx万元" / "中标金额：xxx元"
+        amt_m = re.search(r'中标金额[：:]\s*([^\n]{1,80})', content)
+        if amt_m:
+            amt_text = amt_m.group(1).strip()
+    if not amt_text:
+        # 备选: "中标（成交）价" / "中标价"
+        amt_m = re.search(r'中标[（(]成交[)）]价[：:]\s*([^\n]{1,80})', content)
+        if amt_m:
+            amt_text = amt_m.group(1).strip()
+
+    bid_amount_num = parse_amount(amt_text) if amt_text else None
+
+    for idx, name in enumerate(winner_names):
+        results.append({
+            'package_no': str(idx + 1) if len(winner_names) > 1 else None,
+            'winner_name': name,
+            'winner_rank': 1,  # 中标结果只有最终中标人 (多公司 = 联合体, 都 rank=1)
+            'bid_amount': amt_text,
+            'bid_amount_num': bid_amount_num,
+            'winner_score': None,
+        })
+
+    return results
 
     # 模式 1: 中标人 / 中标单位 — 兼容 "中标人(单位)名称"、"中标人单位名称"、"中标人：" 三种
     # 策略: 找 "中标人" 之后到第一个冒号/全角冒号之间的内容, 然后取冒号后的名字
