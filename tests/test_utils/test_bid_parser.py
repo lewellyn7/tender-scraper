@@ -443,3 +443,31 @@ def test_parse_tender_result_过滤stopword_混合公司():
     rows = parse_tender_result(content)
     assert len(rows) == 1
     assert rows[0]['winner_name'] == '真实公司'
+
+
+def test_parse_tender_result_D类_英文表格_中电智安():
+    """D 类: 英文+中文混合格式 (ADB 世行项目), 中标人名称:XXX + 表格中标人行最后一数字"""
+    content = """招标结果公示 亚洲开发银行贷款安全类人才培养智慧教学环境升级改造设备
+序号 No. 投标人名称 Name of bidder 开标价格 评标价格 拒标理由 中标人的中标价 合同范围
+1 中电智安科技有限公司 19,549,995.10 17,533,270.00 无 19,549,995.10 合同范围包括：安全类人才培养智慧教学环境升级改造设备。
+2 山东万博科技股份有限公司 19,907,258.06 / 完整性评审未通过 不适用
+3 北京亚洲卫星通信技术有限公司 19,984,044.96 / 完整性评审未通过 不适用
+中标人名称：中电智安科技有限公司 咨询受理联系人：燕先生，鞠女士 联系电话：010-81168737"""
+    rows = parse_tender_result(content)
+    assert len(rows) == 1
+    assert rows[0]['winner_name'] == '中电智安科技有限公司'
+    assert rows[0]['bid_amount_num'] == Decimal('19549995.10')
+
+
+def test_parse_tender_result_D类_英文表格_第3行中标():
+    """D 类: 中标人在表格第 3 行 (不是第 1 行) — 测试跳行能力"""
+    content = """亚洲开发银行贷款教师语言文字培训设备采购
+序号 No. 投标人名称 Name of bidder 开标价格 评标价格 拒标理由 中标人的中标价
+1 安徽爱勒芬智能科技有限公司 1,750,000.00 1,526,548.67 评标价不为最低 不适用
+2 安徽峰航智能科技有限公司 1,816,480.00 1,598,654.84 评标价不为最低 不适用
+3 四川慕叶教育科技有限公司 1,663,100.00 1,469,115.04 无 1,663,100.00
+中标人名称：四川慕叶教育科技有限公司 咨询受理联系人：燕先生，鞠女士"""
+    rows = parse_tender_result(content)
+    assert len(rows) == 1
+    assert rows[0]['winner_name'] == '四川慕叶教育科技有限公司'
+    assert rows[0]['bid_amount_num'] == Decimal('1663100.00')

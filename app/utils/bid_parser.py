@@ -435,6 +435,22 @@ def parse_tender_result(content: str) -> list[dict]:
         amt_m = re.search(r'中标[（(]成交[)）]价[：:]\s*([^\n]{1,80})', content)
         if amt_m:
             amt_text = amt_m.group(1).strip()
+    if not amt_text and winner_names:
+        # 模式 D: 英文+中文混合格式 (ADB 世行项目, 4 条样本 2026-06-18)
+        # 表格列: 序号 投标人名称 开标价 评标价 拒标理由 中标人的中标价 合同范围
+        # 中标人行最后一列数字 = 中标价 (合同价值)
+        # 样本: "1 中电智安科技有限公司 19,549,995.10 17,533,270.00 无 19,549,995.10 合同范围包括：..."
+        winner = winner_names[0]  # D 类无联合体, 取首个
+        name_escaped = re.escape(winner)
+        row_m = re.search(
+            rf'\d+\s+{name_escaped}\s+(.+?)(?=\s*(?:合同范围|中标人名称|中标结果公示\.pdf|申请履约|低价风险|联系[人]?[:：]|咨询受理|$))',
+            content,
+        )
+        if row_m:
+            # 提取行内所有数字, 最后一个 = 中标人的中标价
+            nums = re.findall(r'[\d,]+\.\d+|[\d,]+', row_m.group(1))
+            if nums:
+                amt_text = nums[-1].replace(',', '') + '元'
 
     bid_amount_num = parse_amount(amt_text) if amt_text else None
 
