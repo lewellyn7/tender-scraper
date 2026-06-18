@@ -62,6 +62,68 @@
     </div>
   </div>
 
+  <!-- 🏆 中标排名 (Bid Results Analysis) — 2026-06-18 新增 -->
+  <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-3 mb-3">
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+        🏆 中标单位 季度排名
+        <span class="help-btn" data-tooltip="基于 projects_cqggzy 中 采购结果公告 / 中标候选人公示 / 中标结果公示 三类公告的结构化提取。
+废标/流标公告不入统计。
+数据源: bid_results 表 (2026-06-18 新建)。">?</span>
+      </h2>
+      <div class="flex items-center gap-2">
+        <div class="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-xs">
+          <button type="button" id="bidTabGov" class="bid-cat-tab px-3 py-1 bg-blue-600 text-white font-medium" data-cat="政府采购">政府采购</button>
+          <button type="button" id="bidTabTender" class="bid-cat-tab px-3 py-1 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700" data-cat="工程招投标">工程招投标</button>
+        </div>
+        <select id="bidPeriodSelect" class="border rounded px-2 py-1 text-xs bg-white dark:bg-gray-800 dark:border-gray-600">
+          <option value="q2_2026" selected>2026 Q2</option>
+          <option value="q1_2026">2026 Q1</option>
+          <option value="year_2026">2026 全年</option>
+        </select>
+        <button type="button" id="bidRefreshBtn" class="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">刷新</button>
+      </div>
+    </div>
+    <div id="bidRankLoading" class="text-center py-4 text-xs text-gray-400">加载中...</div>
+    <div id="bidRankError" class="hidden text-center py-4 text-xs text-red-500"></div>
+    <div id="bidRankContent" class="hidden">
+      <div class="grid grid-cols-3 gap-2 mb-2 text-xs">
+        <div class="bg-gray-50 dark:bg-white/5 rounded p-2">
+          <div class="text-gray-400 uppercase tracking-wider mb-0.5">中标单位数</div>
+          <p class="text-2xl font-bold text-blue-600 dark:text-blue-400" id="bidStatWinners">0</p>
+        </div>
+        <div class="bg-gray-50 dark:bg-white/5 rounded p-2">
+          <div class="text-gray-400 uppercase tracking-wider mb-0.5">中标项目数</div>
+          <p class="text-2xl font-bold text-green-600 dark:text-green-400" id="bidStatProjects">0</p>
+        </div>
+        <div class="bg-gray-50 dark:bg-white/5 rounded p-2">
+          <div class="text-gray-400 uppercase tracking-wider mb-0.5">中标金额合计</div>
+          <p class="text-2xl font-bold text-amber-600 dark:text-amber-400" id="bidStatAmount">¥0</p>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-white/10">
+              <th class="py-1.5 pl-1 pr-2 w-8">#</th>
+              <th class="py-1.5 px-2">中标单位</th>
+              <th class="py-1.5 px-2 text-right">项目数</th>
+              <th class="py-1.5 px-2 text-right">中标金额合计</th>
+              <th class="py-1.5 px-2 text-right">单项目均值</th>
+              <th class="py-1.5 px-2 text-right">平均评分</th>
+              <th class="py-1.5 px-2">首次 / 末次</th>
+              <th class="py-1.5 px-2"></th>
+            </tr>
+          </thead>
+          <tbody id="bidRankTableBody"></tbody>
+        </table>
+      </div>
+      <div class="mt-2 text-xs text-gray-400 text-right">
+        显示 Top 10 | <a href="/api/analysis/bid-rank?category={{ cat or '' }}&period=quarter&year=2026&quarter=2&limit=50" target="_blank" class="text-blue-500 hover:underline">查看完整 API</a>
+      </div>
+    </div>
+  </div>
+
   <div id="loadingEl" class="text-center py-8 text-gray-500">加载中...</div>
   <div id="contentEl" class="space-y-3" style="display:none">
     <!-- Trend Chart -->
@@ -541,6 +603,118 @@ if (!el) return;
     // Expose to window for tab switching
     window.loadHealth = loadHealth;
   })();
+})();
+
+// ===================== 🏆 中标排名 (Bid Results Analysis) — 2026-06-18 新增 =====================
+(function() {
+  let _bidCurrentCategory = '政府采购';
+  let _bidCurrentPeriod = 'q2_2026';
+
+  function bidFormatAmount(n) {
+    if (!n || n === 0) return '¥0';
+    if (n >= 100000000) return '¥' + (n / 100000000).toFixed(2) + ' 亿';
+    if (n >= 10000) return '¥' + (n / 10000).toFixed(2) + ' 万';
+    return '¥' + n.toFixed(2);
+  }
+
+  function bidResolvePeriod() {
+    if (_bidCurrentPeriod === 'q1_2026') return { period: 'quarter', year: 2026, quarter: 1 };
+    if (_bidCurrentPeriod === 'q2_2026') return { period: 'quarter', year: 2026, quarter: 2 };
+    if (_bidCurrentPeriod === 'year_2026') return { period: 'year', year: 2026 };
+    return { period: 'quarter', year: 2026, quarter: 2 };
+  }
+
+  async function loadBidRank() {
+    var loadingEl = document.getElementById('bidRankLoading');
+    var errorEl = document.getElementById('bidRankError');
+    var contentEl = document.getElementById('bidRankContent');
+    var tbodyEl = document.getElementById('bidRankTableBody');
+
+    loadingEl.classList.remove('hidden');
+    errorEl.classList.add('hidden');
+    contentEl.classList.add('hidden');
+
+    var p = bidResolvePeriod();
+    var params = new URLSearchParams({
+      category: _bidCurrentCategory,
+      period: p.period,
+      limit: '10',
+      sort_by: 'amount'
+    });
+    if (p.year) params.set('year', p.year);
+    if (p.quarter) params.set('quarter', p.quarter);
+
+    try {
+      var res = await authFetch('/api/analysis/bid-rank?' + params.toString());
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return { error: res.statusText }; });
+        throw new Error(err.error || 'HTTP ' + res.status);
+      }
+      var data = await res.json();
+
+      // 顶部汇总卡片
+      document.getElementById('bidStatWinners').textContent = data.total_winners;
+      document.getElementById('bidStatProjects').textContent = data.total_projects;
+      document.getElementById('bidStatAmount').textContent = bidFormatAmount(data.total_amount);
+
+      // 表格行
+      tbodyEl.innerHTML = '';
+      if (!data.rankings || data.rankings.length === 0) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td colspan="8" class="text-center py-6 text-gray-400">暂无中标数据 — 请确认 bid_results 表已填充</td>';
+        tbodyEl.appendChild(tr);
+      } else {
+        data.rankings.forEach(function(r) {
+          var tr = document.createElement('tr');
+          tr.className = 'border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5';
+          tr.innerHTML =
+            '<td class="py-1.5 pl-1 pr-2 text-gray-400">' + r.rank + '</td>' +
+            '<td class="py-1.5 px-2 font-medium text-gray-900 dark:text-white">' + escapeHtml(r.winner_name) + '</td>' +
+            '<td class="py-1.5 px-2 text-right tabular-nums">' + r.project_count + '</td>' +
+            '<td class="py-1.5 px-2 text-right tabular-nums font-medium">' + bidFormatAmount(r.total_amount) + '</td>' +
+            '<td class="py-1.5 px-2 text-right tabular-nums text-gray-500">' + bidFormatAmount(r.avg_amount) + '</td>' +
+            '<td class="py-1.5 px-2 text-right tabular-nums text-gray-500">' + (r.avg_score != null ? r.avg_score.toFixed(2) : '-') + '</td>' +
+            '<td class="py-1.5 px-2 text-gray-500 text-xs">' + (r.first_win || '-') + ' / ' + (r.last_win || '-') + '</td>' +
+            '<td class="py-1.5 px-2 text-right"><a href="/api/analysis/bid-detail?winner_name=' + encodeURIComponent(r.winner_name) + '&date_start=' + data.date_start + '&date_end=' + data.date_end + '" target="_blank" class="text-blue-500 hover:underline text-xs">下钻</a></td>';
+          tbodyEl.appendChild(tr);
+        });
+      }
+
+      loadingEl.classList.add('hidden');
+      contentEl.classList.remove('hidden');
+    } catch (e) {
+      loadingEl.classList.add('hidden');
+      errorEl.textContent = '加载失败: ' + e.message + ' (请检查 bid_results 表是否已建)';
+      errorEl.classList.remove('hidden');
+      console.error('loadBidRank failed:', e);
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function(c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // 绑定 tab / period / refresh 按钮
+  document.querySelectorAll('.bid-cat-tab').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.bid-cat-tab').forEach(function(b) {
+        b.className = 'bid-cat-tab px-3 py-1 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700';
+      });
+      btn.className = 'bid-cat-tab px-3 py-1 bg-blue-600 text-white font-medium';
+      _bidCurrentCategory = btn.dataset.cat;
+      loadBidRank();
+    });
+  });
+  document.getElementById('bidPeriodSelect').addEventListener('change', function(e) {
+    _bidCurrentPeriod = e.target.value;
+    loadBidRank();
+  });
+  document.getElementById('bidRefreshBtn').addEventListener('click', loadBidRank);
+
+  // 首次加载
+  loadBidRank();
 })();
 </script>
 {% endblock %}
