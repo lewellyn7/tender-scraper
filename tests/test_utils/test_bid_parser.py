@@ -424,3 +424,22 @@ def test_parse_tender_result_英文表格_咨询联系人():
     rows = parse_tender_result(content)
     assert len(rows) == 1
     assert rows[0]['winner_name'] == '中电智安科技有限公司'
+
+
+def test_parse_tender_result_过滤stopword_其他():
+    """'其他' 这种填充词应被 stopword 过滤, 不写入 winner_name"""
+    content = """中标人信息
+单位名称 其他
+中标金额（费率、单价等） 1000000.00元"""
+    rows = parse_tender_result(content)
+    assert rows == []  # 全部被 stopword 过滤
+
+
+def test_parse_tender_result_过滤stopword_混合公司():
+    """混合: 1 个真公司 + 1 个 stopword, 只保留真公司"""
+    content = """中标人信息
+单位名称 真实公司、详见附件
+中标金额（费率、单价等） 5000000.00元"""
+    rows = parse_tender_result(content)
+    assert len(rows) == 1
+    assert rows[0]['winner_name'] == '真实公司'

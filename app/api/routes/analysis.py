@@ -67,27 +67,24 @@ def _resolve_period(
 def _category_filter(category: str, info_type: Optional[str] = None) -> str:
     """category 参数 → SQL info_type 过滤.
 
-    政府采购 → info_type='采购结果公告'
+    政府采购 → info_type='采购结果公告' (info_type 参数对其忽略, 政府采购只有 1 种)
     工程招投标 → info_type IN ('中标候选人公示', '中标结果公示')
-
-    info_type 可选进一步过滤:
-    - '中标结果公示' 只看最终中标人 (含金额)
-    - '中标候选人公示' 只看第一候选人 (常无金额)
-    - None / 'all' 不过滤
+                  + info_type 可进一步过滤:
+                  - '中标结果公示' 只看最终中标人 (含金额)
+                  - '中标候选人公示' 只看第一候选人 (常无金额)
+                  - None / 'all' 不过滤
     """
     if category == "政府采购":
-        base = "info_type = '采购结果公告'"
+        # 政府采购 只有 '采购结果公告' 1 种, info_type 参数对其忽略
+        return "info_type = '采购结果公告'"
     elif category == "工程招投标":
-        base = "info_type IN ('中标候选人公示', '中标结果公示')"
+        if info_type and info_type != "all":
+            if info_type not in ('中标候选人公示', '中标结果公示'):
+                raise ValueError(f"info_type must be 中标结果公示|中标候选人公示|all, got {info_type}")
+            return f"info_type = '{info_type}'"
+        return "info_type IN ('中标候选人公示', '中标结果公示')"
     else:
         raise ValueError(f"category must be 政府采购|工程招投标, got {category}")
-
-    if info_type and info_type != "all":
-        # 限定到指定 info_type (覆盖默认 base filter)
-        if info_type not in ('采购结果公告', '中标候选人公示', '中标结果公示'):
-            raise ValueError(f"info_type must be 中标结果公示|中标候选人公示|all, got {info_type}")
-        return f"info_type = '{info_type}'"
-    return base
 
 
 # ─── 端点 1: 排名聚合 ────────────────────────────────────────────────────────

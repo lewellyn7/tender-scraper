@@ -320,8 +320,20 @@ def _split_multi_winners(raw: str) -> list[str]:
             name = name[:50].strip()
         if not name:
             continue
+        # stopword 黑名单 (2026-06-18 加): 过滤无意义名字
+        if name in _STOPWORDS:
+            continue
         out.append(name)
     return out
+
+
+# 招标公告中常见但不是公司名的无意义填充词
+_STOPWORDS = frozenset([
+    '其他', '无', '/', '—', '-', '上述', '同上', '以上',
+    '企业资质', '企业业绩', '详见附件', '详见附表', '详见', '见附件',
+    '投标报价', '评标价', '中标价', '招标人', '招标代理',
+    '万元', '元', 'CNY', 'RMB',
+])
 
 
 def parse_tender_result(content: str) -> list[dict]:
