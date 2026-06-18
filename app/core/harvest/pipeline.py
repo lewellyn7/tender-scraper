@@ -70,11 +70,11 @@ async def run_collection():
         # CCGP 采集器：仅在 ENABLE_CCGP=True 时创建（默认停采，2026-06-02 决策）
         ccgp_crawler = CCGPCrawlerV3(browser) if ENABLE_CCGP else None
 
-        # 采集数据（9 个分类，并行）；date=3m 由 URL 参数控制，额外做日期过滤
-        # 上周数据
+        # 采集数据（9 个分类，并行）
+        # 2026-06-18 修复：URL date=today + 列表 start_date=today（之前 date=3m URL 与 7d POST API 范围不一致）
         # 2026-06-05 修复：CQGGZY API 的 edt 是排他的（不含当天），end_date 需 +1 天才能采集当天数据
         today = datetime.now()
-        start_date = today - timedelta(days=7)
+        start_date = today  # 今日模式：仅采集今天发布/更新的项目
         end_date = today + timedelta(days=1)
         all_items = []
         categories = [

@@ -28,7 +28,7 @@ class CQGGZYCrawlerV2(BaseCrawler):
 
     BASE_URL = "https://www.cqggzy.com"
 
-    # 新版 URL (2026-06 改版后) — pageNum= + date=3m
+    # 新版 URL (2026-06 改版后) — pageNum= + date=today (2026-06-18 切换: date=3m → date=today)
     # 工程招投标
     ENGINEERING_URL = "https://www.cqggzy.com/trade/014001?categoryNum=014001001"
     # 政府采购
@@ -318,18 +318,21 @@ class CQGGZYCrawlerV2(BaseCrawler):
         列表项提取自 NUXT_DATA 而非 DOM。
         """
         results = []
-        # 2026-06 改版：pageNum= + date=3m
+        # 2026-06 改版：pageNum= + date=
+        # 2026-06-18 修复: 切到今日模式 (date=today) — 之前 date=3m 与 POST API 的 7d 范围不一致,
+        # 且每 2h cron 全量拉 3 个月数据是浪费. 验证过 date=today 是 CQGGZY 支持的值 (返回 200, 仅含今天数据).
+        # 分页仍由 pageNum=1..N 翻完, break on < 50 items 保证完整性.
         if category == "gov_purchase":
             base_url = "https://www.cqggzy.com/trade/014005"
-            url = f"{base_url}?pageNum={page_num}&date=3m&categoryNum=014005001"
+            url = f"{base_url}?pageNum={page_num}&date=today&categoryNum=014005001"
             tender_type = "政府采购"
         elif category == "engineering":
             base_url = "https://www.cqggzy.com/trade/014001"
-            url = f"{base_url}?pageNum={page_num}&date=3m&categoryNum=014001001"
+            url = f"{base_url}?pageNum={page_num}&date=today&categoryNum=014001001"
             tender_type = "工程建设"
         else:
             base, cat_num = self.LIST_URLS.get(category, ("https://www.cqggzy.com/trade/014005", "014005001"))
-            url = f"{base}?pageNum={page_num}&date=3m&categoryNum={cat_num}"
+            url = f"{base}?pageNum={page_num}&date=today&categoryNum={cat_num}"
             # 政府采购类 vs 工程建设类
             tender_type = "政府采购" if category.startswith("gov_purchase") else "工程建设"
         page = None
