@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from .analytics import router as analytics_router
+from .analysis import router as analysis_router
 from .annotations import router as annotations_router
 from .annotations_presets import router as annotations_presets_router
 from .bidder_qualifications import router as bidder_qualifications_router
@@ -47,6 +48,7 @@ api_router.include_router(presets_router)
 api_router.include_router(search_router)
 api_router.include_router(chat_router)
 api_router.include_router(quality_router)
+api_router.include_router(analysis_router)
 
 
 # priority_scheduler API

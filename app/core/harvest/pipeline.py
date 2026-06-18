@@ -460,6 +460,39 @@ async def run_collection():
         except Exception as e:
             logger.error(f"PostgreSQL 写入失败: {e}")
 
+        # 11.5 中标结果解析入库（为政府采购 / 工程招投标 排名分析提供数据基础）
+        # 2026-06-18 新增: 增量解析本次采集的中标类公告, 写入 bid_results 表
+        try:
+            from app.utils.bid_parser import parse_bid_results
+            import psycopg2
+            cur = db._get_conn().cursor()
+            # 取本次采集（近 1 小时）中标类项目, 拼带 project_id 的 bid_results rows
+            cur.execute("""
+                SELECT id, url, info_type, full_content, publish_date
+                FROM projects_cqggzy
+                WHERE info_type IN ('采购结果公告', '中标候选人公示', '中标结果公示')
+                  AND full_content IS NOT NULL
+                  AND LENGTH(full_content) > 100
+                  AND scraped_at > NOW() - INTERVAL '2 hour'
+            """)
+            bid_rows = []
+            for proj_id, url, info_type, full_content, pub_date in cur.fetchall():
+                parsed = parse_bid_results(
+                    content=full_content,
+                    info_type=info_type,
+                    category='',
+                    project_id=proj_id,
+                    url=url,
+                    publish_date=pub_date,
+                )
+                bid_rows.extend(parsed)
+            if bid_rows:
+                written = db.upsert_bid_results(bid_rows)
+                logger.info(f"🏆 中标结果解析入库: {written} 条 (解析 {len(bid_rows)} 行)")
+            cur.close()
+        except Exception as e:
+            logger.warning(f"中标结果解析入库失败（不影响采集）: {e}")
+
         # 12. 截标日期 T-3 提醒检查
         try:
             from app.utils.notifications import get_notif_manager
