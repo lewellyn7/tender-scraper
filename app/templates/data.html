@@ -390,17 +390,14 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
     });
   }
 
-  // P1-3a: 子公告列表渲染
+  // P1-3a: 子公告列表渲染 (2026-06-19 排序改为纯 publish_date 倒序, 满足"最新优先")
   var INFO_TYPE_ORDER = ['招标公告', '招标计划', '资格预审公告', '答疑补遗', '补充公告', '澄清公告', '中标候选人公示', '中标结果公示', '中标公告', '终止公告', '变更公告', '流标公告', '其他'];
   function renderGroupChildren(g) {
     var items = (g.items || []).slice().sort(function(a, b) {
-      // 优先按 info_type 顺序, 其次按发布日期 (倒序)
-      var oa = INFO_TYPE_ORDER.indexOf(a.info_type);
-      var ob = INFO_TYPE_ORDER.indexOf(b.info_type);
-      if (oa === -1) oa = 999;
-      if (ob === -1) ob = 999;
-      if (oa !== ob) return oa - ob;
-      return (b.publish_date || '').localeCompare(a.publish_date || '');
+      // 纯按 publish_date 倒序 (最新在最上面), 同日按 id 倒序
+      var dp = (b.publish_date || '').localeCompare(a.publish_date || '');
+      if (dp !== 0) return dp;
+      return (b.id || 0) - (a.id || 0);
     });
     var html = '<ul class="space-y-1.5">';
     items.forEach(function(it) {
