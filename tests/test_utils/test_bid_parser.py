@@ -471,3 +471,131 @@ def test_parse_tender_result_D类_英文表格_第3行中标():
     assert len(rows) == 1
     assert rows[0]['winner_name'] == '四川慕叶教育科技有限公司'
     assert rows[0]['bid_amount_num'] == Decimal('1663100.00')
+
+
+# ─── classify_project_type (2026-06-20 新增) ──────────────────────────────────
+
+
+class TestClassifyProjectType:
+    """项目类型分类器单测 — 覆盖词典 7 大类 + 多标签 + 兜底"""
+
+    def test_智能化(self):
+        from app.utils.bid_parser import classify_project_type
+        assert "智能化" in classify_project_type("智能化系统集成项目")
+        assert "智能化" in classify_project_type("智慧校园建设")
+        assert "智能化" in classify_project_type("某数据中心机房工程")
+
+    def test_老旧小区改造(self):
+        from app.utils.bid_parser import classify_project_type
+        assert "老旧小区改造" in classify_project_type("老旧小区改造工程")
+        assert "老旧小区改造" in classify_project_type("某片区棚改项目")
+        assert "老旧小区改造" in classify_project_type("城市更新安置项目")
+
+    def test_零星维修(self):
+        from app.utils.bid_parser import classify_project_type
+        assert "零星维修" in classify_project_type("零星维修项目")
+        assert "零星维修" in classify_project_type("应急抢修工程")
+        assert "零星维修" in classify_project_type("某单位修缮工程")
+
+    def test_房屋建筑(self):
+        from app.utils.bid_parser import classify_project_type
+        assert "房屋建筑" in classify_project_type("公租房新建工程")
+        assert "房屋建筑" in classify_project_type("某厂房主体施工")
+        assert "房屋建筑" in classify_project_type("安置房建设项目")
+
+    def test_市政工程(self):
+        from app.utils.bid_parser import classify_project_type
+        assert "市政工程" in classify_project_type("市政道路改造")
+        assert "市政工程" in classify_project_type("桥梁建设工程")
+        assert "市政工程" in classify_project_type("雨污分流管网工程")
+
+    def test_园林绿化(self):
+        from app.utils.bid_parser import classify_project_type
+        assert "园林绿化" in classify_project_type("城市园林景观提升")
+        assert "园林绿化" in classify_project_type("某公园绿化工程")
+
+    def test_装饰装修(self):
+        from app.utils.bid_parser import classify_project_type
+        assert "装饰装修" in classify_project_type("室内装饰装修项目")
+        assert "装饰装修" in classify_project_type("幕墙工程")
+        assert "装饰装修" in classify_project_type("精装修工程")
+
+    def test_多标签_老旧小区智能化(self):
+        """一个项目可同时命中多个类型 — 实际业务常见"""
+        from app.utils.bid_parser import classify_project_type
+        types = classify_project_type("老旧小区智能化改造项目", "将老旧小区进行智慧社区改造")
+        assert "智能化" in types
+        assert "老旧小区改造" in types
+
+    def test_兜底_其他(self):
+        """未命中任何关键词 → ['其他']"""
+        from app.utils.bid_parser import classify_project_type
+        assert classify_project_type("某某采购项目") == ["其他"]
+
+    def test_空标题(self):
+        """空 title 必须安全返回 ['其他']，不抛异常"""
+        from app.utils.bid_parser import classify_project_type
+        assert classify_project_type("", "") == ["其他"]
+        assert classify_project_type("", "正文") == ["其他"]
+
+    def test_priority_顺序(self):
+        """priority 小的在前（智能化 < 老旧）"""
+        from app.utils.bid_parser import classify_project_type
+        types = classify_project_type("老旧小区智能化改造")
+        assert types.index("智能化") < types.index("老旧小区改造")
+
+    def test_content_前500字生效(self):
+        """content 头部关键词可命中类型"""
+        from app.utils.bid_parser import classify_project_type
+        # title 无关键词，content 前 500 字有
+        types = classify_project_type("某项目", "本工程为智能化系统集成项目")
+        assert "智能化" in types
+
+    def test_content_超过500字不生效(self):
+        """content >500 字部分关键词忽略（避免正文噪声）"""
+        from app.utils.bid_parser import classify_project_type
+        # 前缀 600+ 字 + 末尾关键词 → 末尾超出 500 字窗口被忽略
+        long_content = "无关内容" * 200 + "智能化"  # 1200+ 字
+        types = classify_project_type("某项目", long_content)
+        assert "智能化" not in types
+
+
+class TestParseBidResultsProjectTypes:
+    """parse_bid_results 主入口应自动注入 project_types 字段"""
+
+    def test_政府采购_项目类型自动注入(self):
+        from app.utils.bid_parser import parse_bid_results
+        content = """三、中标（成交）信息：
+包号：1
+供应商名称：重庆智信科技有限公司
+供应商地址：重庆市渝中区某路1号
+中标（成交）金额：单价：12.78元"""
+        rows = parse_bid_results(
+            content=content,
+            info_type="采购结果公告",
+            category="政府采购",
+            project_id=1,
+            url="https://example.com/1",
+            publish_date="2026-06-20",
+            title="某单位智能化系统建设项目",
+        )
+        assert len(rows) == 1
+        assert "智能化" in rows[0]["project_types"]
+        assert rows[0]["title"] == "某单位智能化系统建设项目"
+
+    def test_中标结果_多标签注入(self):
+        from app.utils.bid_parser import parse_bid_results
+        content = """中标人名称：重庆建工集团
+中标金额：5,800,000.00 元
+"""
+        rows = parse_bid_results(
+            content=content,
+            info_type="中标结果公示",
+            category="工程招投标",
+            project_id=2,
+            url="https://example.com/2",
+            publish_date="2026-06-20",
+            title="老旧小区智能化改造施工",
+        )
+        assert len(rows) == 1
+        assert set(rows[0]["project_types"]) >= {"智能化", "老旧小区改造"}
