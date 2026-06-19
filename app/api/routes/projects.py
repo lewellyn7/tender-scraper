@@ -558,6 +558,33 @@ def get_project_groups(request: Request, limit: int = Query(100, le=500), biz_ty
             # 过滤掉被污染的分组 key（过短或含中文）
             if not key or len(key) < 6 or re.search(r'[\u4e00-\u9fff]', key):
                 continue
+
+            # P1-3a: 取该 group 下的 N 条具体记录 (供前端展开子公告)
+            group_key_value = key  # group_key 是 COALESCE 后的值
+            if group_key_value and not re.search(r'[\u4e00-\u9fff]', group_key_value):
+                # 用同样的 COALESCE 表达式查原始记录 (保证同组)
+                item_rows = conn.execute(
+                    "SELECT id, title, info_type, publish_date, url, business_type "
+                    "FROM projects_cqggzy "
+                    "WHERE COALESCE(NULLIF(project_no, ''), url) = ? "
+                    "ORDER BY publish_date DESC NULLS LAST, id DESC "
+                    "LIMIT 10",
+                    (group_key_value,),
+                ).fetchall()
+                items = [
+                    {
+                        "id": ir[0],
+                        "title": ir[1] or "",
+                        "info_type": ir[2] or "",
+                        "publish_date": str(ir[3]) if ir[3] else "",
+                        "url": ir[4] or "",
+                        "business_type": ir[5] or "",
+                    }
+                    for ir in item_rows
+                ]
+            else:
+                items = []
+
             result.append({
                 "name": name or key,
                 "code": code if code and len(code) >= 5 else "-",
@@ -567,6 +594,7 @@ def get_project_groups(request: Request, limit: int = Query(100, le=500), biz_ty
                 "updated_at": str(latest_date) if latest_date else "",
                 "overview": overview or "",
                 "url": sample_url or (key if key.startswith("http") else None),
+                "items": items,  # P1-3a: 子公告列表
             })
 
         return JSONResponse({"groups": result})

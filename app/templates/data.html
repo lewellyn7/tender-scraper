@@ -331,14 +331,14 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
       // Hover tooltip: 优先用 title 属性（兼容所有浏览器），截断过长内容
       var titleText = overview ? overview.replace(/<[^>]+>/g, '').slice(0, 300) : '';
       var card = (
-        '<div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer relative group"' +
+        '<div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4 hover:shadow-md transition-shadow relative group-card" data-group-idx="' + (groups.indexOf(group)) + '"' +
         (titleText ? ' title="' + escHtml(titleText.replace(/"/g, '"')) + '"' : '') + '>' +
           '<div class="flex items-start justify-between mb-2">' +
             '<div class="flex-1 min-w-0">' +
               '<h3 class="text-sm font-semibold text-gray-900 dark:text-white truncate" title="' + escHtml(name) + '">' + escHtml(name) + '</h3>' +
               (originalName && originalName !== name ? '<p class="text-xs text-gray-400 truncate mt-0.5" title="原始名称">原始: ' + escHtml(originalName) + '</p>' : '') +
             '</div>' +
-            '<span class="ml-2 shrink-0 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 font-medium">' + count + '条</span>' +
+            '<span class="ml-2 shrink-0 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 font-medium cursor-pointer toggle-expand" data-group-idx="' + (groups.indexOf(group)) + '">' + count + '条 ▾</span>' +
           '</div>' +
           '<div class="space-y-1.5">' +
             '<div class="flex items-center gap-2 text-xs text-gray-500">' +
@@ -353,14 +353,69 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
               '<span>更新: ' + escHtml(updateTime) + '</span>' +
             '</div>' +
           '</div>' +
+          // P1-3a: 子公告展开面板 (默认隐藏)
+          '<div class="group-children hidden mt-3 pt-3 border-t border-gray-200 dark:border-white/10" data-children-idx="' + (groups.indexOf(group)) + '"></div>' +
         '</div>'
       );
-      // 有 URL 的卡片可点击（用 data 属性传递，JS 处理跳转）
-      if (url) {
-        return '<a href="' + escHtml(url) + '" target="_blank" rel="noopener noreferrer" class="block hover:no-underline" title="' + escHtml(titleText) + '">' + card + '</a>';
-      }
       return card;
     }).join('');
+
+    // P1-3a: 绑定卡片点击展开子公告
+    var cardEls = projectsGrid.querySelectorAll('.group-card');
+    cardEls.forEach(function(cardEl) {
+      var idx = cardEl.getAttribute('data-group-idx');
+      var toggle = cardEl.querySelector('.toggle-expand');
+      var handler = function(e) {
+        // 避免重复触发 (toggle 内部 stopPropagation)
+        if (e.target.closest('.group-children a')) return; // 子项点透传
+        e.stopPropagation();
+        var children = cardEl.querySelector('.group-children');
+        if (children.classList.contains('hidden')) {
+          // 展开
+          var g = groups[parseInt(idx)];
+          if (g && g.items && g.items.length > 0) {
+            children.innerHTML = renderGroupChildren(g);
+          } else {
+            children.innerHTML = '<div class="text-xs text-gray-400 py-2">暂无子公告</div>';
+          }
+          children.classList.remove('hidden');
+          if (toggle) toggle.textContent = g.count + '条 ▴';
+        } else {
+          // 折叠
+          children.classList.add('hidden');
+          if (toggle) toggle.textContent = g.count + '条 ▾';
+        }
+      };
+      cardEl.addEventListener('click', handler);
+    });
+  }
+
+  // P1-3a: 子公告列表渲染
+  var INFO_TYPE_ORDER = ['招标公告', '招标计划', '资格预审公告', '答疑补遗', '补充公告', '澄清公告', '中标候选人公示', '中标结果公示', '中标公告', '终止公告', '变更公告', '流标公告', '其他'];
+  function renderGroupChildren(g) {
+    var items = (g.items || []).slice().sort(function(a, b) {
+      // 优先按 info_type 顺序, 其次按发布日期 (倒序)
+      var oa = INFO_TYPE_ORDER.indexOf(a.info_type);
+      var ob = INFO_TYPE_ORDER.indexOf(b.info_type);
+      if (oa === -1) oa = 999;
+      if (ob === -1) ob = 999;
+      if (oa !== ob) return oa - ob;
+      return (b.publish_date || '').localeCompare(a.publish_date || '');
+    });
+    var html = '<ul class="space-y-1.5">';
+    items.forEach(function(it) {
+      var date = it.publish_date && it.publish_date.length >= 10 ? it.publish_date.slice(0, 10) : '';
+      html += '<li class="flex items-start gap-2 text-xs">' +
+        '<span class="shrink-0 px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 font-medium whitespace-nowrap">' + escHtml(it.info_type || '其他') + '</span>' +
+        '<a href="' + escHtml(it.url) + '" target="_blank" rel="noopener noreferrer" class="flex-1 min-w-0 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 truncate" title="' + escHtml(it.title) + '">' + escHtml(it.title) + '</a>' +
+        '<span class="shrink-0 text-gray-400 font-mono whitespace-nowrap">' + escHtml(date) + '</span>' +
+      '</li>';
+    });
+    if (g.count > items.length) {
+      html += '<li class="text-xs text-gray-400 pt-1 text-center">仅显示前 ' + items.length + ' 条，共 ' + g.count + ' 条</li>';
+    }
+    html += '</ul>';
+    return html;
   }
 
   window.switchProjectView = switchProjectView;
