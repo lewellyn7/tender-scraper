@@ -192,6 +192,7 @@ async def bid_detail(
     date_start: Optional[date] = Query(None),
     date_end: Optional[date] = Query(None),
     limit: int = Query(200, ge=1, le=1000),
+    project_type: Optional[str] = Query(None, description="项目类型过滤 (2026-06-20 新增)"),
 ):
     """单个中标单位的中标项目明细 (下钻)."""
     if not date_start:
@@ -200,24 +201,29 @@ async def bid_detail(
         date_end = date.today()
 
     cat_filter = ""
+    type_filter = ""
     params = [winner_name, date_start, date_end]
     if category:
         try:
             cat_filter = f"AND {_category_filter(category)}"
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
+    if project_type:
+        type_filter = "AND br.project_types @> %s::TEXT[]"
+        params.append([project_type])
 
     sql = f"""
         SELECT
           br.project_id, br.url, br.info_type, br.category, br.package_no,
           br.winner_name, br.winner_rank, br.bid_amount, br.bid_amount_num,
-          br.winner_score, br.publish_date,
+          br.winner_score, br.publish_date, br.project_types,
           p.title, p.publish_date AS p_date
         FROM bid_results br
         LEFT JOIN projects_cqggzy p ON p.id = br.project_id
         WHERE br.winner_name = %s
           AND br.publish_date BETWEEN %s AND %s
           {cat_filter}
+          {type_filter}
         ORDER BY br.publish_date DESC
         LIMIT %s
     """
@@ -230,7 +236,7 @@ async def bid_detail(
 
     items = []
     for (proj_id, url, info_type, cat, pkg_no, name, rank, amt_text,
-         amt_num, score, pub_date, title, p_date) in rows:
+         amt_num, score, pub_date, proj_types, title, p_date) in rows:
         items.append({
             "project_id": proj_id,
             "title": title or "",
@@ -243,6 +249,7 @@ async def bid_detail(
             "bid_amount": float(amt_num) if amt_num else None,
             "winner_score": float(score) if score else None,
             "publish_date": pub_date.isoformat() if pub_date else None,
+            "project_types": list(proj_types) if proj_types else [],  # 2026-06-20 新增
         })
 
     total_amount = sum(i["bid_amount"] or 0 for i in items)
@@ -251,6 +258,7 @@ async def bid_detail(
         "category": category,
         "date_start": date_start.isoformat(),
         "date_end": date_end.isoformat(),
+        "project_type": project_type,  # 2026-06-20 新增
         "total_projects": len(set(i["project_id"] for i in items)),
         "total_amount": round(total_amount, 2),
         "items": items,

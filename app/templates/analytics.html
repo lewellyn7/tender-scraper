@@ -81,6 +81,10 @@
           <option value="q1_2026">2026 Q1</option>
           <option value="year_2026">2026 全年</option>
         </select>
+        <select id="bidSortSelect" class="border rounded px-2 py-1 text-xs bg-white dark:bg-gray-800 dark:border-gray-600" title="排序字段">
+          <option value="amount" selected>按金额</option>
+          <option value="count">按项目数</option>
+        </select>
         <button type="button" id="bidRefreshBtn" class="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">刷新</button>
       </div>
     </div>
@@ -101,6 +105,21 @@
           <p class="text-2xl font-bold text-amber-600 dark:text-amber-400" id="bidStatAmount">¥0</p>
         </div>
       </div>
+
+      <!-- 🧩 项目类型筛选 (2026-06-20 新增) -->
+      <div class="flex items-center gap-2 mb-2 flex-wrap" id="bidTypeChips">
+        <span class="text-xs text-gray-500 dark:text-gray-400 mr-1">类型:</span>
+        <button type="button" data-bid-type="" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-600 text-white" data-label="全部">全部</button>
+        <button type="button" data-bid-type="智能化" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">智能化</button>
+        <button type="button" data-bid-type="老旧小区改造" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">老旧小区改造</button>
+        <button type="button" data-bid-type="零星维修" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">零星维修</button>
+        <button type="button" data-bid-type="房屋建筑" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">房屋建筑</button>
+        <button type="button" data-bid-type="市政工程" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">市政工程</button>
+        <button type="button" data-bid-type="园林绿化" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">园林绿化</button>
+        <button type="button" data-bid-type="装饰装修" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">装饰装修</button>
+        <button type="button" data-bid-type="其他" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">其他</button>
+      </div>
+
       <div class="overflow-x-auto">
         <table class="w-full text-xs">
           <thead>
@@ -119,7 +138,7 @@
         </table>
       </div>
       <div class="mt-2 text-xs text-gray-400 text-right">
-        显示 Top 10 | <a href="/api/analysis/bid-rank?category={{ cat or '' }}&period=quarter&year=2026&quarter=2&limit=50" target="_blank" class="text-blue-500 hover:underline">查看完整 API</a>
+        显示 Top 10 | <a id="bidApiLink" href="/api/analysis/bid-rank?category=政府采购&period=quarter&year=2026&quarter=2&limit=50" target="_blank" class="text-blue-500 hover:underline">查看完整 API</a>
       </div>
     </div>
   </div>
@@ -609,6 +628,8 @@ if (!el) return;
 (function() {
   let _bidCurrentCategory = '政府采购';
   let _bidCurrentPeriod = 'q2_2026';
+  let _bidCurrentSort = 'amount';  // 2026-06-20 新增: amount|count
+  let _bidCurrentType = '';        // 2026-06-20 新增: '' = 全部, 否则为选定类型
 
   function bidFormatAmount(n) {
     if (!n || n === 0) return '¥0';
@@ -639,10 +660,15 @@ if (!el) return;
       category: _bidCurrentCategory,
       period: p.period,
       limit: '10',
-      sort_by: 'amount'
+      sort_by: _bidCurrentSort,
     });
     if (p.year) params.set('year', p.year);
     if (p.quarter) params.set('quarter', p.quarter);
+    if (_bidCurrentType) params.set('project_type', _bidCurrentType);  // 2026-06-20
+
+    // 同步底部 API 链接
+    var apiLink = document.getElementById('bidApiLink');
+    if (apiLink) apiLink.href = '/api/analysis/bid-rank?' + params.toString() + '&limit=50';
 
     try {
       var res = await authFetch('/api/analysis/bid-rank?' + params.toString());
@@ -652,7 +678,7 @@ if (!el) return;
       }
       var data = await res.json();
 
-      // 顶部汇总卡片
+      // 顶部汇总卡片 (2026-06-20 改造: 项目类型筛选时加标记)
       document.getElementById('bidStatWinners').textContent = data.total_winners;
       document.getElementById('bidStatProjects').textContent = data.total_projects;
       document.getElementById('bidStatAmount').textContent = bidFormatAmount(data.total_amount);
@@ -661,7 +687,8 @@ if (!el) return;
       tbodyEl.innerHTML = '';
       if (!data.rankings || data.rankings.length === 0) {
         var tr = document.createElement('tr');
-        tr.innerHTML = '<td colspan="8" class="text-center py-6 text-gray-400">暂无中标数据 — 请确认 bid_results 表已填充</td>';
+        var typeNote = _bidCurrentType ? ' (类型: ' + _bidCurrentType + ')' : '';
+        tr.innerHTML = '<td colspan="8" class="text-center py-6 text-gray-400">暂无中标数据' + typeNote + ' — 请确认 bid_results 表已填充</td>';
         tbodyEl.appendChild(tr);
       } else {
         data.rankings.forEach(function(r) {
@@ -675,7 +702,7 @@ if (!el) return;
             '<td class="py-1.5 px-2 text-right tabular-nums text-gray-500">' + bidFormatAmount(r.avg_amount) + '</td>' +
             '<td class="py-1.5 px-2 text-right tabular-nums text-gray-500">' + (r.avg_score != null ? r.avg_score.toFixed(2) : '-') + '</td>' +
             '<td class="py-1.5 px-2 text-gray-500 text-xs">' + (r.first_win || '-') + ' / ' + (r.last_win || '-') + '</td>' +
-            '<td class="py-1.5 px-2 text-right"><a href="/api/analysis/bid-detail?winner_name=' + encodeURIComponent(r.winner_name) + '&date_start=' + data.date_start + '&date_end=' + data.date_end + '" target="_blank" class="text-blue-500 hover:underline text-xs">下钻</a></td>';
+            '<td class="py-1.5 px-2 text-right"><a href="/api/analysis/bid-detail?winner_name=' + encodeURIComponent(r.winner_name) + '&date_start=' + data.date_start + '&date_end=' + data.date_end + (_bidCurrentType ? '&project_type=' + encodeURIComponent(_bidCurrentType) : '') + '" target="_blank" class="text-blue-500 hover:underline text-xs">下钻</a></td>';
           tbodyEl.appendChild(tr);
         });
       }
@@ -696,7 +723,7 @@ if (!el) return;
     });
   }
 
-  // 绑定 tab / period / refresh 按钮
+  // 绑定 tab / period / sort / type / refresh 按钮
   document.querySelectorAll('.bid-cat-tab').forEach(function(btn) {
     btn.addEventListener('click', function() {
       document.querySelectorAll('.bid-cat-tab').forEach(function(b) {
@@ -710,6 +737,21 @@ if (!el) return;
   document.getElementById('bidPeriodSelect').addEventListener('change', function(e) {
     _bidCurrentPeriod = e.target.value;
     loadBidRank();
+  });
+  document.getElementById('bidSortSelect').addEventListener('change', function(e) {
+    _bidCurrentSort = e.target.value;
+    loadBidRank();
+  });
+  // 2026-06-20 新增: 项目类型 chip
+  document.querySelectorAll('.bid-type-chip').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.bid-type-chip').forEach(function(b) {
+        b.className = 'bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700';
+      });
+      btn.className = 'bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-600 text-white';
+      _bidCurrentType = btn.dataset.bidType || '';
+      loadBidRank();
+    });
   });
   document.getElementById('bidRefreshBtn').addEventListener('click', loadBidRank);
 
