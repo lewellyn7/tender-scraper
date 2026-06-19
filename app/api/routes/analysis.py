@@ -100,8 +100,14 @@ async def bid_rank(
     info_type: Optional[str] = Query(None, description="进一步过滤: 中标结果公示 (只看中标人) / 中标候选人公示 / all"),
     sort_by: str = Query("amount", description="amount / count"),
     limit: int = Query(50, ge=1, le=500, description="默认 50, 最大 500"),
+    project_type: Optional[str] = Query(None, description="项目类型过滤 (智能化 / 老旧小区改造 / 零星维修 / ...)"),
 ):
-    """按中标单位聚合: 项目数 + 金额合计 + 均值 + 首次/末次中标日期."""
+    """按中标单位聚合: 项目数 + 金额合计 + 均值 + 首次/末次中标日期.
+
+    project_type 过滤 (2026-06-20 新增):
+      - None / 空: 不过滤
+      - '其他' / 任意合法类型名: WHERE project_types @> ARRAY[<type>]
+    """
     try:
         d_start, d_end, desc = _resolve_period(period, year, quarter, date_start, date_end)
         info_filter = _category_filter(category, info_type)
@@ -109,6 +115,14 @@ async def bid_rank(
         return JSONResponse({"error": str(e)}, status_code=400)
 
     order_col = "total_amount" if sort_by == "amount" else "project_count"
+
+    # 2026-06-20 新增: project_types GIN 索引查询
+    type_filter = ""
+    type_params: tuple = ()
+    if project_type:
+        type_filter = "AND project_types @> %s::TEXT[]"
+        type_params = ([project_type],)
+
     sql = f"""
         SELECT
           winner_name,
@@ -123,6 +137,7 @@ async def bid_rank(
         FROM bid_results
         WHERE {info_filter}
           AND publish_date BETWEEN %s AND %s
+          {type_filter}
         GROUP BY winner_name
         ORDER BY {order_col} DESC
         LIMIT %s
@@ -130,7 +145,7 @@ async def bid_rank(
 
     db = get_db()
     cur = db._get_conn().cursor()
-    cur.execute(sql, (d_start, d_end, limit))
+    cur.execute(sql, (d_start, d_end, *type_params, limit))
     rows = cur.fetchall()
     cur.close()
 
@@ -160,6 +175,7 @@ async def bid_rank(
         "date_end": d_end.isoformat(),
         "sort_by": sort_by,
         "limit": limit,
+        "project_type": project_type,  # 2026-06-20 新增 (null 表示不过滤)
         "total_winners": len(rankings),
         "total_amount": round(total_amount, 2),
         "total_projects": total_projects,
@@ -313,3 +329,125 @@ async def bid_summary(
     ]
 
     return result
+
+# ─── 端点 4: 按项目类型分组的排名 (2026-06-20 新增) ──────────────────────────
+
+@router.get("/bid-rank-by-type")
+async def bid_rank_by_type(
+    category: str = Query("政府采购", description="政府采购 / 工程招投标"),
+    period: str = Query("quarter", description="quarter / year / custom"),
+    year: Optional[int] = Query(None, description="年份 (period=quarter|year 必填)"),
+    quarter: Optional[int] = Query(None, description="1-4 (period=quarter 必填)"),
+    date_start: Optional[date] = Query(None, description="period=custom 必填"),
+    date_end: Optional[date] = Query(None, description="period=custom 必填"),
+    sort_by: str = Query("amount", description="amount / count"),
+    limit: int = Query(10, ge=1, le=100, description="每类型 Top N, 默认 10"),
+):
+    """按项目类型分组的排名聚合 — 前端一次性拿全所有类型的 Top 10.
+
+    Returns:
+        {
+          "period": "2026 Q2",
+          "category": "政府采购",
+          "sort_by": "amount",
+          "by_type": {
+            "智能化": { "total_projects": N, "total_amount": X, "rankings": [...] },
+            "老旧小区改造": { ... },
+            ...
+            "其他": { ... },
+          },
+          "type_summary": [
+            { "type": "智能化", "total_projects": N, "total_amount": X },  # 类型级排序
+          ],
+        }
+    """
+    try:
+        d_start, d_end, desc = _resolve_period(period, year, quarter, date_start, date_end)
+        info_filter = _category_filter(category)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    order_col = "total_amount" if sort_by == "amount" else "project_count"
+
+    # 响应字段名 (sort by amount -> total_amount; sort by count -> total_projects)
+    resp_order_col = "total_amount" if sort_by == "amount" else "total_projects"
+
+    # 一次 SQL: 按 (project_types unnest, winner_name) 聚合
+    # unnest(project_types) 把多标签展开 → 一条 bid_row 可贡献到多类型
+    sql = f"""
+        WITH expanded AS (
+            SELECT
+              pt AS project_type,
+              winner_name,
+              project_id,
+              bid_amount_num,
+              winner_score,
+              publish_date,
+              info_type
+            FROM bid_results, UNNEST(project_types) AS pt
+            WHERE {info_filter}
+              AND publish_date BETWEEN %s AND %s
+        )
+        SELECT
+          project_type,
+          winner_name,
+          COUNT(DISTINCT project_id) AS pc,
+          SUM(bid_amount_num) AS total,
+          ROUND(AVG(winner_score), 2) AS avg_score,
+          MIN(publish_date) AS first_win,
+          MAX(publish_date) AS last_win
+        FROM expanded
+        GROUP BY project_type, winner_name
+        ORDER BY project_type, {order_col} DESC
+    """
+
+    db = get_db()
+    cur = db._get_conn().cursor()
+    cur.execute(sql, (d_start, d_end))
+    rows = cur.fetchall()
+    cur.close()
+
+    # 组织成 by_type[类型][rankings]
+    by_type: dict = {}
+    type_summary: list = []
+    for ptype, name, pc, total, avg_score, first, last in rows:
+        by_type.setdefault(ptype, []).append({
+            "rank": len(by_type[ptype]) + 1,
+            "winner_name": name,
+            "project_count": pc,
+            "total_amount": float(total) if total else 0,
+            "avg_score": float(avg_score) if avg_score else None,
+            "first_win": first.isoformat() if first else None,
+            "last_win": last.isoformat() if last else None,
+        })
+
+    # 每类型截 Top N + 计算类型级汇总 (按 sort_by 排序类型)
+    out: dict = {}
+    for t, items in by_type.items():
+        items = items[:limit]
+        t_total_amount = sum(i["total_amount"] for i in items)
+        t_total_projects = sum(i["project_count"] for i in items)
+        out[t] = {
+            "total_projects": t_total_projects,
+            "total_amount": round(t_total_amount, 2),
+            "rankings": items,
+        }
+        type_summary.append({
+            "type": t,
+            "total_projects": t_total_projects,
+            "total_amount": round(t_total_amount, 2),
+        })
+
+    # 类型级排序 (按 sort_by 字段)
+    type_summary.sort(key=lambda x: x[resp_order_col], reverse=True)
+
+    return {
+        "period": desc,
+        "category": category,
+        "date_start": d_start.isoformat(),
+        "date_end": d_end.isoformat(),
+        "sort_by": sort_by,
+        "limit": limit,
+        "by_type": out,
+        "type_summary": type_summary,
+    }
