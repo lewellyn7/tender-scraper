@@ -13,6 +13,12 @@
 - 进度日志: 每 100 条打 log, 含 ETA
 - dry-run: 仅打印统计不入库
 
+变更 (2026-06-20):
+- doc_id 从 `tender_{pg_id}` 改为 `tender_{url_hash[:16]}` (与 vectorize.py 一致)
+- 原因: vectorize 在 PG upsert 前运行, 不能依赖 pg_id
+- 用 url_hash 完全解耦, 两路入口产出相同 doc_id
+- 现有 109K vector 需重建 (TRUNCATE 后跑本脚本, ~33min)
+
 用法:
   P=$(grep '^DB_PASSWORD=' .env | cut -d= -f2)
   docker exec -e "DBURL=postgresql://root:${P}@postgres:5432/tender_scraper" \\
@@ -25,6 +31,7 @@
 - 98,000 条 (全覆盖): 5-7 hours
 """
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -75,7 +82,7 @@ def fetch_pending_projects(conn, after_id: int, limit: int) -> list:
 
     排除规则:
     - title 为空 (无法构造有意义的 embedding)
-    - 已存在 vector_store.doc_id (doc_id = 'tender_{id}')
+    - 已存在 vector_store.doc_id (doc_id = url_hash[:16])
     """
     cur = conn.cursor()
     cur.execute(
@@ -87,7 +94,7 @@ def fetch_pending_projects(conn, after_id: int, limit: int) -> list:
           AND (p.title IS NOT NULL AND p.title != '')
           AND NOT EXISTS (
               SELECT 1 FROM vector_store v
-              WHERE v.doc_id = 'tender_' || p.id::text
+              WHERE v.doc_id = 'tender_' || substring(encode(sha256(p.url::bytea), 'hex'), 1, 16)
           )
         ORDER BY p.id ASC
         LIMIT %s
@@ -108,7 +115,7 @@ def get_total_remaining(conn, after_id: int) -> int:
           AND (p.title IS NOT NULL AND p.title != '')
           AND NOT EXISTS (
               SELECT 1 FROM vector_store v
-              WHERE v.doc_id = 'tender_' || p.id::text
+              WHERE v.doc_id = 'tender_' || substring(encode(sha256(p.url::bytea), 'hex'), 1, 16)
           )
         """,
         (after_id,),
@@ -117,18 +124,23 @@ def get_total_remaining(conn, after_id: int) -> int:
 
 
 def build_doc(project: dict) -> dict:
-    """构造 vector doc (复用 reindex 格式)"""
+    """构造 vector doc (复用 reindex 格式, doc_id 用 url_hash[:16])"""
     title = project.get("title") or ""
     preview = (project.get("content_preview") or "")[:500]
     full = (project.get("full_content") or "")[:500]
-    # 总长控制在 1000 字符 (vLLM batch 400 限制)
     text = f"{title}\n{preview}\n{full}".strip()[:1000]
 
+    url = project.get("url") or ""
+    if url:
+        doc_id = f"tender_{hashlib.sha256(url.encode()).hexdigest()[:16]}"
+    else:
+        doc_id = f"tender_nourl_{hashlib.sha256((title or '').encode()).hexdigest()[:16]}"
+
     return {
-        "id": f"tender_{project['id']}",
+        "id": doc_id,
         "text": text or title,
         "metadata": {
-            "url": project.get("url") or "",
+            "url": url,
             "title": title[:200],
             "publish_date": str(project.get("publish_date") or ""),
             "info_type": project.get("info_type") or "",

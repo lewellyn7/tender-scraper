@@ -61,7 +61,28 @@ class TestBuildDoc:
             assert key in md, f"metadata 缺 {key}"
         assert md["source"] == "cqggzy"
         assert md["project_id"] == 456
-        assert doc["id"] == "tender_456"
+        # 2026-06-20 变更: doc_id 改为 url_hash[:16]
+        import hashlib
+        expected = f"tender_{hashlib.sha256(b'https://example.com/y').hexdigest()[:16]}"
+        assert doc["id"] == expected, f"doc_id 不匹配: {doc['id']} vs {expected}"
+
+    def test_doc_id_stable_across_calls(self):
+        """同 url 两次调用应生成相同 doc_id"""
+        from scripts.backfill_vectors_incremental import build_doc
+
+        project = {"id": 1, "url": "https://example.com/same", "title": "X"}
+        d1 = build_doc(project)
+        d2 = build_doc(project)
+        assert d1["id"] == d2["id"]
+
+    def test_doc_id_no_url_fallback(self):
+        """url 为空时用 hash(title) fallback"""
+        from scripts.backfill_vectors_incremental import build_doc
+
+        project = {"id": 999, "url": "", "title": "无URL项目"}
+        doc = build_doc(project)
+        assert doc["id"].startswith("tender_nourl_")
+        assert len(doc["id"]) == len("tender_nourl_") + 16
 
     def test_empty_title_falls_back_to_text(self):
         """title 为空时 text 仍非空 (避免空 embedding)"""
@@ -77,6 +98,35 @@ class TestBuildDoc:
         doc = build_doc(project)
         # text 可为空 (上层会过滤 title='' 的项目, 这里只验证不抛错)
         assert "id" in doc
+
+
+class TestStableDocId:
+    """_stable_doc_id 跨脚本一致性 (2026-06-20 新增)"""
+
+    def test_backfill_and_vectorize_same_doc_id(self):
+        """backfill build_doc 与 vectorize._stable_doc_id 必须生成相同 doc_id
+        (否则 vectorize 写入与 backfill 仍会失同步)
+        """
+        from scripts.backfill_vectors_incremental import build_doc
+        from app.core.harvest.vectorize import _stable_doc_id
+
+        project = {
+            "id": 12345,
+            "url": "https://www.cqggzy.com/trade/014001/abc?categoryNum=014001003",
+            "title": "测试",
+            "content_preview": "",
+            "full_content": "",
+            "publish_date": "2026-06-20",
+            "info_type": "招标公告",
+            "business_type": "工程招投标",
+        }
+        backfill_doc = build_doc(project)
+        vectorize_id = _stable_doc_id(project)
+        assert backfill_doc["id"] == vectorize_id, (
+            f"doc_id 不一致!\n"
+            f"  backfill: {backfill_doc['id']}\n"
+            f"  vectorize: {vectorize_id}"
+        )
 
 
 class TestCheckpoint:
