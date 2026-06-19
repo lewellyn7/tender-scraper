@@ -64,7 +64,7 @@ def get_connection():
 def fetch_target_records(cur, after_date: str, limit: int | None) -> list:
     """取需要解析的源记录."""
     sql_q = """
-        SELECT id, url, info_type, category, full_content, publish_date
+        SELECT id, url, info_type, category, full_content, publish_date, title
         FROM projects_cqggzy
         WHERE info_type IN ('采购结果公告', '中标候选人公示', '中标结果公示')
           AND publish_date >= %s
@@ -108,6 +108,7 @@ def upsert_bid_rows(cur, rows: list) -> int:
             r['bid_amount_num'],
             r['winner_score'],
             r['publish_date'],
+            r.get('project_types', ['其他']),  # 2026-06-20 新增
         ))
     if not values:
         return 0
@@ -115,7 +116,7 @@ def upsert_bid_rows(cur, rows: list) -> int:
         INSERT INTO bid_results (
           source, project_id, url, info_type, category, package_no,
           winner_name, winner_rank, bid_amount, bid_amount_num,
-          winner_score, publish_date
+          winner_score, publish_date, project_types
         )
         VALUES %s
         ON CONFLICT (source, project_id, package_no, winner_name)
@@ -127,6 +128,7 @@ def upsert_bid_rows(cur, rows: list) -> int:
           bid_amount_num = EXCLUDED.bid_amount_num,
           winner_score = EXCLUDED.winner_score,
           publish_date = EXCLUDED.publish_date,
+          project_types = EXCLUDED.project_types,
           parsed_at = NOW()
     """
     execute_values(cur, sql_q, values, page_size=200)
@@ -154,7 +156,7 @@ def backfill(after_date: str, limit: int | None, dry_run: bool):
         aborted_count = 0
         empty_count = 0
 
-        for i, (proj_id, url, info_type, category, full_content, pub_date) in enumerate(records, 1):
+        for i, (proj_id, url, info_type, category, full_content, pub_date, title) in enumerate(records, 1):
             try:
                 rows = parse_bid_results(
                     content=full_content,
@@ -163,6 +165,7 @@ def backfill(after_date: str, limit: int | None, dry_run: bool):
                     project_id=proj_id,
                     url=url,
                     publish_date=pub_date,
+                    title=title or '',
                 )
 
                 if not rows:
