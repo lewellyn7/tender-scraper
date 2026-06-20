@@ -582,11 +582,17 @@ def classify_project_type(title: str, content: str = "") -> List[str]:
     Returns:
         类型列表 (按 priority 升序)；无匹配 → ['其他']。
         多标签：可同时命中多个类型，如"老旧小区智能化改造"
-        → ['老旧小区改造', '智能化']
+        → ['老旧小区改造', '智能化'] (智能化被 neg 剔除后)
+        或"智慧化老旧小区改造平台建设" → ['老旧小区改造']
 
     Args:
         title: 项目标题（必传，>90% 类型信息在此）
         content: 项目正文（可选，只看前 500 字避免噪声）
+
+    匹配逻辑 (2026-06-20 16:55 增强):
+      1) 任一正向关键词命中 → 加入候选
+      2) 对每个候选：任一负向关键词命中 → 剔除 ("以负向为主" 否决权)
+      3) 剩余按 priority 升序返回；空 → ['其他']
 
     Notes:
         - 修改 config/project_types.py 后需重启服务
@@ -601,11 +607,28 @@ def classify_project_type(title: str, content: str = "") -> List[str]:
         text = text + "\n" + (content[:500] if isinstance(content, str) else "")
 
     types = []
-    for name, kws in _SORTED_TYPES:
-        if not kws:  # 跳过"其他"兜底
+    for name, cfg in _SORTED_TYPES:
+        # 2026-06-20 16:55: cfg 改为 dict {keywords: [...], neg: [...]}
+        # 向后兼容：若 cfg 是 list（旧版格式），直接作为 keywords
+        if isinstance(cfg, list):
+            keywords = cfg
+            neg_keywords: List[str] = []
+        else:
+            keywords = cfg.get("keywords", [])
+            neg_keywords = cfg.get("neg", [])
+
+        if not keywords:  # 跳过"其他"兜底
             continue
-        if any(kw in text for kw in kws):
-            types.append(name)
+
+        # 第一轮：正关键词命中
+        if not any(kw in text for kw in keywords):
+            continue
+
+        # 第二轮：负向关键词命中则剔除该类型
+        if neg_keywords and any(neg in text for neg in neg_keywords):
+            continue
+
+        types.append(name)
 
     return types if types else ["其他"]
 

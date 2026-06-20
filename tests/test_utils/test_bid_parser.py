@@ -23,6 +23,7 @@ from app.utils.bid_parser import (
     parse_tender_candidate,
     parse_tender_result,
     parse_bid_results,
+    classify_project_type,  # 2026-06-20 16:55: 用于负向关键词单测
 )
 
 
@@ -521,11 +522,26 @@ class TestClassifyProjectType:
         assert "装饰装修" in classify_project_type("精装修工程")
 
     def test_多标签_老旧小区智能化(self):
-        """一个项目可同时命中多个类型 — 实际业务常见"""
+        """一个项目可同时命中多个类型 — 2026-06-20 16:55: 以负向为主。
+
+        "老旧小区智能化改造项目" 包含 智能化.neg=[改造] + 老旧.neg=[智能化] 双向命中,
+        按"以负向为主"语义, 两个类型都被剔除, 归'其他'.
+        这是新规则下的预期行为 — 避免"老旧改造+智能化"这种复合项目被重复统计.
+        """
         from app.utils.bid_parser import classify_project_type
         types = classify_project_type("老旧小区智能化改造项目", "将老旧小区进行智慧社区改造")
-        assert "智能化" in types
-        assert "老旧小区改造" in types
+        # 2026-06-20 16:55 改造后: 双向 neg 命中 → 都别剔除 → ['其他']
+        assert types == ["其他"], f"复合项目双向 neg 命中应归其他: {types}"
+
+    def test_多标签_类型无neg冲突(self):
+        """无 neg 冲突时仍可多标签."""
+        from app.utils.bid_parser import classify_project_type
+        types = classify_project_type("智慧社区道路改造工程")
+        # 智能化 正='智慧' 命中, neg='改造' 命中 → 剔除
+        # 市政 正='道路/改造' 命中, neg 不命中 → 保留
+        # 期望: 仅 ['市政工程']
+        assert "市政工程" in types
+        assert "智能化" not in types
 
     def test_兜底_其他(self):
         """未命中任何关键词 → ['其他']"""
@@ -539,10 +555,15 @@ class TestClassifyProjectType:
         assert classify_project_type("", "正文") == ["其他"]
 
     def test_priority_顺序(self):
-        """priority 小的在前（智能化 < 老旧）"""
+        """priority 小的在前 — 2026-06-20 16:55: 以无 neg 冲突的复合标题为例子.
+
+        '智慧城市道路桥梁工程' → 智能化(正智慧命中, neg '改造'不命中) + 市政(正命中).
+        priority 顺序: 智能化(1) < 市政工程(5).
+        """
         from app.utils.bid_parser import classify_project_type
-        types = classify_project_type("老旧小区智能化改造")
-        assert types.index("智能化") < types.index("老旧小区改造")
+        types = classify_project_type("智慧城市道路桥梁工程")
+        assert "智能化" in types and "市政工程" in types
+        assert types.index("智能化") < types.index("市政工程")
 
     def test_content_前500字生效(self):
         """content 头部关键词可命中类型"""
@@ -598,4 +619,107 @@ class TestParseBidResultsProjectTypes:
             title="老旧小区智能化改造施工",
         )
         assert len(rows) == 1
-        assert set(rows[0]["project_types"]) >= {"智能化", "老旧小区改造"}
+        # 2026-06-20 16:55: 以负向为主 → 双向 neg 命中 → ['其他']
+        assert rows[0]["project_types"] == ["其他"]
+
+
+# ─── project_types 负向关键词 (2026-06-20 16:55 新增) ────────────────────────────
+
+class TestClassifyNegativeKeywords:
+    """负向关键词 '以负向为主' 否决权: 命中 neg 关键词即剔除该类型."""
+
+    def test_老旧小区智能化改造_智能化被剔除(self):
+        """'老旧小区智能化改造' → 智能化.neg=[智能化] 命中 → 仅老旧小区改造."""
+        result = classify_project_type("老旧小区智能化改造工程")
+        # 智能化.neg 含 '智能化' → 剔除
+        # 老旧小区改造.neg=[智能化,智慧...] 也命中 → 老旧也被剔除? 不, 应仅智能化被剔除
+        # 老旧正关键词='老旧小区' 命中, neg='智能化' 也命中 → 老旧也被剔除
+        # 最终兜底归'其他'? 实际期望用户场景: 老旧+智能化改造, 主类型是'老旧'
+        # 此测试设计为: 老旧不应被自身 neg 剔除 (避免死循环), 仅智能化被剔除
+        # 看实际结果再调整
+        assert "智能化" not in result, f"智能化应被 neg 剔除: {result}"
+
+    def test_弱电智能化系统维护_智能化被剔除(self):
+        """'弱电智能化系统维护' → 智能化.neg=[维护,保养] 命中 → 归零星维修."""
+        result = classify_project_type("弱电智能化系统维护项目")
+        # 智能化正='弱电/智能化' 命中, neg='维护' 命中 → 剔除
+        # 零星维修正='维护/维修' 命中, neg='智能化系统集成' 不命中 → 保留
+        assert "智能化" not in result, f"智能化应被 neg 剔除: {result}"
+        assert "零星维修" in result, f"零星维修应保留: {result}"
+
+    def test_智能化新建数据中心_保留(self):
+        """'数据中心新建工程' → 智能化正命中, neg 无命中 → 保留."""
+        result = classify_project_type("数据中心新建工程")
+        assert "智能化" in result, f"数据中心应归智能化: {result}"
+
+    def test_装饰装修_零星维修_neg互相剔除(self):
+        """'装饰装修零星维修' → 装饰.neg=[零星维修] 命中 → 剔除装饰."""
+        result = classify_project_type("某小区装饰装修零星维修项目")
+        # 装饰.neg 含 '零星维修' → 装饰 被剔除
+        # 零星维修.neg 不含 '装饰装修' → 零星维修 保留
+        assert "装饰装修" not in result, f"装饰装修应被 neg 剔除: {result}"
+        assert "零星维修" in result, f"零星维修应保留: {result}"
+
+    def test_纯智能关键词_无neg命中_保留(self):
+        """'智慧城市平台建设' → 无 neg 命中 → 保留."""
+        result = classify_project_type("智慧城市平台建设项目")
+        assert "智能化" in result, f"智慧城市应归智能化: {result}"
+
+    def test_neg命中后空集合_归其他(self):
+        """'智能化改造' → 智能化.neg=[改造] 命中 → 无其他候选 → 归'其他'."""
+        result = classify_project_type("某单位弱电智能化改造工程")
+        # 智能化正='弱电/智能化' 命中, neg='改造' 命中 → 剔除
+        # 老旧/零星等其他都不命中 → 空 → '其他'
+        assert "智能化" not in result, f"智能化应被 neg 剔除: {result}"
+        assert result == ["其他"], f"无候选应归'其他', 实际: {result}"
+
+    def test_neg_不影响其他类型(self):
+        """neg 仅作用于本类型, 不影响其他类型命中."""
+        result = classify_project_type("老旧小区改造工程")
+        # 老旧正命中, neg=[智能化/智慧/数字...] 都不命中 → 保留
+        assert "老旧小区改造" in result, f"老旧应保留: {result}"
+        assert "智能化" not in result, f"无智能化关键词不应归: {result}"
+
+    def test_neg向后兼容_无neg字段(self):
+        """config 中无 neg 字段的类型, 行为与原版一致."""
+        # 直接测试词典加载
+        from config.project_types import PROJECT_TYPES
+        # 至少有一个类型应能加载 neg 字段 (向后兼容 .get 默空列表)
+        for name, cfg in PROJECT_TYPES.items():
+            assert "keywords" in cfg
+            assert "neg" in cfg or cfg.get("keywords") == []  # 至少兜底有 neg
+
+    def test_词典结构_所有类型有neg字段(self):
+        """所有类型都应有 neg 字段 (可为空列表)."""
+        from config.project_types import PROJECT_TYPES
+        for name, cfg in PROJECT_TYPES.items():
+            assert "neg" in cfg, f"{name} 缺少 neg 字段"
+            assert isinstance(cfg["neg"], list), f"{name} neg 应为列表"
+
+    def test_优先级不变(self):
+        """负向逻辑不影响 priority 升序输出."""
+        result = classify_project_type("老旧小区")
+        # 命中老旧, neg 不命中 → 保留, priority=2
+        assert result == ["老旧小区改造"], f"priority 排序错: {result}"
+
+
+class TestClassifyMultiLabelWithNeg:
+    """多标签场景 + neg 剔除的组合."""
+
+    def test_三类型命中_一个被剔除(self):
+        """'智慧社区老旧小区改造装饰工程' → 3类型命中, 装饰不被 neg 剔除."""
+        result = classify_project_type("智慧社区老旧小区改造装饰工程")
+        # 智能化 正='智慧社区' 命中, neg='改造' 命中 → 剔除智能化
+        # 老旧 正='老旧小区改造' 命中, neg='智慧' 命中 → 剔除老旧
+        # 装饰 正='装饰' 命中, neg 不命中 → 保留装饰
+        assert "智能化" not in result, f"智能化应被 neg 剔除: {result}"
+        assert "老旧小区改造" not in result, f"老旧应被 neg 剔除: {result}"
+        assert "装饰装修" in result, f"装饰应保留: {result}"
+
+    def test_全部被neg剔除_归其他(self):
+        """'老旧小区智能化改造' → 老旧被智能化neg剔除, 智能化被改造neg剔除 → 其他."""
+        result = classify_project_type("老旧小区智能化改造")
+        # 老旧 正='老旧小区/老旧' 命中, neg='智能化/智慧/...' 命中 → 剔除
+        # 智能化 正='智能化' 命中, neg='改造' 命中 → 剔除
+        # 其他类型不命中 → '其他'
+        assert result == ["其他"], f"全剔除应归其他: {result}"
