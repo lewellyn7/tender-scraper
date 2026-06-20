@@ -85,9 +85,9 @@ def backfill(dry_run: bool, batch_size: int):
                 from psycopg2.extras import execute_values
                 execute_values(
                     cur,
-                    "UPDATE bid_results SET project_types = u.types FROM (VALUES %s) AS u(id INT, types TEXT[]) WHERE bid_results.id = u.id",
-                    [(t, bid) for t, bid in update_values],
-                    template="(%s::TEXT[], %s::BIGINT)",
+                    "UPDATE bid_results SET project_types = u.types FROM (VALUES %s) AS u(id, types) WHERE bid_results.id = u.id",
+                    [(bid, t) for t, bid in update_values],
+                    template="(%s::BIGINT, %s::TEXT[])",
                     page_size=batch_size,
                 )
                 updated += len(update_values)

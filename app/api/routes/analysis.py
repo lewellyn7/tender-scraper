@@ -419,8 +419,8 @@ async def bid_rank_by_type(
         SELECT
           project_type,
           winner_name,
-          COUNT(DISTINCT project_id) AS pc,
-          SUM(bid_amount_num) AS total,
+          COUNT(DISTINCT project_id) AS project_count,
+          SUM(bid_amount_num) AS total_amount,
           ROUND(AVG(winner_score), 2) AS avg_score,
           MIN(publish_date) AS first_win,
           MAX(publish_date) AS last_win
