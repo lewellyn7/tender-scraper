@@ -100,13 +100,16 @@ async def bid_rank(
     info_type: Optional[str] = Query(None, description="进一步过滤: 中标结果公示 (只看中标人) / 中标候选人公示 / all"),
     sort_by: str = Query("amount", description="amount / count"),
     limit: int = Query(50, ge=1, le=500, description="默认 50, 最大 500"),
-    project_type: Optional[str] = Query(None, description="项目类型过滤 (智能化 / 老旧小区改造 / 零星维修 / ...)"),
+    project_type: Optional[str] = Query(None, description="项目类型过滤 — 单值 (向后兼容)"),
+    project_types: Optional[str] = Query(None, description="项目类型过滤 — 多值 (逗号分隔, OR 语义)。例: 智能化,老旧小区改造"),
 ):
     """按中标单位聚合: 项目数 + 金额合计 + 均值 + 首次/末次中标日期.
 
-    project_type 过滤 (2026-06-20 新增):
-      - None / 空: 不过滤
-      - '其他' / 任意合法类型名: WHERE project_types @> ARRAY[<type>]
+    项目类型过滤 (2026-06-20):
+      - project_type (单值, 向后兼容):  WHERE project_types && ARRAY[<type>]
+      - project_types (多值逗号分隔):    WHERE project_types && ARRAY[<t1>, <t2>, ...]
+        多选 OR 语义: 项目命中任一选中类型即统计。
+      - 都不传: 不过滤
     """
     try:
         d_start, d_end, desc = _resolve_period(period, year, quarter, date_start, date_end)
@@ -116,12 +119,20 @@ async def bid_rank(
 
     order_col = "total_amount" if sort_by == "amount" else "project_count"
 
-    # 2026-06-20 新增: project_types GIN 索引查询
+    # 2026-06-20 新增: project_types GIN 索引查询 (多值 OR 语义)
+    # 优先取 project_types (多值), 回退到 project_type (单值向后兼容)
+    types_list: list[str] = []
+    if project_types:
+        types_list = [t.strip() for t in project_types.split(",") if t.strip()]
+    elif project_type:
+        types_list = [project_type.strip()]
+
     type_filter = ""
     type_params: tuple = ()
-    if project_type:
-        type_filter = "AND project_types @> %s::TEXT[]"
-        type_params = ([project_type],)
+    if types_list:
+        # && 数组重叠操作符: 项目 project_types 与所选类型有任一交集即命中
+        type_filter = "AND project_types && %s::TEXT[]"
+        type_params = (types_list,)
 
     sql = f"""
         SELECT
@@ -175,7 +186,8 @@ async def bid_rank(
         "date_end": d_end.isoformat(),
         "sort_by": sort_by,
         "limit": limit,
-        "project_type": project_type,  # 2026-06-20 新增 (null 表示不过滤)
+        "project_types": types_list if types_list else None,  # 2026-06-20 多选
+        "project_type": project_type,  # 2026-06-20 单值 (向后兼容)
         "total_winners": len(rankings),
         "total_amount": round(total_amount, 2),
         "total_projects": total_projects,
@@ -192,7 +204,8 @@ async def bid_detail(
     date_start: Optional[date] = Query(None),
     date_end: Optional[date] = Query(None),
     limit: int = Query(200, ge=1, le=1000),
-    project_type: Optional[str] = Query(None, description="项目类型过滤 (2026-06-20 新增)"),
+    project_type: Optional[str] = Query(None, description="项目类型过滤 (单值, 向后兼容)"),
+    project_types: Optional[str] = Query(None, description="项目类型过滤 (多值, 逗号分隔, OR 语义)"),
 ):
     """单个中标单位的中标项目明细 (下钻)."""
     if not date_start:
@@ -208,9 +221,15 @@ async def bid_detail(
             cat_filter = f"AND {_category_filter(category)}"
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
-    if project_type:
-        type_filter = "AND br.project_types @> %s::TEXT[]"
-        params.append([project_type])
+    if project_type or project_types:
+        types_list: list[str] = []
+        if project_types:
+            types_list = [t.strip() for t in project_types.split(",") if t.strip()]
+        elif project_type:
+            types_list = [project_type.strip()]
+        if types_list:
+            type_filter = "AND br.project_types && %s::TEXT[]"
+            params.append(types_list)
 
     sql = f"""
         SELECT
@@ -258,7 +277,8 @@ async def bid_detail(
         "category": category,
         "date_start": date_start.isoformat(),
         "date_end": date_end.isoformat(),
-        "project_type": project_type,  # 2026-06-20 新增
+        "project_type": project_type,  # 2026-06-20 单值 (向后兼容)
+        "project_types": types_list if types_list else None,  # 2026-06-20 多选
         "total_projects": len(set(i["project_id"] for i in items)),
         "total_amount": round(total_amount, 2),
         "items": items,

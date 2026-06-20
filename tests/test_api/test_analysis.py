@@ -278,3 +278,132 @@ class TestBidRankByTypeEndpoint:
         res = client.get("/api/analysis/bid-rank-by-type?category=政府采购")
         assert res.status_code == 400
         assert "quarter" in res.json()["error"]
+
+
+# ─── project_types 多选 (2026-06-20 14:00 新增) ──────────────────────────────────
+
+class TestProjectTypesMultiSelect:
+    """多值 project_types 逗号分隔参数 + && 操作符 SQL."""
+
+    def test_多值逗号分隔(self):
+        """project_types=智能化,老旧小区改造 应注入 && ARRAY[...] 语义."""
+        with patch("app.api.routes.analysis.get_db") as mock_get_db:
+            mock_db = MagicMock()
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = []
+            mock_cursor.close = MagicMock()
+            mock_conn.cursor.return_value = mock_cursor
+            mock_db._get_conn.return_value = mock_conn
+            mock_get_db.return_value = mock_db
+
+            from web_server import app
+            from fastapi.testclient import TestClient
+            client = TestClient(app)
+            res = client.get(
+                "/api/analysis/bid-rank?category=政府采购&period=quarter&year=2026&quarter=2"
+                "&project_types=智能化,老旧小区改造"
+            )
+            assert res.status_code == 200, res.text
+            data = res.json()
+            # 响应里 project_types 应是拆分后的列表
+            assert data["project_types"] == ["智能化", "老旧小区改造"]
+            assert data["project_type"] is None  # 单值字段 null (兼容)
+
+    def test_向后兼容_单值project_type(self):
+        """仅传 project_type=智能化 应仍可用 (单值路径)."""
+        with patch("app.api.routes.analysis.get_db") as mock_get_db:
+            mock_db = MagicMock()
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = []
+            mock_cursor.close = MagicMock()
+            mock_conn.cursor.return_value = mock_cursor
+            mock_db._get_conn.return_value = mock_conn
+            mock_get_db.return_value = mock_db
+
+            from web_server import app
+            from fastapi.testclient import TestClient
+            client = TestClient(app)
+            res = client.get(
+                "/api/analysis/bid-rank?category=政府采购&period=quarter&year=2026&quarter=2"
+                "&project_type=智能化"
+            )
+            assert res.status_code == 200
+            data = res.json()
+            # project_types 也回填为 ['智能化'] (规范化)
+            assert data["project_types"] == ["智能化"]
+            assert data["project_type"] == "智能化"
+
+    def test_都不传(self):
+        """不传任何 type 参数 → 都不过滤."""
+        with patch("app.api.routes.analysis.get_db") as mock_get_db:
+            mock_db = MagicMock()
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = []
+            mock_cursor.close = MagicMock()
+            mock_conn.cursor.return_value = mock_cursor
+            mock_db._get_conn.return_value = mock_conn
+            mock_get_db.return_value = mock_db
+
+            from web_server import app
+            from fastapi.testclient import TestClient
+            client = TestClient(app)
+            res = client.get(
+                "/api/analysis/bid-rank?category=政府采购&period=quarter&year=2026&quarter=2"
+            )
+            assert res.status_code == 200
+            data = res.json()
+            assert data["project_types"] is None
+            assert data["project_type"] is None
+
+    def test_空字符串忽略(self):
+        """project_types=  (空) 应被忽略."""
+        with patch("app.api.routes.analysis.get_db") as mock_get_db:
+            mock_db = MagicMock()
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = []
+            mock_cursor.close = MagicMock()
+            mock_conn.cursor.return_value = mock_cursor
+            mock_db._get_conn.return_value = mock_conn
+            mock_get_db.return_value = mock_db
+
+            from web_server import app
+            from fastapi.testclient import TestClient
+            client = TestClient(app)
+            res = client.get(
+                "/api/analysis/bid-rank?category=政府采购&period=quarter&year=2026&quarter=2"
+                "&project_types="
+            )
+            assert res.status_code == 200
+            data = res.json()
+            # 全部空 token → 不过滤
+            assert data["project_types"] is None
+
+    def test_优先级_project_types_优先(self):
+        """同时传 project_type + project_types 时, project_types 优先."""
+        with patch("app.api.routes.analysis.get_db") as mock_get_db:
+            mock_db = MagicMock()
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = []
+            mock_cursor.close = MagicMock()
+            mock_conn.cursor.return_value = mock_cursor
+            mock_db._get_conn.return_value = mock_conn
+            mock_get_db.return_value = mock_db
+
+            from web_server import app
+            from fastapi.testclient import TestClient
+            client = TestClient(app)
+            res = client.get(
+                "/api/analysis/bid-rank?category=政府采购&period=quarter&year=2026&quarter=2"
+                "&project_type=智能化&project_types=老旧小区改造,零星维修"
+            )
+            assert res.status_code == 200
+            data = res.json()
+            # project_types 多值优先
+            assert data["project_types"] == ["老旧小区改造", "零星维修"]
+            # project_type 单值仍回显 (兼容)
+            assert data["project_type"] == "智能化"

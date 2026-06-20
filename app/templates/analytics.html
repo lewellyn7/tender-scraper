@@ -106,10 +106,9 @@
         </div>
       </div>
 
-      <!-- 🧩 项目类型筛选 (2026-06-20 新增) -->
+      <!-- 🧩 项目类型筛选 (2026-06-20 新增, 2026-06-20 14:00 改造为多选) -->
       <div class="flex items-center gap-2 mb-2 flex-wrap" id="bidTypeChips">
-        <span class="text-xs text-gray-500 dark:text-gray-400 mr-1">类型:</span>
-        <button type="button" data-bid-type="" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-600 text-white" data-label="全部">全部</button>
+        <span class="text-xs text-gray-500 dark:text-gray-400 mr-1">类型 (多选):</span>
         <button type="button" data-bid-type="智能化" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">智能化</button>
         <button type="button" data-bid-type="老旧小区改造" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">老旧小区改造</button>
         <button type="button" data-bid-type="零星维修" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">零星维修</button>
@@ -118,6 +117,7 @@
         <button type="button" data-bid-type="园林绿化" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">园林绿化</button>
         <button type="button" data-bid-type="装饰装修" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">装饰装修</button>
         <button type="button" data-bid-type="其他" class="bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">其他</button>
+        <button type="button" id="bidTypeClear" class="text-xs text-blue-500 hover:underline ml-1" title="清空选择">清空</button>
       </div>
 
       <div class="overflow-x-auto">
@@ -628,8 +628,8 @@ if (!el) return;
 (function() {
   let _bidCurrentCategory = '政府采购';
   let _bidCurrentPeriod = 'q2_2026';
-  let _bidCurrentSort = 'amount';  // 2026-06-20 新增: amount|count
-  let _bidCurrentType = '';        // 2026-06-20 新增: '' = 全部, 否则为选定类型
+  let _bidCurrentSort = 'amount';      // 2026-06-20 新增: amount|count
+  let _bidCurrentTypes = [];           // 2026-06-20 14:00 改造: 多选数组, [] = 不过滤
 
   function bidFormatAmount(n) {
     if (!n || n === 0) return '¥0';
@@ -664,7 +664,7 @@ if (!el) return;
     });
     if (p.year) params.set('year', p.year);
     if (p.quarter) params.set('quarter', p.quarter);
-    if (_bidCurrentType) params.set('project_type', _bidCurrentType);  // 2026-06-20
+    if (_bidCurrentTypes.length) params.set('project_types', _bidCurrentTypes.join(','));  // 2026-06-20 14:00 多选
 
     // 同步底部 API 链接
     var apiLink = document.getElementById('bidApiLink');
@@ -687,13 +687,14 @@ if (!el) return;
       tbodyEl.innerHTML = '';
       if (!data.rankings || data.rankings.length === 0) {
         var tr = document.createElement('tr');
-        var typeNote = _bidCurrentType ? ' (类型: ' + _bidCurrentType + ')' : '';
+        var typeNote = _bidCurrentTypes.length ? ' (类型: ' + _bidCurrentTypes.join('+') + ')' : '';
         tr.innerHTML = '<td colspan="8" class="text-center py-6 text-gray-400">暂无中标数据' + typeNote + ' — 请确认 bid_results 表已填充</td>';
         tbodyEl.appendChild(tr);
       } else {
         data.rankings.forEach(function(r) {
           var tr = document.createElement('tr');
           tr.className = 'border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5';
+          var detailQs = 'project_types=' + encodeURIComponent(_bidCurrentTypes.join(','));
           tr.innerHTML =
             '<td class="py-1.5 pl-1 pr-2 text-gray-400">' + r.rank + '</td>' +
             '<td class="py-1.5 px-2 font-medium text-gray-900 dark:text-white">' + escapeHtml(r.winner_name) + '</td>' +
@@ -702,7 +703,7 @@ if (!el) return;
             '<td class="py-1.5 px-2 text-right tabular-nums text-gray-500">' + bidFormatAmount(r.avg_amount) + '</td>' +
             '<td class="py-1.5 px-2 text-right tabular-nums text-gray-500">' + (r.avg_score != null ? r.avg_score.toFixed(2) : '-') + '</td>' +
             '<td class="py-1.5 px-2 text-gray-500 text-xs">' + (r.first_win || '-') + ' / ' + (r.last_win || '-') + '</td>' +
-            '<td class="py-1.5 px-2 text-right"><a href="/api/analysis/bid-detail?winner_name=' + encodeURIComponent(r.winner_name) + '&date_start=' + data.date_start + '&date_end=' + data.date_end + (_bidCurrentType ? '&project_type=' + encodeURIComponent(_bidCurrentType) : '') + '" target="_blank" class="text-blue-500 hover:underline text-xs">下钻</a></td>';
+            '<td class="py-1.5 px-2 text-right"><a href="/api/analysis/bid-detail?winner_name=' + encodeURIComponent(r.winner_name) + '&date_start=' + data.date_start + '&date_end=' + data.date_end + (_bidCurrentTypes.length ? '&' + detailQs : '') + '" target="_blank" class="text-blue-500 hover:underline text-xs">下钻</a></td>';
           tbodyEl.appendChild(tr);
         });
       }
@@ -742,16 +743,32 @@ if (!el) return;
     _bidCurrentSort = e.target.value;
     loadBidRank();
   });
-  // 2026-06-20 新增: 项目类型 chip
+  // 2026-06-20 14:00 改造: 项目类型 chip 多选 toggle
+  function updateChipStyles() {
+    document.querySelectorAll('.bid-type-chip').forEach(function(b) {
+      var selected = _bidCurrentTypes.indexOf(b.dataset.bidType) !== -1;
+      b.className = selected
+        ? 'bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-600 text-white'
+        : 'bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700';
+    });
+  }
   document.querySelectorAll('.bid-type-chip').forEach(function(btn) {
     btn.addEventListener('click', function() {
-      document.querySelectorAll('.bid-type-chip').forEach(function(b) {
-        b.className = 'bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700';
-      });
-      btn.className = 'bid-type-chip px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-600 text-white';
-      _bidCurrentType = btn.dataset.bidType || '';
+      var t = btn.dataset.bidType;
+      var idx = _bidCurrentTypes.indexOf(t);
+      if (idx === -1) {
+        _bidCurrentTypes.push(t);
+      } else {
+        _bidCurrentTypes.splice(idx, 1);
+      }
+      updateChipStyles();
       loadBidRank();
     });
+  });
+  document.getElementById('bidTypeClear').addEventListener('click', function() {
+    _bidCurrentTypes = [];
+    updateChipStyles();
+    loadBidRank();
   });
   document.getElementById('bidRefreshBtn').addEventListener('click', loadBidRank);
 
