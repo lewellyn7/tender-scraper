@@ -13,7 +13,13 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from pathlib import Path
+from typing import List, Optional
+
+# 项目类型分类词典（启动时加载一次）
+from config.project_types import get_sorted_types, PROJECT_TYPES
+
+_SORTED_TYPES = get_sorted_types()  # [(name, [kw, ...])] by priority asc
 
 
 # ─── 废标检测 ──────────────────────────────────────────────────────────────
@@ -512,11 +518,12 @@ def parse_bid_results(
     project_id: int,
     url: str,
     publish_date,
+    title: str = "",  # 2026-06-20 新增: 用于项目类型分类
 ) -> list[dict]:
     """
     主解析入口.
     根据 info_type 选择对应解析器, 包装统一格式返回.
-    返回 list[dict] — 每条 dict 已带 project_id / url / category / publish_date.
+    返回 list[dict] — 每条 dict 已带 project_id / url / category / publish_date / project_types.
 
     废标 → 返回 [] (不入表, 用户决策 2026-06-18)
 
@@ -524,6 +531,8 @@ def parse_bid_results(
       采购结果公告 → 政府采购
       中标候选人公示 / 中标结果公示 → 工程招投标
     category 参数保留传入值 (URL 路由或其他来源)
+
+    project_types 字段 (2026-06-20 新增): classify_project_type(title, content) 填充
     """
     if is_aborted(content):
         return []
@@ -541,6 +550,9 @@ def parse_bid_results(
     if not rows:
         return []
 
+    # 项目类型分类 (一次性计算, 所有 row 共享同一结果)
+    project_types = classify_project_type(title or "", content)
+
     # 包装公共字段 (不修改原 rows, 避免污染)
     out = []
     for r in rows:
@@ -557,5 +569,62 @@ def parse_bid_results(
             'bid_amount_num': r['bid_amount_num'],
             'winner_score': r['winner_score'],
             'publish_date': publish_date,
+            'title': title,  # 保留供下钻展示
+            'project_types': project_types,  # 2026-06-20 新增
         })
     return out
+
+# ─── 项目类型分类 (2026-06-20 新增) ────────────────────────────────────────
+
+def classify_project_type(title: str, content: str = "") -> List[str]:
+    """根据 title + content 头部匹配项目类型。
+
+    Returns:
+        类型列表 (按 priority 升序)；无匹配 → ['其他']。
+        多标签：可同时命中多个类型，如"老旧小区智能化改造"
+        → ['老旧小区改造', '智能化']
+
+    Args:
+        title: 项目标题（必传，>90% 类型信息在此）
+        content: 项目正文（可选，只看前 500 字避免噪声）
+
+    Notes:
+        - 修改 config/project_types.py 后需重启服务
+        - 测试可通过 monkeypatch _SORTED_TYPES 覆盖
+    """
+    if not title:
+        return ["其他"]
+
+    # 拼接文本：title 全文 + content 前 500 字
+    text = title
+    if content:
+        text = text + "\n" + (content[:500] if isinstance(content, str) else "")
+
+    types = []
+    for name, kws in _SORTED_TYPES:
+        if not kws:  # 跳过"其他"兜底
+            continue
+        if any(kw in text for kw in kws):
+            types.append(name)
+
+    return types if types else ["其他"]
+
+
+def annotate_project_types(rows: list[dict]) -> list[dict]:
+    """为 parse_* 输出的 rows 批量追加 project_types 字段（不动原 dict）。"""
+    annotated = []
+    for r in rows:
+        annotated.append({
+            **r,
+            "project_types": classify_project_type(r.get("title", ""), r.get("content", "")),
+        })
+    return annotated
+
+
+def reload_project_types() -> None:
+    """测试用：强制重载词典（修改 config/project_types.py 后调用）。"""
+    global _SORTED_TYPES
+    import importlib
+    import config.project_types as _mod
+    importlib.reload(_mod)
+    _SORTED_TYPES = _mod.get_sorted_types()
