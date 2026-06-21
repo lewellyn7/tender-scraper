@@ -477,6 +477,75 @@ class Database(
             logger.warning(f"_sync_projects_link (ccgp) failed: {e}")
 
 
+    def upsert_bid_results(self, rows: list) -> int:
+        """批量 upsert 中标结果到 bid_results 表.
+
+        rows: list of dict, 字段: source, project_id, url, info_type, category,
+              package_no, winner_name, winner_rank, bid_amount, bid_amount_num,
+              winner_score, publish_date
+
+        返回: 写入条数.
+        """
+        if not rows:
+            return 0
+        conn = self._get_conn().conn
+        try:
+            from psycopg2.extras import execute_values
+
+            # 按 UNIQUE 约束去重 (同 batch 内重复会触发 DO UPDATE conflict)
+            seen = set()
+            values = []
+            for r in rows:
+                key = (r.get('source', 'cqggzy'), r['project_id'], r['package_no'], r['winner_name'])
+                if key in seen:
+                    continue
+                seen.add(key)
+                values.append((
+                    r.get('source', 'cqggzy'),
+                    r['project_id'],
+                    r['url'],
+                    r['info_type'],
+                    r.get('category', ''),
+                    r['package_no'],
+                    r['winner_name'],
+                    r['winner_rank'],
+                    r['bid_amount'],
+                    r['bid_amount_num'],
+                    r['winner_score'],
+                    r['publish_date'],
+                ))
+
+            if not values:
+                return 0
+
+            insert_sql = """
+                INSERT INTO bid_results (
+                  source, project_id, url, info_type, category, package_no,
+                  winner_name, winner_rank, bid_amount, bid_amount_num,
+                  winner_score, publish_date
+                )
+                VALUES %s
+                ON CONFLICT (source, project_id, package_no, winner_name)
+                DO UPDATE SET
+                  info_type = EXCLUDED.info_type,
+                  category = EXCLUDED.category,
+                  winner_rank = EXCLUDED.winner_rank,
+                  bid_amount = EXCLUDED.bid_amount,
+                  bid_amount_num = EXCLUDED.bid_amount_num,
+                  winner_score = EXCLUDED.winner_score,
+                  publish_date = EXCLUDED.publish_date,
+                  parsed_at = NOW()
+            """
+            execute_values(conn.cursor(), insert_sql, values, page_size=200)
+            conn.commit()
+            logger.debug(f"upsert_bid_results: {len(values)} rows")
+            return len(values)
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"upsert_bid_results: {e}")
+            return 0
+
+
     def _init_tables(self):
         if USE_PG:
             # PG schema is created by migration script
