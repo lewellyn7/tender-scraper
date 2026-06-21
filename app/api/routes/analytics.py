@@ -203,10 +203,12 @@ def get_analytics(days: int = Query(365, ge=1, le=3650)):
         sorted(keyword_heat.items(), key=lambda x: x[1], reverse=True)[:20]
     )
 
-    # 趋势数据（按天）
+    # 趋势数据（按天，按入参 days 动态范围；2026-06-17 fix: 之前硬编码 -30 导致 60/90 不更新）
     trends = []
-    days_list = sorted(set(p.get("publish_date", "") for p in recent_projects))
-    for day in days_list[-30:]:
+    days_list = sorted(set(p.get("publish_date", "") for p in recent_projects if p.get("publish_date")))
+    # clamp 到实际数据天数（避免 days > len(days_list) 时返回空）
+    trend_window = days_list[-min(days, len(days_list)):]
+    for day in trend_window:
         day_projects = [p for p in recent_projects if p.get("publish_date", "") == day]
         trends.append({
             "date": day,
@@ -214,11 +216,19 @@ def get_analytics(days: int = Query(365, ge=1, le=3650)):
             "matched": len([p for p in day_projects if p.get("keywords_matched")])
         })
 
+    # 分类统计（2026-06-17 fix: summary 缺 gov/eng/budget 字段，前端写死 '-'）
+    gov_count = sum(1 for p in recent_projects if p.get("business_type") == "政府采购")
+    eng_count = sum(1 for p in recent_projects if p.get("business_type") == "工程招投标")
+    budget_count = len(budget_projects)
+
     return JSONResponse({
         "summary": {
             "total": len(recent_projects),
             "pending": len([p for p in recent_projects if not p.get("keywords_matched")]),
             "matched": len(matched_projects),
+            "gov_count": gov_count,
+            "eng_count": eng_count,
+            "budget_count": budget_count,
         },
         "trends": trends,
         "categories": categories,
