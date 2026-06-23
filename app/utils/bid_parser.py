@@ -210,6 +210,36 @@ def parse_tender_candidate(content: str) -> list[dict]:
     """
     results = []
 
+    # 模式 0 (新格式, 表格行): "第N名 公司名 数字 数字 数字" 出现在 中标候选人排序 表
+    # 2026-06-22 新增: 修复 3952 条 bid_amount_num=NULL 问题 (原代码只匹旧格式)
+    cn_rank_map = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10}
+    for m in re.finditer(
+        r'第([一二三四五六七八九十]+|\d+)名\s+'
+        r'(\S+?(?:公司|集团|企业|联合体|事务所|院))'
+        r'\s+([\d.]+)\s+[\d.]+\s+([\d.]+)',
+        content
+    ):
+        rank_str = m.group(1)
+        rank = cn_rank_map.get(rank_str, int(rank_str) if rank_str.isdigit() else 0)
+        if not rank:
+            continue
+        try:
+            score = Decimal(m.group(4))
+        except (InvalidOperation, ValueError):
+            score = None
+        try:
+            price_num = Decimal(m.group(3))
+        except (InvalidOperation, ValueError):
+            price_num = None
+        results.append({
+            'package_no': None,
+            'winner_name': m.group(2).strip(),
+            'winner_rank': rank,
+            'bid_amount': m.group(3),  # 表里通常是元为单位 (71558384.20)
+            'bid_amount_num': price_num,
+            'winner_score': score,
+        })
+
     # 模式 1: 标准 — "第N中标候选人：name ... 投标报价：xxx ... 评审得分：xx"
     # 注意: 名字后面可能有 "地址" 等字段, 用非贪婪 + 行尾锚定 price/score
     for m in re.finditer(
@@ -295,6 +325,45 @@ def _strip_noise_suffix(name: str) -> str:
     for pat in _NOISE_SUFFIX_PATTERNS:
         name = re.sub(pat, '', name)
     return name.strip()
+
+
+# 2026-06-22 新增: 清洗 winner_name 中的噪声 (资质/业绩/备注/页面净化)
+# 样本: "成都市众恒建设工程监理有限责任公司 资质等级：市政公用工程专业资质乙级 ..."
+#       "重庆黔睿建筑有限公司 企业资质： 市政公用工程施工总承包贰级 ..."
+# 抽取: 第一个公司/机构名 (\S+有限公司|\S+有限责任公司|...)
+_CLEAN_WINNER_NAME_PATTERNS = [
+    re.compile(r'^([^\s:：]+?(?:有限公司|有限责任公司|股份公司|集团公司|总公司|分公司|控股公司|企业|联合体))'),
+    re.compile(r'^([^\s:：]+?(?:事务所|研究院|设计院|工程局|设计公司|管理公司|咨询公司))'),
+    re.compile(r'^([^\s:：]+?(?:中心|医院|学校|学院|大学|工厂|农场|林场|水库))'),
+    re.compile(r'^([^\s:：]{4,40})'),  # 兑底: 取前 4-40 字 (考虑无后缀情况)
+]
+
+
+def clean_winner_name(raw: str) -> str:
+    """抽取 winner_name 中第一个公司/机构名, 去除资质/业绩/备注/净化段.
+
+    Returns:
+        清洗后的名称. 原为空/None 返回 ''.
+    """
+    if not raw:
+        return ''
+    # 特殊多行模式: "中标人信息\n单位名称 xxx" → "xxx" (必须放在常规处理之前)
+    m_multi = re.search(r'中标人信息.{0,30}?单位名称\s*([^\n]+)', raw, re.DOTALL)
+    if m_multi:
+        text = m_multi.group(1).strip()
+    else:
+        # 先去除换行/多空格/前后冒号
+        text = re.sub(r'\s+', ' ', raw).strip()
+    # 去前缀: 1. / 第一 / 第二 / 中标人: / 中标人: / 单位名称: / 企业资质: / 中标人信息
+    # 重要: 复合前缀 "1.企业资质：" 需要一起吃掉
+    text = re.sub(r'^(?:\d+[\.、]?\s*(?:企业资质|中标人|单位名称|中标单位)[：:]?\s*|\d+[\.、]?\s*|\(\d+\)\s*|第一\s*|第二\s*|第三\s*|单位名称[：:]\s*|中标人[：:]\s*|中标人名称[：:]\s*|拟中标人[：:]\s*|中标人信息[：:、，\s]*|企业资质[：:]\s*)', '', text)
+    # 抽取第一个匹配的单位名
+    for pat in _CLEAN_WINNER_NAME_PATTERNS:
+        m = pat.match(text)
+        if m:
+            return m.group(1).strip()
+    # 都未匹配: 返回前 30 字 (限制长度, 避免返回整段)
+    return text[:30].strip()
 
 
 def _split_multi_winners(raw: str) -> list[str]:
@@ -598,8 +667,11 @@ def classify_project_type(title: str, content: str = "") -> List[str]:
         - 修改 config/project_types.py 后需重启服务
         - 测试可通过 monkeypatch _SORTED_TYPES 覆盖
     """
+    # 2026-06-22 改造: 返回 [] 而非 ['其他']
+    # 用户指令: 信息类型为其他的重新分类 = 按 info_type 替代 project_types
+    # bid_parser 不再产生 '其他' 兜底, 未命中任何分类时返回空列表
     if not title:
-        return ["其他"]
+        return []
 
     # 拼接文本：title 全文 + content 前 500 字
     text = title
@@ -630,7 +702,7 @@ def classify_project_type(title: str, content: str = "") -> List[str]:
 
         types.append(name)
 
-    return types if types else ["其他"]
+    return types  # 2026-06-22 改造: 无匹配返回 [] 而非 ['其他']
 
 
 def annotate_project_types(rows: list[dict]) -> list[dict]:
