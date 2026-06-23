@@ -6,6 +6,8 @@ python-multipart==0.0.9
 # Crawler
 playwright==1.44.0
 playwright-stealth==1.0.6
+beautifulsoup4==4.12.3  # 2026-06-23: curl 采集器详情页提取
+lxml==5.2.2  # 2026-06-23: BS4 解析器
 
 # Data & Utils
 pandas==2.2.2
