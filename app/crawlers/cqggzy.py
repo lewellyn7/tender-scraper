@@ -34,26 +34,27 @@ class CQGGZYCrawlerV2(BaseCrawler):
     # 政府采购
     GOV_PURCHASE_URL = "https://www.cqggzy.com/trade/014005?categoryNum=014005001"
 
-    # 分类采集 URL 映射（支持多 categoryNum）
+    # 分类采集 URL 映射（用户 6-23 明确指定 9 大类；格式: trade_id, categoryNum）
+    # 工程招投标: 014001 / 政府采购: 014005
     LIST_URLS = {
-        "engineering_notice":    ("https://www.cqggzy.com/trade/014001", "014001001"),
-        "engineering_plan":      ("https://www.cqggzy.com/trade/014001", "014001019"),
-        "engineering_qa":        ("https://www.cqggzy.com/trade/014001", "014001002"),
-        "engineering_candidate":  ("https://www.cqggzy.com/trade/014001", "014001003"),
-        "engineering_result":    ("https://www.cqggzy.com/trade/014001", "014001004"),
-        "engineering_terminate": ("https://www.cqggzy.com/trade/014001", "014001021"),
-        "gov_purchase_notice":   ("https://www.cqggzy.com/trade/014005", "014005001"),
-        "gov_purchase_change":   ("https://www.cqggzy.com/trade/014005", "014005002"),
-        "gov_purchase_result":   ("https://www.cqggzy.com/trade/014005", "014005004"),
+        "engineering_plan":      ("014001", "014001019"),  # 招标计划
+        "engineering_notice":    ("014001", "014001001"),  # 招标公告
+        "engineering_qa":        ("014001", "014001002"),  # 答疑补遗
+        "engineering_candidate": ("014001", "014001003"),  # 中标候选人公示
+        "engineering_result":    ("014001", "014001004"),  # 中标结果公示
+        "gov_purchase_notice":   ("014005", "014005001"),  # 采购公告
+        "gov_purchase_change":   ("014005", "014005002"),  # 变更公告
+        "gov_purchase_result":   ("014005", "014005004"),  # 采购结果公告
     }
+    # 严格白名单：只采集以上 8 类 (用户 6-23 明确指令: 非以上来源不采集)
+    _ALLOWED_CATNUM_PREFIXES = tuple(v[1] for v in LIST_URLS.values())
 
     INFO_TYPE_MAP = {
-        "engineering_notice":    "招标公告",
         "engineering_plan":      "招标计划",
+        "engineering_notice":    "招标公告",
         "engineering_qa":        "答疑补遗",
         "engineering_candidate": "中标候选人公示",
         "engineering_result":    "中标结果公示",
-        "engineering_terminate": "终止公告",
         "gov_purchase_notice":   "采购公告",
         "gov_purchase_change":   "变更公告",
         "gov_purchase_result":   "采购结果公告",
@@ -79,64 +80,68 @@ class CQGGZYCrawlerV2(BaseCrawler):
     ) -> List["TenderInfo"]:
         """通过 API 获取列表数据（支持分页）
 
-        POST /api/v2/search-engine-page 返回结构化 JSON，支持 pn/rn 分页。
+        2026-06-23 修复: CQGGZY 改用 POST /api/special-zone/search-engine-page
+        使用前端 condition 数组结构传递 categoryNum 过滤。
         在 Playwright 页面上下文内执行以保持 cookie 状态。
         """
         try:
-            # 构造 API 请求
-            # category → categoryNum 映射
-            cat_map = {
-                "gov_purchase": "014005001",
-                "engineering": "014001001",
-            }
-            cat_map.update({k: v[1] for k, v in self.LIST_URLS.items()})
-            category_num = cat_map.get(category, "014005001" if "gov" in category else "014001001")
+            # category → categoryNum 映射 (从 LIST_URLS 取)
+            if category in self.LIST_URLS:
+                trade_id, category_num = self.LIST_URLS[category]
+            else:
+                # 兑底: 传统 gov/eng mapping
+                if "gov" in category:
+                    trade_id, category_num = "014005", "014005001"
+                else:
+                    trade_id, category_num = "014001", "014001001"
             pn = page_num - 1  # API 页码从 0 开始
             rn = 50  # 每页条数（增大减少页间重叠）
 
-            # 日期范围
-            sdt = start_date.strftime('%Y-%m-%d') if start_date else ""
-            edt = end_date.strftime('%Y-%m-%d') if end_date else ""
-
+            # 2026-06-23: 切换 condition 数组结构 (前端实际使用的格式)
+            # 实测: 使用 condition 数组 + equalList 可准确过滤 categoryNum
             api_payload = {
                 "token": "",
                 "pn": pn,
                 "rn": rn,
-                "sdt": sdt,
-                "edt": edt,
+                "sdt": "",
+                "edt": "",
                 "wd": "",
                 "inc_wd": "",
                 "exc_wd": "",
                 "fields": "",
-                # newid 排序方向: 0=按 newid 倒序（最新优先，符合采集场景预期）,
-                #               1=按 newid 升序（最旧优先，2026-06-09 调研确认此前误用此值，
-                #                  导致 pn=0 返回 2019-2020 老数据，6-6~6-9 最新项目永远在 pn=0
-                #                  远端，列表采集器只能靠翻大量页才能接近，6 天后仍采不到 6-9）
-                "sort": '{"istop":"0","ordernum":"0","newid":"0"}',
+                # 2026-06-23: newid 倒序 (最新优先)
+                "sort": '{"istop":"0","ordernum":"0","webdate":"0","newid":"0"}',
                 "ssort": "",
                 "cl": 10000,
                 "terminal": "",
                 "highlights": "",
-                "unionCondition": [],
+                "statistics": None,
                 "accuracy": "",
                 "noParticiple": "1",
+                "searchRange": None,
                 "noWd": True,
+                "cnum": "001",
                 "condition": [
                     {
                         "fieldName": "categorynum",
-                        "equal": category_num,
+                        "equal": None,
+                        "notEqual": None,
+                        "equalList": [category_num],
+                        "notEqualList": None,
                         "isLike": True,
-                        "likeType": 2
+                        "likeType": 2,
+                        "noWd": True,
                     }
-                ]
+                ],
+                "time": [],
             }
 
             import json
-            # 使用 json.dumps 确保 payload 精确序列化（避免 Python None → JSON null 的不一致问题）
+            # 使用 json.dumps 确保 payload 精确序列化
             payload_json = json.dumps(api_payload, ensure_ascii=False)
             api_response = await page.evaluate(
                 """async (payloadJson) => {
-                    const resp = await fetch('/api/v2/search-engine-page', {
+                    const resp = await fetch('/api/special-zone/search-engine-page', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: payloadJson
@@ -184,14 +189,34 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 # 详情页 URL（2026-06 新版）：infoid 为真正的项目 UUID，syscollectguid 是分类级 ID（多项目共用）
                 # 优先使用 infoid，若无则降级到 syscollectguid
                 infoid = item.get('infoid', '') or item.get('syscollectguid', '')
+                # 2026-06-22 修复：CQGGZY list API 给同一项目返回多个 infoid_N (N=1..30)
+                # 去序号后缀, 统一为 infoid 本身 (DB UNIQUE 约束生效, 重复入库被拒)
+                infoid = infoid.split('_')[0] if infoid else ''
                 raw_catnum = item.get('categorynum', '') or ''
+                # 2026-06-23 修复: 严格白名单 (用户 6-23 明确指令: 非以上来源不采集)
+                # 使用类级 _ALLOWED_CATNUM_PREFIXES (从 LIST_URLS.values() 生成)
+                # 标题关键词兜底: 拦截资产招租 (CQGGZY 偶发把房产招租挂载到 014001xxx 工程分类)
+                _BLOCKED_TITLE_KEYWORDS = ('招租', '经营权出让')
+                if (
+                    not raw_catnum
+                    or not any(raw_catnum.startswith(p) for p in self._ALLOWED_CATNUM_PREFIXES)
+                    or any(kw in title for kw in _BLOCKED_TITLE_KEYWORDS)
+                ):
+                    logger.debug(f"  catnum 不在白名单或标题含招租: categoryNum={raw_catnum}, title={title[:30]}")
+                    continue
                 # categorynum 可能是 12 位（如 014001001007），直接用完整值作为 categoryNum
                 category_num = raw_catnum
-                # 判断是工程还是采购（trade id 在 URL 中）
-                if category_num.startswith('014001') or category.startswith('engineering'):
+                # 2026-06-22 18:11 修复: trade_id 严格依据 catnum 前 6 位, 不信 category 参数
+                # 之前: or category.startswith('engineering') 会让 9 大类循环中同一 infoid+catnum
+                #         被拼成 trade=014001 + trade=014005 两个 URL, DB UNIQUE 冲突但 99→16 写入
+                # 修复: 9 大类无论以工程/政采调用, 同一 catnum 都用唯一 trade_id
+                if category_num.startswith('014001'):
                     trade_id = '014001'
-                else:
+                elif category_num.startswith('014005'):
                     trade_id = '014005'
+                else:
+                    logger.debug(f"  catnum 既不属 014001 也不属 014005: categoryNum={category_num}")
+                    continue  # 白名单已过滤, 这里走到是异常
                 if infoid:
                     full_url = f"{self.BASE_URL}/trade/{trade_id}/{infoid}?categoryNum={category_num}"
                 else:
@@ -331,8 +356,9 @@ class CQGGZYCrawlerV2(BaseCrawler):
             url = f"{base_url}?pageNum={page_num}&date=today&categoryNum=014001001"
             tender_type = "工程建设"
         else:
-            base, cat_num = self.LIST_URLS.get(category, ("https://www.cqggzy.com/trade/014005", "014005001"))
-            url = f"{base}?pageNum={page_num}&date=today&categoryNum={cat_num}"
+            trade_id, cat_num = self.LIST_URLS.get(category, ("014005", "014005001"))
+            base_url = f"https://www.cqggzy.com/trade/{trade_id}"
+            url = f"{base_url}?pageNum={page_num}&date=today&categoryNum={cat_num}"
             # 政府采购类 vs 工程建设类
             tender_type = "政府采购" if category.startswith("gov_purchase") else "工程建设"
         page = None

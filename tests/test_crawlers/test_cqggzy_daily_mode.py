@@ -35,10 +35,13 @@ class TestURLDateParam:
         assert 'pageNum={page_num}&date=3m&categoryNum=014001001' not in src
 
     def test_fallback_url_uses_today(self):
-        """其他 category fallback URL 含 date=today"""
+        """其他 category fallback URL 含 date=today (2026-06-23: 变量名 base → base_url)"""
         src = _url_construction_code()
-        assert 'f"{base}?pageNum={page_num}&date=today&categoryNum={cat_num}"' in src
+        # 2026-06-23: 变量名重命名 (base → base_url) + trade_id 从 LIST_URLS 拿
+        assert 'f"{base_url}?pageNum={page_num}&date=today&categoryNum={cat_num}"' in src
         assert 'f"{base}?pageNum={page_num}&date=3m&categoryNum={cat_num}"' not in src
+        # 验证 LIST_URLS fallback 正确
+        assert 'self.LIST_URLS.get(category, ("014005", "014005001"))' in src
 
     def test_no_stale_date3m_string(self):
         """代码中无任何 date=3m 残留"""
