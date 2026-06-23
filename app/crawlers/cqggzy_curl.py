@@ -131,6 +131,19 @@ class CqggzyCurlCrawler(CQGGZYCrawlerV2):
         if self._session and not self._session.closed:
             await self._session.close()
 
+    async def fetch_list(
+        self, category: str = "gov_purchase", page_num: int = 1,
+        start_date=None, end_date=None
+    ) -> List["TenderInfo"]:
+        """curl 重写: 跳过 Playwright _fetch_list_page, 走 _fetch_list_via_curl"""
+        sdt = start_date.strftime('%Y-%m-%d') if start_date else ''
+        edt = end_date.strftime('%Y-%m-%d') if end_date else ''
+        return await self._fetch_list_via_curl(category, page_num=page_num, sdt=sdt, edt=edt)
+
+    async def fetch_detail(self, tender) -> "TenderInfo":
+        """curl 重写: 跳过 Playwright _fetch_detail_page, 走 _fetch_detail_via_curl"""
+        return await self._fetch_detail_via_curl(tender)
+
     async def _fetch_list_via_curl(
         self, category: str, page_num: int = 1, rn: int = 50,
         sdt: str = "", edt: str = "",

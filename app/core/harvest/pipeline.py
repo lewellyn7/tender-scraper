@@ -34,6 +34,7 @@ from app.core.harvest.vectorize import _upsert_to_vector_store
 from app.core.session_memory import SessionMemory, SessionMemoryConfig
 from app.crawlers.ccgp import CCGPCrawlerV3
 from app.crawlers.cqggzy import CQGGZYCrawlerV2
+from app.crawlers.cqggzy_curl import CqggzyCurlCrawler  # 2026-06-24: CRAWLER_MODE=curl
 from app.database.db import get_db
 from app.services.vector_store import get_vector_store_indexed
 from app.utils.filter import TenderFilter
@@ -60,15 +61,23 @@ async def run_collection():
     session_memory = SessionMemory(SessionMemoryConfig(max_tokens=128000, compact_threshold=0.80))
 
     browser = None
+    crawler = None  # 2026-06-24: 提前定义避免 finally 中未定义警告
+    use_curl = os.getenv("CRAWLER_MODE", "playwright").lower() == "curl"
     try:
-        # 1. 启动浏览器
-        browser = StealthBrowser(headless=settings.HEADLESS, slow_mo=settings.SLOW_MO)
-        await browser.start()
+        logger.info(f"🔧 CRAWLER_MODE: {'curl (10x 加速)' if use_curl else 'playwright (默认)'}")
+        if use_curl:
+            # curl 模式: 无 browser, 直接用 CqggzyCurlCrawler
+            crawler = CqggzyCurlCrawler(browser=None)
+            ccgp_crawler = None
+        else:
+            # 1. 启动浏览器
+            browser = StealthBrowser(headless=settings.HEADLESS, slow_mo=settings.SLOW_MO)
+            await browser.start()
 
-        # 2. 创建采集器 V2
-        crawler = CQGGZYCrawlerV2(browser)
-        # CCGP 采集器：仅在 ENABLE_CCGP=True 时创建（默认停采，2026-06-02 决策）
-        ccgp_crawler = CCGPCrawlerV3(browser) if ENABLE_CCGP else None
+            # 2. 创建采集器 V2
+            crawler = CQGGZYCrawlerV2(browser)
+            # CCGP 采集器：仅在 ENABLE_CCGP=True 时创建（默认停采，2026-06-02 决策）
+            ccgp_crawler = CCGPCrawlerV3(browser) if ENABLE_CCGP else None
 
         # 采集数据（9 个分类，并行）
         # 2026-06-18 修复：URL date=today + 列表 start_date=today（之前 date=3m URL 与 7d POST API 范围不一致）
@@ -528,5 +537,11 @@ async def run_collection():
     finally:
         if browser:
             await browser.close()
+        # 2026-06-24: curl 模式关闭 aiohttp session
+        if use_curl and crawler is not None:
+            try:
+                await crawler.close()
+            except Exception:
+                pass
 
 
