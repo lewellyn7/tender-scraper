@@ -68,6 +68,28 @@ class Settings:
     def default_admin_display_name(self) -> str:
         return os.getenv("DEFAULT_ADMIN_DISPLAY_NAME", "系统管理员")
 
+    # 2026-06-24 修复: pipeline.py 引用了 KEYWORDS/EXCLUDE_KEYWORDS 但 settings 从未定义
+    # 表现: 容器跑老代码时 (mtime 6-21) 没事, rebuild 后会 AttributeError
+    # 修复: 从环境变量读, 默认空列表 (跟 TenderFilter.__init__ 行为一致)
+    @property
+    def keywords(self) -> list:
+        raw = os.getenv("KEYWORDS", "") or ""
+        return [k.strip() for k in raw.split(",") if k.strip()]
+
+    @property
+    def exclude_keywords(self) -> list:
+        raw = os.getenv("EXCLUDE_KEYWORDS", "") or ""
+        return [k.strip() for k in raw.split(",") if k.strip()]
+
+    # 向后兼容旧属性名 (pipeline.py 138-139 仍引用大写 KEYWORDS)
+    @property
+    def KEYWORDS(self) -> list:
+        return self.keywords
+
+    @property
+    def EXCLUDE_KEYWORDS(self) -> list:
+        return self.exclude_keywords
+
 
 # 全局单例
 _settings: Optional[Settings] = None
