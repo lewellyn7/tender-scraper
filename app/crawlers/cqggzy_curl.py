@@ -207,7 +207,11 @@ class CqggzyCurlCrawler(CQGGZYCrawlerV2):
                     pass
 
             infoid = item.get('infoid', '') or item.get('syscollectguid', '')
-            infoid = infoid.split('_')[0] if infoid else ''
+            # CQGGZY API infoid 格式: "1645485773757394944_1" (数字 ID + 版本后缀)
+            # 详情页 URL 必须含 _N 后缀, 否则网站返回空 200 响应 (无正文)
+            # Fallback: 兼容旧格式裸数字 ID (无下划线) → 自动补 _1
+            if infoid and '_' not in infoid and infoid.isdigit():
+                infoid = f'{infoid}_1'
             raw_catnum = item['categorynum']
 
             if raw_catnum.startswith('014001'):
