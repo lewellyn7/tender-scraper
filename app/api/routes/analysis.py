@@ -136,7 +136,7 @@ async def bid_rank(
 
     sql = f"""
         SELECT
-          winner_name,
+          COALESCE(cleaned_winner_name, winner_name) AS winner_name,
           COUNT(DISTINCT project_id) AS project_count,
           SUM(bid_amount_num) AS total_amount,
           ROUND(AVG(bid_amount_num), 2) AS avg_amount,
@@ -149,7 +149,7 @@ async def bid_rank(
         WHERE {info_filter}
           AND publish_date BETWEEN %s AND %s
           {type_filter}
-        GROUP BY winner_name
+        GROUP BY COALESCE(cleaned_winner_name, winner_name)
         ORDER BY {order_col} DESC
         LIMIT %s
     """
@@ -234,12 +234,13 @@ async def bid_detail(
     sql = f"""
         SELECT
           br.project_id, br.url, br.info_type, br.category, br.package_no,
-          br.winner_name, br.winner_rank, br.bid_amount, br.bid_amount_num,
+          COALESCE(br.cleaned_winner_name, br.winner_name) AS winner_name,
+          br.winner_rank, br.bid_amount, br.bid_amount_num,
           br.winner_score, br.publish_date, br.project_types,
           p.title, p.publish_date AS p_date
         FROM bid_results br
         LEFT JOIN projects_cqggzy p ON p.id = br.project_id
-        WHERE br.winner_name = %s
+        WHERE COALESCE(br.cleaned_winner_name, br.winner_name) = %s
           AND br.publish_date BETWEEN %s AND %s
           {cat_filter}
           {type_filter}
@@ -297,12 +298,12 @@ async def bid_summary(
     for q in range(1, 5):
         d_start, d_end = _quarter_range(year, q)
         sql = """
-            SELECT winner_name,
+            SELECT COALESCE(cleaned_winner_name, winner_name) AS winner_name,
                    COUNT(DISTINCT project_id) AS pc,
                    SUM(bid_amount_num) AS total
             FROM bid_results
             WHERE publish_date BETWEEN %s AND %s
-            GROUP BY winner_name
+            GROUP BY COALESCE(cleaned_winner_name, winner_name)
             ORDER BY total DESC NULLS LAST
             LIMIT 3
         """
@@ -329,13 +330,13 @@ async def bid_summary(
     # 全年 Top 10 (所有 category 混合)
     d_start, d_end = date(year, 1, 1), date(year, 12, 31)
     sql = """
-        SELECT winner_name,
+        SELECT COALESCE(cleaned_winner_name, winner_name) AS winner_name,
                COUNT(DISTINCT project_id) AS pc,
                SUM(bid_amount_num) AS total,
                ARRAY_AGG(DISTINCT info_type) AS types
         FROM bid_results
         WHERE publish_date BETWEEN %s AND %s
-        GROUP BY winner_name
+        GROUP BY COALESCE(cleaned_winner_name, winner_name)
         ORDER BY total DESC NULLS LAST
         LIMIT 10
     """
@@ -406,7 +407,7 @@ async def bid_rank_by_type(
         WITH expanded AS (
             SELECT
               pt AS project_type,
-              winner_name,
+              COALESCE(cleaned_winner_name, winner_name) AS winner_name,
               project_id,
               bid_amount_num,
               winner_score,
