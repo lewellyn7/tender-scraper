@@ -150,6 +150,18 @@ async def get_qualifications_page(request: Request):
     return _render(request, "qualifications.html")
 
 
+@router.get("/fahcqmu", response_class=HTMLResponse)
+async def get_fahcqmu_page(request: Request):
+    """重医附一院 (fahcqmu) 采购公告页 — F6 (2026-06-26)
+
+    数据来源: projects_fahcqmu 表 (PR #39 + 本次 feat/fahcqmu-integration)
+    """
+    user = _get_user_info(request)
+    if user.get("role") == "guest":
+        return RedirectResponse(url="/login?redirect=/fahcqmu", status_code=302)
+    return _render(request, "fahcqmu.html")
+
+
 @router.get("/documents/upload", response_class=HTMLResponse)
 async def get_document_upload_page(request: Request):
     """文档上传已合并到资质管理 — 重定向"""
