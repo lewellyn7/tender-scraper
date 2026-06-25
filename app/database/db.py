@@ -477,6 +477,105 @@ class Database(
             logger.warning(f"_sync_projects_link (ccgp) failed: {e}")
 
 
+    # ============================================================================
+    # 2026-06-25: 重医附一院采集 (fahcqmu)
+    # PR #39: feat/fahcqmu-crawler
+    # ============================================================================
+    def upsert_projects_fahcqmu(self, rows: list):
+        """批量 upsert 项目到 projects_fahcqmu 表（URL 去重）
+
+        rows: list of dict, 字段映射到 projects_fahcqmu 列:
+            - url (unique, required)
+            - title, category, info_type, business_type
+            - publish_date (date or str), publish_date_raw
+            - content_preview, full_content
+            - budget, bid_amount, deadline, opening_date
+            - region, industry, tender_type, project_overview
+            - bidder_requirements, submission_deadline, submission_location
+            - contact_name, contact_phone, contact_email
+            - attachments_count (int), attachments (list/dict)
+            - keywords_matched, source_url, scraped_at, scraped_by
+            - org_unit (新字段: 信息数据处 / 总务处 / 其他)
+            - contract_amount, planned_publish_date, tender_content, project_no
+
+        行为:
+        - URL 冲突 → UPDATE 非保护字段
+        - 保护字段 full_content/content_preview: 用 COALESCE(NULLIF(EXCLUDED.col,''), 原值)
+        - 联动同步 projects + project_records 关联表
+        """
+        if not rows:
+            return
+        conn = self._get_conn().conn
+        # 保留原始 dict rows 用于关联表同步（在 convert tuple 后会丢失字段名）
+        rows_original = [r for r in rows if isinstance(r, dict)]
+        try:
+            cols = [
+                "url", "title", "category", "info_type", "business_type", "org_unit",
+                "publish_date", "publish_date_raw", "content_preview", "full_content",
+                "budget", "bid_amount", "deadline", "opening_date",
+                "region", "industry", "tender_type", "project_overview",
+                "bidder_requirements", "submission_deadline", "submission_location",
+                "contact_name", "contact_phone", "contact_email",
+                "attachments_count", "attachments", "keywords_matched",
+                "source_url", "scraped_at", "scraped_by",
+                "contract_amount", "planned_publish_date", "tender_content",
+                "project_no",
+            ]
+            placeholders = ",".join(["%s"] * len(cols))
+            # 保护详情字段 + 时间戳不被空值覆盖
+            # 2026-06-25 修正: 用 CASE WHEN 替代 NULLIF (NULLIF 在 TIMESTAMP 报错)
+            # TIMESTAMP 字段 (scraped_at) 只能用 IS NOT NULL 判断
+            # TEXT 字段 (full_content / content_preview) 同时检查 IS NOT NULL 和 <> ''
+            text_protected_cols = {"full_content", "content_preview"}
+            timestamp_protected_cols = {"scraped_at"}
+            set_parts = []
+            for c in cols[1:]:
+                if c in text_protected_cols:
+                    set_parts.append(
+                        f"{c}=CASE WHEN EXCLUDED.{c} IS NOT NULL AND EXCLUDED.{c} <> '' "
+                        f"THEN EXCLUDED.{c} ELSE projects_fahcqmu.{c} END"
+                    )
+                elif c in timestamp_protected_cols:
+                    set_parts.append(
+                        f"{c}=CASE WHEN EXCLUDED.{c} IS NOT NULL "
+                        f"THEN EXCLUDED.{c} ELSE projects_fahcqmu.{c} END"
+                    )
+                else:
+                    set_parts.append(f"{c}=EXCLUDED.{c}")
+            set_clause = ", ".join(set_parts)
+            insert_sql = f"""
+                INSERT INTO projects_fahcqmu ({','.join(cols)})
+                VALUES ({placeholders})
+                ON CONFLICT (url) DO UPDATE SET
+                    {set_clause}
+            """
+            from psycopg2.extras import execute_batch
+
+            # Convert dict rows to tuples, preserving None for NULL columns
+            if rows and isinstance(rows[0], dict):
+                null_cols = {'deadline', 'publish_date', 'attachments_count', 'opening_date', 'scraped_at'}
+                def _to_val(r, c):
+                    v = r.get(c)
+                    if v is None or v == "":
+                        return None
+                    return v if c in null_cols else (v or "")
+                rows = [[_to_val(r, c) for c in cols] for r in rows]
+
+            execute_batch(conn.cursor(), insert_sql, rows, page_size=500)
+            conn.commit()
+            logger.debug(f"upsert_projects_fahcqmu: {len(rows)} rows")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"upsert_projects_fahcqmu: {e}")
+            raise
+
+        # 联动写入 projects + project_records 关联表
+        try:
+            self._sync_projects_link(rows_original, source_table="projects_fahcqmu")
+        except Exception as e:
+            logger.warning(f"_sync_projects_link (fahcqmu) failed: {e}")
+
+
     def upsert_bid_results(self, rows: list) -> int:
         """批量 upsert 中标结果到 bid_results 表.
 

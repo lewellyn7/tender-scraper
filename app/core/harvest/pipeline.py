@@ -35,6 +35,11 @@ from app.core.session_memory import SessionMemory, SessionMemoryConfig
 from app.crawlers.ccgp import CCGPCrawlerV3
 from app.crawlers.cqggzy import CQGGZYCrawlerV2
 from app.crawlers.cqggzy_curl import CqggzyCurlCrawler  # 2026-06-24: CRAWLER_MODE=curl
+from app.crawlers.fahcqmu import (
+    FahcqmuCrawler, CATEGORIES as FAHC_CATEGORIES,
+    tender_to_db_row as fahc_tender_to_db_row,
+    collect_org_unit as fahc_collect_org_unit,
+)
 from app.database.db import get_db
 from app.services.vector_store import get_vector_store_indexed
 from app.utils.filter import TenderFilter
@@ -45,6 +50,8 @@ from config.settings import settings
 
 # 采集源开关（2026-06-02 决策，与原 main.py 一致）
 ENABLE_CCGP = False  # 设为 True 重新启用 CCGP 采集（需先修复 XHR 端点问题）
+# 2026-06-25: 重医附一院开关 (默认开启, 如需停采置 False)
+ENABLE_FAHCQMU = True
 
 
 # ── 以下代码 100% 等价于 main.py:119-569，仅 imports 调整 ──────────────
@@ -545,3 +552,196 @@ async def run_collection():
                 pass
 
 
+
+
+
+# ============================================================================
+# 2026-06-25: 重医附一院采集 (PR #39 feat/fahcqmu-crawler)
+# ============================================================================
+# 独立函数, 不影响 CQGGZY pipeline. 触发方式:
+#   - 环境变量: FAHCQMU_RUN=1 python -m main
+#   - 或: python -c "import asyncio; from app.core.harvest.pipeline import run_fahcqmu_collection; asyncio.run(run_fahcqmu_collection())"
+# 调度: 建议 21:00 cron 单独跑, 与 CQGGZY 错开
+# ============================================================================
+
+async def run_fahcqmu_collection(detail_limit: int = 300):
+    """执行重医附一院采集任务.
+
+    流程:
+    1. 创建 aiohttp session + FahcqmuCrawler
+    2. fetch_all_lists() — 7 类并行翻页
+    3. 关键词过滤 (复用 TenderFilter)
+    4. fetch_details_parallel() — 并发详情 (detail_limit 上限, 默认 300)
+    5. upsert_projects_fahcqmu() — 批量写库
+    6. 生成报表 (复用 ReportGenerator)
+    7. 写 latest.json (独立 fahcqmu_latest.json, 不覆盖 cqggzy 的)
+
+    Args:
+        detail_limit: 详情采集上限 (默认 300, 与 CQGGZY 一致)
+
+    Returns:
+        dict: {total, filtered, excel_path, data_path, summary, projects, matched_projects}
+        或 None (失败)
+    """
+    if not ENABLE_FAHCQMU:
+        logger.warning("⚠️ ENABLE_FAHCQMU=False, 跳过 fahcqmu 采集")
+        return None
+
+    logger.info("=" * 60)
+    logger.info("🏥 重医附一院采集 (PR #39)")
+    logger.info(f"   7 个分类: {[c.description for c in FAHC_CATEGORIES]}")
+    logger.info("=" * 60)
+
+    crawler = None
+    try:
+        # 1. 创建 crawler (内部创建 aiohttp session, Cookie visited=1 已设)
+        crawler = FahcqmuCrawler(delay=0.3, max_pages=100)
+        async with crawler:
+            # 2. 列表阶段 (并行 7 类)
+            logger.info("📋 阶段 1/4: 列表采集 (/p/N 翻页)")
+            all_items = await crawler.fetch_all_lists()
+            logger.info(f"📥 列表合计 (去重后): {len(all_items)} 条")
+
+            if not all_items:
+                logger.warning("⚠️ 未采集到任何数据, 跳过详情阶段")
+                return {
+                    'total': 0, 'filtered': 0,
+                    'excel_path': '', 'data_path': '',
+                    'summary': '本次未采集到任何数据',
+                    'projects': [], 'matched_projects': []
+                }
+
+            # 3. 关键词过滤 (复用 TenderFilter, 与 CQGGZY 一致)
+            filter_engine = TenderFilter(
+                keywords=settings.KEYWORDS,
+                exclude_keywords=settings.EXCLUDE_KEYWORDS
+            )
+            matched_items = []
+            for item in all_items:
+                if filter_engine._contains_exclude(item.title):
+                    item.keywords_matched = []
+                    continue
+                matched_keywords = filter_engine.check_keywords(item.title)
+                item.keywords_matched = matched_keywords
+                if matched_keywords:
+                    matched_items.append(item)
+            logger.info(f"✅ 关键词匹配: {len(matched_items)}/{len(all_items)} 条")
+
+            # 4. 详情阶段 (并发, 限 detail_limit)
+            actual_detail_limit = min(detail_limit, len(matched_items) if matched_items else len(all_items))
+            if matched_items:
+                detail_targets = matched_items[:actual_detail_limit]
+            else:
+                # 没匹配也采前 N 条详情 (回填用, 避免空白期)
+                detail_targets = all_items[:actual_detail_limit]
+
+            if detail_targets:
+                logger.info(f"📄 阶段 2/4: 详情采集 ({len(detail_targets)} 条, 并发 5)")
+                # 按 publish_date 降序排 (新数据优先)
+                def _sort_key(item):
+                    pd = getattr(item, "publish_date", None)
+                    if pd is None:
+                        return (1, 0)
+                    try:
+                        ts = pd.timestamp() if hasattr(pd, "timestamp") else 0
+                    except Exception:
+                        ts = 0
+                    return (0, -ts)
+                detail_targets = sorted(detail_targets, key=_sort_key)
+                detailed = await crawler.fetch_details_parallel(detail_targets, concurrency=5)
+                ok = sum(1 for it in detailed if it.full_content)
+                logger.info(f"  ✅ 详情完成: {ok}/{len(detailed)} 有正文")
+
+                # 把详情写回 all_items / matched_items (by URL)
+                url_to_detailed = {it.url: it for it in detailed}
+                for lst in (all_items, matched_items):
+                    for it in lst:
+                        if it.url in url_to_detailed:
+                            d = url_to_detailed[it.url]
+                            it.full_content = d.full_content
+                            it.content_preview = d.content_preview
+                            it.publish_date = d.publish_date or it.publish_date
+                            it.publish_date_raw = d.publish_date_raw or it.publish_date_raw
+
+            # 5. 持久化到 PostgreSQL (projects_fahcqmu)
+            logger.info("📦 阶段 3/4: PostgreSQL upsert (projects_fahcqmu)")
+            try:
+                db = get_db()
+                rows = []
+                for item in all_items:
+                    org_unit = fahc_collect_org_unit(item)
+                    rows.append(fahc_tender_to_db_row(item, org_unit))
+                if rows:
+                    db.upsert_projects_fahcqmu(rows)
+                    logger.info(f"  ✅ upsert: {len(rows)} 条")
+            except Exception as e:
+                logger.error(f"  ❌ PostgreSQL 写入失败: {e}")
+                import traceback; traceback.print_exc()
+
+            # 6. 生成报表 (复用 ReportGenerator, 写独立文件)
+            logger.info("📊 阶段 4/4: 报表 + JSON 持久化")
+            standardized_all = []
+            standardized_matched = []
+            for item in all_items:
+                std = filter_engine.extract_project_info(item)
+                std["org_unit"] = fahc_collect_org_unit(item)  # 加 org_unit 到输出
+                std["info_type"] = item.info_type
+                std["business_type"] = item.business_type or "医院采购"
+                standardized_all.append(std)
+                if item.keywords_matched:
+                    standardized_matched.append(std)
+
+            report_gen = ReportGenerator(settings.OUTPUT_DIR)
+            excel_path = ""
+            if standardized_matched:
+                excel_path = report_gen.generate_excel(
+                    standardized_matched,
+                    filename_prefix="fahcqmu_tender_v1"
+                )
+
+            summary = report_gen.generate_summary(standardized_matched)
+            logger.info("\n" + summary)
+
+            # 7. 独立 JSON 文件 (不覆盖 cqggzy 的 latest.json)
+            data_path = os.path.join(settings.OUTPUT_DIR, "fahcqmu_latest.json")
+            output_data = {
+                "total": len(all_items),
+                "filtered": len(matched_items),
+                "last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "source": "fahcqmu",
+                "projects": standardized_all,
+                "matched_projects": standardized_matched,
+                "categories": {
+                    cat.info_type: sum(1 for it in all_items if it.info_type == cat.info_type)
+                    for cat in FAHC_CATEGORIES
+                },
+                "org_units": {
+                    "信息数据处": sum(1 for it in all_items if fahc_collect_org_unit(it) == "信息数据处"),
+                    "总务处":     sum(1 for it in all_items if fahc_collect_org_unit(it) == "总务处"),
+                    "其他":       sum(1 for it in all_items if fahc_collect_org_unit(it) == "其他"),
+                },
+            }
+            with open(data_path, "w", encoding="utf-8") as f:
+                json.dump(output_data, f, ensure_ascii=False, indent=2)
+            logger.info(f"✅ 数据已持久化: {data_path}")
+
+            logger.info("=" * 60)
+            logger.info("✅ fahcqmu 采集任务完成")
+            logger.info(f"📊 报表文件: {excel_path}")
+            logger.info(f"📊 数据文件: {data_path}")
+            logger.info("=" * 60)
+
+            return {
+                'total': len(all_items),
+                'filtered': len(matched_items),
+                'excel_path': excel_path,
+                'data_path': data_path,
+                'summary': summary,
+                'projects': standardized_all,
+                'matched_projects': standardized_matched,
+            }
+
+    except Exception as e:
+        logger.error(f"❌ fahcqmu 采集任务失败: {e}")
+        import traceback; traceback.print_exc()
+        return None
