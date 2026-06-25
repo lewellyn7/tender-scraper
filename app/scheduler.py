@@ -83,6 +83,26 @@ def _publish_trigger() -> bool:
         return False
 
 
+def _publish_fahcqmu_trigger() -> bool:
+    """发布重医附一院采集触发消息到 Redis channel（F4: 2026-06-26）。
+
+    与 CQGGZY 共用 TRIGGER_CHANNEL，但 payload 中带 source='fahcqmu'
+    Collector Worker 端根据 source 字段决定调用哪个 pipeline (run_collection vs run_fahcqmu_collection)。
+    """
+    try:
+        r = redis.Redis(**_parse_redis_url(REDIS_URL))
+        msg_id = r.publish(TRIGGER_CHANNEL, json.dumps({
+            "source": "fahcqmu",
+            "triggered_at": datetime.now().isoformat(),
+        }, ensure_ascii=False))
+        r.close()
+        logger.info(f"[Scheduler] 已发送 fahcqmu 采集触发 (接收者: {msg_id})")
+        return msg_id > 0
+    except Exception as e:
+        logger.error(f"[Scheduler] fahcqmu Redis 触发发布失败: {e}")
+        return False
+
+
 def job_run_collection():
     """定时采集任务（调度器触发入口）"""
     logger.info(f"[Scheduler] 触发采集任务 @ {datetime.now():%Y-%m-%d %H:%M:%S}")
@@ -132,14 +152,30 @@ def main():
         misfire_grace_time=3600,
     )
 
-    logger.info("[Scheduler] 定时采集调度器已启动 (每 2 小时一次: 08/10/12/14/16/18/20:00)")
+    # F4: 重医附一院每日 21:00 单独跑 (错开 CQGGZY 周期，避免同时打满 worker)
+    scheduler.add_job(
+        _publish_fahcqmu_trigger,
+        CronTrigger(minute="0", hour="21", timezone="Asia/Shanghai"),
+        id="fahcqmu_daily",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+    logger.info("[Scheduler] 定时采集调度器已启动")
+    logger.info("  - CQGGZY  每 2 小时一次: 08/10/12/14/16/18/20:00")
+    logger.info("  - fahcqmu 每日 21:00")
 
     job = scheduler.get_job("daily_collection")
     if job:
         next_time = getattr(job, "next_run_time", None)
-        logger.info(f"[Scheduler] 下次执行: {next_time}")
+        logger.info(f"[Scheduler] 下次 CQGGZY 执行: {next_time}")
     else:
-        logger.info("[Scheduler] 下次执行: 未找到 daily_collection job")
+        logger.info("[Scheduler] 下次 CQGGZY 执行: 未找到 daily_collection job")
+
+    fahc_job = scheduler.get_job("fahcqmu_daily")
+    if fahc_job:
+        next_time = getattr(fahc_job, "next_run_time", None)
+        logger.info(f"[Scheduler] 下次 fahcqmu 执行: {next_time}")
 
     try:
         scheduler.start()
