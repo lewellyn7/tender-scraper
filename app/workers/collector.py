@@ -55,29 +55,40 @@ def _parse_redis_url(url: str) -> dict:
     }
 
 
-def _run_collection_sync():
-    """同步调用 async run_collection()"""
+def _run_collection_sync(source: str = "cqggzy"):
+    """同步调用 async run_collection() 或 run_fahcqmu_collection()
+
+    F4 (2026-06-26): 根据 source 路由到不同 pipeline
+    - 'cqggzy' / 'scheduler' (默认) → main.run_collection
+    - 'fahcqmu'                      → pipeline.run_fahcqmu_collection
+    """
     import asyncio
     try:
         # 延迟导入，避免启动时过早加载
-        from main import run_collection
-        logger.info("[Collector] 开始执行采集任务")
-        t0 = time.time()
-        result = asyncio.run(run_collection())
+        if source == "fahcqmu":
+            from app.core.harvest.pipeline import run_fahcqmu_collection
+            logger.info("[Collector] 开始执行 fahcqmu 采集任务")
+            t0 = time.time()
+            result = asyncio.run(run_fahcqmu_collection())
+        else:
+            from main import run_collection
+            logger.info("[Collector] 开始执行采集任务 (CQGGZY)")
+            t0 = time.time()
+            result = asyncio.run(run_collection())
         elapsed = time.time() - t0
         if result:
             logger.info(
-                f"[Collector] 采集完成: {result.get('filtered', 0)}/{result.get('total', 0)} "
+                f"[Collector] 采集完成 ({source}): {result.get('filtered', 0)}/{result.get('total', 0)} "
                 f"匹配，耗时 {elapsed:.1f}s"
             )
-            return {"ok": True, "elapsed": round(elapsed, 1), "result": result}
+            return {"ok": True, "elapsed": round(elapsed, 1), "result": result, "source": source}
         else:
-            logger.warning("[Collector] 采集未返回结果")
-            return {"ok": False, "error": "no result", "elapsed": round(elapsed, 1)}
+            logger.warning(f"[Collector] 采集未返回结果 ({source})")
+            return {"ok": False, "error": "no result", "elapsed": round(elapsed, 1), "source": source}
     except Exception as e:
-        logger.error(f"[Collector] 采集异常: {e}")
+        logger.error(f"[Collector] 采集异常 ({source}): {e}")
         logger.exception("[Collector] traceback:")
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": str(e), "source": source}
 
 
 def _publish_result(result: dict):
@@ -126,8 +137,9 @@ class CollectorWorker:
                     continue
                 try:
                     payload = json.loads(message["data"])
-                    logger.info(f"[Collector] 收到触发: {payload}")
-                    result = await loop.run_in_executor(None, _run_collection_sync)
+                    source = payload.get("source", "cqggzy")
+                    logger.info(f"[Collector] 收到触发: source={source}, payload={payload}")
+                    result = await loop.run_in_executor(None, lambda: _run_collection_sync(source=source))
                     _publish_result(result)
                     # P1-2: 更新 health state
                     from app.workers.collector_health import CollectorState
