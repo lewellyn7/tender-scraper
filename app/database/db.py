@@ -370,13 +370,20 @@ class Database(
             placeholders = ",".join(["%s"] * len(cols))
             # 2026-06-05 修复：保护 full_content/content_preview 不被空值覆盖
             # 列表 API 不返回 content，upsert 会用空值覆盖已填的详情正文，导致每周期丢失 ~7700 条详情
-            # 解决：用 COALESCE(NULLIF(EXCLUDED.col, ''), 原值) 保留已有内容
-            protected_cols = {"full_content", "content_preview"}
+            # 2026-06-26 修复（F3）：scraped_at 改用 CASE WHEN 保护（NULLIF 在 TIMESTAMP 字段报错）
+            # 与 projects_fahcqmu (db.py:526) 修复方式对齐
+            text_protected_cols = {"full_content", "content_preview"}
+            timestamp_protected_cols = {"scraped_at"}
             set_parts = []
             for c in cols[1:]:
-                if c in protected_cols:
+                if c in text_protected_cols:
                     set_parts.append(
                         f"{c}=COALESCE(NULLIF(EXCLUDED.{c}, ''), projects_cqggzy.{c})"
+                    )
+                elif c in timestamp_protected_cols:
+                    set_parts.append(
+                        f"{c}=CASE WHEN EXCLUDED.{c} IS NOT NULL "
+                        f"THEN EXCLUDED.{c} ELSE projects_cqggzy.{c} END"
                     )
                 else:
                     set_parts.append(f"{c}=EXCLUDED.{c}")
