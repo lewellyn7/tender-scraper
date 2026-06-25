@@ -4,12 +4,14 @@
 用法:
     python harvest_main.py run --source cqggzy --keywords 智能化:AI --days 7
     python harvest_main.py run --source ccgp --info-type 采购公告
+    python harvest_main.py run --source fahcqmu
     python harvest_main.py run --source all
     python harvest_main.py list-sources
 
 支持的 --source:
     cqggzy  — 重庆市公共资源交易网（政府采购 + 工程建设）
     ccgp    — 重庆市政府采购网（采购意向/公告/结果公告）
+    fahcqmu — 重庆医科大学附属第一医院 (信息数据处 + 总务处 + 其他)
     all     — 同时采集以上所有站点
 """
 
@@ -102,6 +104,16 @@ async def run_ccgp(info_type, keywords, exclude_kw, headless, slow_mo):
             await browser.close()
 
 
+async def run_fahcqmu(keywords, exclude_kw):
+    """采集重医附一院 (信息数据处 + 总务处 + 其他).
+
+    2026-06-25 新增 (PR #39). 不需 Playwright (Curl 模式).
+    """
+    from app.core.harvest.pipeline import run_fahcqmu_collection
+    # 直接调用独立函数, 复用 TenderFilter (settings.KEYWORDS)
+    return await run_fahcqmu_collection(detail_limit=300)
+
+
 async def _process_results(browser, crawler, all_items, keywords, exclude_kw, source):
     """通用结果处理：过滤 → 详情采集 → 报表生成"""
     logger.info(f"📥 总计获取：{len(all_items)} 条")
@@ -185,11 +197,16 @@ def cmd_run(args):
     async def do_run():
         if args.source == "all":
             results = []
-            for src in ["cqggzy", "ccgp"]:
+            for src in ["cqggzy", "ccgp", "fahcqmu"]:
                 logger.info(f"\n{'='*40} 站点: {src} {'='*40}")
-                r = await run_cqggzy(keywords, exclude_kw, args.days, not args.visible, args.slow_mo) \
-                    if src == "cqggzy" \
-                    else await run_ccgp(args.info_type, keywords, exclude_kw, not args.visible, args.slow_mo)
+                if src == "cqggzy":
+                    r = await run_cqggzy(keywords, exclude_kw, args.days, not args.visible, args.slow_mo)
+                elif src == "ccgp":
+                    r = await run_ccgp(args.info_type, keywords, exclude_kw, not args.visible, args.slow_mo)
+                elif src == "fahcqmu":
+                    r = await run_fahcqmu(keywords, exclude_kw)
+                else:
+                    continue
                 if r:
                     results.append(r)
             return results
@@ -197,6 +214,8 @@ def cmd_run(args):
             return await run_cqggzy(keywords, exclude_kw, args.days, not args.visible, args.slow_mo)
         elif args.source == "ccgp":
             return await run_ccgp(args.info_type, keywords, exclude_kw, not args.visible, args.slow_mo)
+        elif args.source == "fahcqmu":
+            return await run_fahcqmu(keywords, exclude_kw)
         else:
             raise ValueError(f"未知source: {args.source}")
 
@@ -216,6 +235,7 @@ def cmd_list_sources(args):
     sources = [
         ("cqggzy", "重庆市公共资源交易网", ["政府采购", "工程建设"]),
         ("ccgp", "重庆市政府采购网", ["采购意向", "采购公告", "结果公告"]),
+        ("fahcqmu", "重庆医科大学附属第一医院", ["阳光推介", "调研", "采购公告", "采购结果", "其他"]),
     ]
     print("\n可用数据源:")
     for name, desc, categories in sources:
@@ -231,7 +251,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     p_run = subparsers.add_parser("run", help="运行采集任务")
-    p_run.add_argument("--source", default="cqggzy", help="数据源: cqggzy | ccgp | all")
+    p_run.add_argument("--source", default="cqggzy", help="数据源: cqggzy | ccgp | fahcqmu | all")
     p_run.add_argument("--keywords", default="", help="关键词，冒号分隔")
     p_run.add_argument("--exclude", default="", help="排除词，冒号分隔")
     p_run.add_argument("--days", type=int, default=7, help="采集最近N天")
