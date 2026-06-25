@@ -40,6 +40,53 @@ _ABORTED_PATTERNS = [
 ]
 
 
+# ─── 中标人名称清洗 ─────────────────────────────────────────────────────────
+# 公告原文里 "中标人: X 公司 资质: ..." / "供应商名称: X 业绩: ..."
+# 会把 "资质"/"业绩"/"第二中标候选人" 等附注一起抓到 winner_name 里.
+# cleaned_winner_name 用于 GROUP BY + 唯一约束, 避免附注差异导致重复入库.
+
+_CLEAN_Winner_STOP_PATTERNS = [
+    r'\s+资质[:：].*',         # " 资质:..."  / " 企业资质:..."
+    r'\s+企业资质[:：].*',
+    r'\s+业绩[:：].*',
+    r'\s+投标资格业绩[:：].*',
+    r'\s+单位名称[:：].*',
+    r'\s+第[一二三四五六七八九十]中标候选人.*',
+    r'\s+第二中标候选人.*',
+    r'\s+第三中标候选人.*',
+    r'\s+第四中标候选人.*',
+    r'（联合体.*',                # 联合体成员 — 主中标人在前
+    r'\s+\(联合体.*',
+]
+
+_CLEAN_Winner_MAX_LEN = 50  # 中文公司名实际长度 < 50 字符
+
+
+def clean_winner_name(raw: Optional[str]) -> Optional[str]:
+    """清洗 winner_name: 截断附注 + 联合体括号.
+
+    入参: 公告原文抓到的 winner_name (可能含 资质/业绩/第二中标候选人 附注)
+    返回: 干净的中标人公司名; 若入参为空则返回 None
+
+    示例:
+      "重庆佰晟捷建筑工程有限公司 业绩：城口县2022年森林抚育项目"
+        → "重庆佰晟捷建筑工程有限公司"
+      "信息产业电子第十一设计研究院科技工程股份有限公司（联合体成员：中贝天丰）"
+        → "信息产业电子第十一设计研究院科技工程股份有限公司"
+    """
+    if not raw:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    for pat in _CLEAN_Winner_STOP_PATTERNS:
+        s = re.sub(pat, '', s, count=1)
+    s = s.strip()
+    if len(s) > _CLEAN_Winner_MAX_LEN:
+        s = s[:_CLEAN_Winner_MAX_LEN].rstrip()
+    return s or None
+
+
 def is_aborted(content: str) -> bool:
     """检测公告是否为废标/流标/终止. 命中任一 → True."""
     if not content:
@@ -181,6 +228,7 @@ def parse_gov_result(content: str) -> list[dict]:
         results.append({
             'package_no': pkg_no,
             'winner_name': winner_name,
+            'cleaned_winner_name': clean_winner_name(winner_name),
             'winner_rank': 1,  # 政府采购结果只有成交供应商
             'bid_amount': bid_amount,
             'bid_amount_num': bid_amount_num,
@@ -241,6 +289,7 @@ def parse_tender_candidate(content: str) -> list[dict]:
             results.append({
                 'package_no': None,
                 'winner_name': name,
+                'cleaned_winner_name': clean_winner_name(name),
                 'winner_rank': rank,
                 'bid_amount': bid_amount,
                 'bid_amount_num': bid_amount_num,
@@ -256,6 +305,7 @@ def parse_tender_candidate(content: str) -> list[dict]:
             results.append({
                 'package_no': None,
                 'winner_name': m.group(1).strip(),
+                'cleaned_winner_name': clean_winner_name(m.group(1).strip()),
                 'winner_rank': 1,
                 'bid_amount': None,
                 'bid_amount_num': None,
@@ -464,6 +514,7 @@ def parse_tender_result(content: str) -> list[dict]:
         results.append({
             'package_no': str(idx + 1) if len(winner_names) > 1 else None,
             'winner_name': name,
+            'cleaned_winner_name': clean_winner_name(name),
             'winner_rank': 1,  # 中标结果只有最终中标人 (多公司 = 联合体, 都 rank=1)
             'bid_amount': amt_text,
             'bid_amount_num': bid_amount_num,
@@ -500,6 +551,7 @@ def parse_tender_result(content: str) -> list[dict]:
     results.append({
         'package_no': None,
         'winner_name': winner_name,
+        'cleaned_winner_name': clean_winner_name(winner_name),
         'winner_rank': 1,  # 中标结果只有最终中标人
         'bid_amount': bid_amount,
         'bid_amount_num': bid_amount_num,

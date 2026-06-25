@@ -83,14 +83,16 @@ def upsert_bid_rows(cur, rows: list) -> int:
     if not rows:
         return 0
     # 按 UNIQUE 字段去重 (同 batch 里两条 winner_name+package_no 相同会触发 DO UPDATE 冲突)
+    # 2026-06-25: 改用 cleaned_winner_name 作 dedup key (新约束用 cleaned 字段)
     seen = set()
     values = []
     for r in rows:
+        cleaned = r.get('cleaned_winner_name') or r['winner_name']
         key = (
             r.get('source', 'cqggzy'),
             r['project_id'],
             r['package_no'],
-            r['winner_name'],
+            cleaned,
         )
         if key in seen:
             continue
@@ -103,6 +105,7 @@ def upsert_bid_rows(cur, rows: list) -> int:
             r['category'],
             r['package_no'],
             r['winner_name'],
+            r.get('cleaned_winner_name'),  # 2026-06-25 新增 (用 bid_parser.clean_winner_name)
             r['winner_rank'],
             r['bid_amount'],
             r['bid_amount_num'],
@@ -115,14 +118,15 @@ def upsert_bid_rows(cur, rows: list) -> int:
     sql_q = """
         INSERT INTO bid_results (
           source, project_id, url, info_type, category, package_no,
-          winner_name, winner_rank, bid_amount, bid_amount_num,
+          winner_name, cleaned_winner_name, winner_rank, bid_amount, bid_amount_num,
           winner_score, publish_date, project_types
         )
         VALUES %s
-        ON CONFLICT (source, project_id, package_no, winner_name)
+        ON CONFLICT (source, project_id, package_no, cleaned_winner_name)
         DO UPDATE SET
           info_type = EXCLUDED.info_type,
           category = EXCLUDED.category,
+          winner_name = EXCLUDED.winner_name,
           winner_rank = EXCLUDED.winner_rank,
           bid_amount = EXCLUDED.bid_amount,
           bid_amount_num = EXCLUDED.bid_amount_num,
