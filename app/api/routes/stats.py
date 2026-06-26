@@ -17,14 +17,14 @@ def _get_pg_conn():
     import psycopg2
     from psycopg2 import pool
     _pg_pool = getattr(_get_pg_conn, "_pool", None)
-    if _pool is None:
-        _pool = pool.ThreadedConnectionPool(
+    if _pg_pool is None:
+        _pg_pool = pool.ThreadedConnectionPool(
             minconn=2, maxconn=20,
             dsn=DATABASE_URL,
             connect_timeout=10
         )
-        _get_pg_conn._pool = _pool
-    return _pool.getconn()
+        _get_pg_conn._pool = _pg_pool
+    return _pg_pool.getconn()
 
 @router.get("")
 def get_stats(user_id: str = Depends(get_current_user)):
