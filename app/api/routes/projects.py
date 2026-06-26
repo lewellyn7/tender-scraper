@@ -277,7 +277,7 @@ def _get_last_run():
 @router.get("/projects")
 def get_projects(request: Request,
     page: int = Query(1, ge=1),
-    page_size: int = Query(100, ge=1, le=20000),
+    page_size: int = Query(500, ge=1, le=20000),  # 默认 500: 让全类型视图能见医院采购 (2026-06-26 PR #45)
     keyword: str = Query(""),
     category: str = Query(""),
     date_start: str = Query(""),
