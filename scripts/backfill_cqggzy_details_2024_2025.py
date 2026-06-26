@@ -101,6 +101,71 @@ def select_urls_without_detail(db: Database, limit: int = 0) -> List[Dict]:
     return [dict(zip(cols, r)) for r in rows]
 
 
+def _tender_to_row(t: TenderInfo) -> Dict:
+    """TenderInfo → projects_cqggzy 行 dict.
+
+    只 upsert 与原始行可区分的字段 (scraped_at 保留), 触发 COALESCE 保护。
+    """
+    publish_date = t.publish_date
+    if hasattr(publish_date, "date"):
+        publish_date_str = publish_date.date().isoformat()
+    else:
+        publish_date_str = str(publish_date) if publish_date else ""
+
+    # contact_info
+    cn = getattr(t, "contact_info", None)
+    contact_name = cn.name if cn else ""
+    contact_phone = cn.phone if cn else ""
+    contact_email = cn.email if cn else ""
+
+    # attachments
+    attachments_count = len(t.attachments) if getattr(t, "attachments", None) else 0
+
+    # publish_date_raw
+    raw = getattr(t, "publish_date_raw", "")
+    if not raw and publish_date:
+        raw = str(publish_date)
+
+    # content_preview 智截 (不超过 300 字)
+    cp = (t.content_preview or "")[:300] if t.content_preview else ""
+
+    # deadline (datetime → str)
+    deadline = getattr(t, "deadline", None)
+    if hasattr(deadline, "date"):
+        deadline_str = deadline.date().isoformat()
+    else:
+        deadline_str = str(deadline) if deadline else ""
+
+    return {
+        "url": t.url,
+        "title": t.title or "",
+        "category": t.category or "",
+        "info_type": t.info_type or "",
+        "business_type": t.business_type or "",
+        "publish_date": publish_date_str,
+        "publish_date_raw": raw,
+        "content_preview": cp,
+        "full_content": t.full_content or "",
+        "budget": t.budget or "",
+        "bid_amount": t.bid_amount or "",
+        "deadline": deadline_str,
+        "region": t.region or "",
+        "tender_type": t.tender_type or "",
+        "project_overview": t.project_overview or "",
+        "bidder_requirements": t.bidder_requirements or "",
+        "submission_deadline": t.submission_deadline or "",
+        "contact_name": contact_name,
+        "contact_phone": contact_phone,
+        "contact_email": contact_email,
+        "attachments_count": attachments_count,
+        "keywords_matched": ", ".join(t.keywords_matched) if isinstance(t.keywords_matched, list) else (t.keywords_matched or ""),
+        "source_url": t.source_url or t.url,
+        "project_no": t.project_no or "",
+        "scraped_at": None,  # 保护: NULLIF 不报错, 使用 created_at
+        "scraped_by": "tender-scraper backfill 2024-2025",
+    }
+
+
 def regenerate_cp_from_fc(db: Database) -> int:
     """对所有有 fc 但缺 cp 的行重新生成 cp (UPDATE).
 
@@ -174,7 +239,8 @@ async def backfill(
     failed_count = 0
     failed_urls = []
     
-    async with CqggzyCurlCrawler(browser=None) as crawler:
+    crawler = CqggzyCurlCrawler(browser=None)
+    try:
         # 分批, 每批后短暂休息
         for i in range(0, len(tenders), batch):
             batch_tenders = tenders[i : i + batch]
@@ -182,21 +248,17 @@ async def backfill(
                      f"({len(batch_tenders)} 条, 累计成功 {success_count}, 失败 {failed_count})")
             
             try:
-                results = await crawler.fetch_details_parallel(batch_tenders, max_retries=retry)
+                results = await crawler.fetch_details_parallel(batch_tenders, concurrency)
                 
-                # 5. 过滤成功的, 批量 upsert
+                # 5. 过滤成功的, 批量 upsert (TenderInfo → dict)
                 success_tenders = [t for t in results if t.full_content]
                 if success_tenders:
-                    # 用 db.tender_to_db_row 转换格式
-                    rows = []
-                    for t in success_tenders:
-                        row = db.tender_to_db_row(t)
-                        rows.append(row)
-                    
+                    rows = [_tender_to_row(t) for t in success_tenders]
+                    rows = [r for r in rows if r]
                     if rows:
                         db.upsert_projects(rows)
-                        success_count += len(success_tenders)
-                        log.info(f"    ✓ upsert 成功 {len(success_tenders)} 条")
+                        success_count += len(rows)
+                        log.info(f"    ✓ upsert 成功 {len(rows)} 条")
                 
                 # 统计失败
                 for t in results:
@@ -212,6 +274,12 @@ async def backfill(
             # 间歇
             if i + batch < len(tenders):
                 await asyncio.sleep(1.0)
+    finally:
+        # 关闭 session
+        try:
+            await crawler.close()
+        except Exception:
+            pass
     
     elapsed = time.time() - start_time
     rate = success_count / elapsed if elapsed > 0 else 0
