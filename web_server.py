@@ -1,4 +1,5 @@
 """Web 管理界面服务器"""
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -71,6 +72,16 @@ async def _warmup_embedding_model():
     except Exception as e:
         logger.warning(f"[startup] 自用模式 admin 用户初始化失败: {e}")
 
+    # 2026-06-26: PR feat/data-cache-v2 - 启动 DataCache Pub/Sub 订阅 + 预热
+    try:
+        from app.core.harvest.data_cache import data_cache
+        await data_cache.start_pubsub_listener()
+        # 30s 后异步预热 (不等预热完成, 启动不阻塞)
+        asyncio.create_task(data_cache.warm_up())
+        logger.info("[startup] DataCache Pub/Sub 订阅 + 预热已调度")
+    except Exception as e:
+        logger.warning(f"[startup] DataCache 启动失败: {e}")
+
 
 def _init_self_mode_admin():
     """自用模式：确保 admin 用户存在"""
@@ -101,6 +112,18 @@ def _init_self_mode_admin():
         logger.info(f"[startup] 自用模式：admin 用户创建成功 (password={settings.default_admin_password})")
     except Exception as e:
         logger.error(f"[startup] 自用模式 admin 用户创建失败: {e}")
+
+
+@app.on_event("shutdown")
+async def _shutdown_data_cache():
+    """2026-06-26: PR feat/data-cache-v2 - 优雅停 DataCache Pub/Sub."""
+    try:
+        from app.core.harvest.data_cache import data_cache
+        await data_cache.stop_pubsub_listener()
+        logger.info("[shutdown] DataCache Pub/Sub 已停止")
+    except Exception as e:
+        logger.warning(f"[shutdown] DataCache 停止失败: {e}")
+
 
 # 检测是否为生产模式
 is_production = os.getenv("ENV", "development") == "production"

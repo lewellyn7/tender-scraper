@@ -141,6 +141,13 @@ class CollectorWorker:
                     logger.info(f"[Collector] 收到触发: source={source}, payload={payload}")
                     result = await loop.run_in_executor(None, lambda: _run_collection_sync(source=source))
                     _publish_result(result)
+                    # 2026-06-26: PR feat/data-cache-v2 - 通知 web 容器 DataCache 失效
+                    try:
+                        from app.core.harvest.data_cache import DataCache
+                        DataCache.publish_invalidate("main")
+                        logger.info(f"[Collector] 已发布 DataCache invalidate(main)")
+                    except Exception as e:
+                        logger.warning(f"[Collector] publish_invalidate 失败: {e}")
                     # P1-2: 更新 health state
                     from app.workers.collector_health import CollectorState
                     status = result.get("status", "ok") if isinstance(result, dict) else "ok"
