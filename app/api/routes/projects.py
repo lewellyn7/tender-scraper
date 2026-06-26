@@ -103,6 +103,9 @@ _CACHE_TTL = int(os.getenv("PROJECTS_CACHE_TTL", "300"))  # 5分钟
 
 def _infer_business_type(url: str, title: str = "") -> str:
     """根据 URL 和标题推理业务类型"""
+    # 2026-06-26: 增加重医附一院 (fahcqmu.cn) URL 识别 → "医院采购"
+    if "fahcqmu.cn" in url:
+        return "医院采购"
     if "014005" in url or "order" in url:
         return "政府采购"
     if "014001" in url or "bidding" in url:
@@ -200,7 +203,7 @@ def _load_projects():
                 "tender_content": d.get("tender_content", "") or "",
             }
 
-        for table in ("projects_cqggzy", "projects_ccgp"):
+        for table in ("projects_cqggzy", "projects_ccgp", "projects_fahcqmu"):
             try:
                 rows = conn.execute(f'SELECT * FROM {table}').fetchall()
                 cols = [d[0] for d in conn.execute(f'SELECT * FROM {table} LIMIT 0').description]
@@ -371,8 +374,12 @@ def get_projects(request: Request,
             filtered.sort(key=lambda p: url_scores.get(p.get("url", ""), 0), reverse=True)
 
     if category:
+        # 2026-06-26: 加 business_type 匹配 (fahcqmu 行的 tender_type/type 为空, 需靠业务类型匹配)
         filtered = [
-            p for p in filtered if p.get("tender_type") == category or p.get("type") == category
+            p for p in filtered
+            if p.get("tender_type") == category
+            or p.get("type") == category
+            or p.get("business_type") == category
         ]
     if date_start:
         filtered = [p for p in filtered if p.get("publish_date", "") >= date_start]
