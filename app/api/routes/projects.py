@@ -398,7 +398,16 @@ def get_projects(request: Request,
 
         filtered.sort(key=bnum, reverse=True)
     else:
-        filtered.sort(key=lambda p: p.get("publish_date", "") or "", reverse=True)
+        # 二级排序: publish_date DESC 优先, 同日期时按 scraped_at DESC
+        # 让新采集的 fahcqmu (PR #43) 在同日期内排前
+        # 解决 data 页默认视图看不到医院采购的问题 (2026-06-26 报告)
+        def _sort_key(p):
+            pub = p.get("publish_date") or ""
+            scraped = p.get("scraped_at") or ""
+            if hasattr(scraped, "isoformat"):
+                scraped = scraped.isoformat()
+            return (pub, scraped)
+        filtered.sort(key=_sort_key, reverse=True)
     total_f = len(filtered)
     start = (page - 1) * page_size
     page_projects = filtered[start : start + page_size]
