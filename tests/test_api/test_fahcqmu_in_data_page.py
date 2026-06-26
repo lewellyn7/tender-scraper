@@ -108,7 +108,9 @@ class TestLoadProjectsIncludesFahcqmu:
 
         with patch("app.api.routes.projects.get_db", return_value=fake_db):
             from app.api.routes.projects import _load_projects, _clear_cache
+            from app.core.harvest.data_cache import data_cache
             _clear_cache()
+            data_cache.invalidate("all")  # PR feat/data-cache-v2: 新缓存层
             projects, total = _load_projects()
             assert total == 3, f"Expected 3 projects, got {total}"
 

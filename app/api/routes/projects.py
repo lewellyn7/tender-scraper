@@ -15,6 +15,8 @@ from fastapi import Request
 
 from app.database import get_db
 from app.services.vector_store import get_vector_store
+from app.core.harvest.data_cache import data_cache
+from app.api.dependencies import get_current_user
 from app.utils.tfidf_matcher import TFIDFMatcher
 from app.utils.session import get_user_from_session
 from app.utils.search_parser import parse_keyword, match_item
@@ -49,7 +51,7 @@ def get_current_user_id_required(request) -> str:
 router = APIRouter(prefix="/api", tags=["项目"])
 # 检测是否在 Docker 容器内运行（/.dockerenv 存在即容器）
 SYS_PATH = Path('/app') if Path('/.dockerenv').exists() else Path(__file__).parent.parent.parent
-_cache = {"projects": [], "total": 0, "last_load": 0}
+# 注: 旧 _cache 已弃用, 改用 app.core.harvest.data_cache (PR feat/data-cache-v2)
 
 # TF-IDF 缓存
 _tfidf_cache = {"matcher": None, "expiry": 0}
@@ -99,7 +101,6 @@ def _batch_load_favorites_and_annotations(urls: list, db):
     return fav_map, ann_map
 
 
-_CACHE_TTL = int(os.getenv("PROJECTS_CACHE_TTL", "300"))  # 5分钟
 
 
 def _infer_business_type(url: str, title: str = "") -> str:
@@ -159,19 +160,21 @@ def _infer_info_type(url: str) -> str:
 
 
 def _load_projects():
+    """加载全表项目数据 (v2: 接入 DataCache 统一层)."""
+    # L1 / L2 尝试
+    projects, total, source = data_cache.get_main()
+    if projects is not None:
+        return projects, total
+    
+    # L3: DB load
     now = time.time()
-    if _cache["projects"] and (now - _cache["last_load"]) < _CACHE_TTL:
-        return _cache["projects"], _cache["total"]
-
     all_projects = {}
-
-    # 1. Load from PostgreSQL (projects_cqggzy, projects_ccgp) — single source of truth
+    
     try:
         db = get_db()
         conn = db._get_conn()
-
+        
         def row_to_project(row, cols):
-            """Convert DB row to project dict matching JSON format."""
             d = dict(zip(cols, row))
             return {
                 "title": d.get("title", ""),
@@ -203,12 +206,11 @@ def _load_projects():
                 "full_content": d.get("full_content", "") or "",
                 "tender_content": d.get("tender_content", "") or "",
             }
-
+        
         for table in ("projects_cqggzy", "projects_ccgp", "projects_fahcqmu"):
             try:
                 rows = conn.execute(f'SELECT * FROM {table}').fetchall()
                 cols = [d[0] for d in conn.execute(f'SELECT * FROM {table} LIMIT 0').description]
-
                 for row in rows:
                     p = row_to_project(row, cols)
                     if p.get("url"):
@@ -217,8 +219,7 @@ def _load_projects():
                 logger.warning(f"Failed to load from {table}: {e}")
     except Exception as e:
         logger.warning(f"Failed to load projects from DB: {e}")
-
-    # 对所有记录填充空白的 business_type / info_type（根据 URL 推理）
+    
     for p in all_projects.values():
         if not p.get("business_type"):
             if "ccgp-chongqing.gov.cn" in p.get("url", ""):
@@ -227,17 +228,15 @@ def _load_projects():
                 p["business_type"] = _infer_business_type(p.get("url", ""), p.get("title", ""))
         if not p.get("info_type"):
             p["info_type"] = _infer_info_type(p.get("url", ""))
-
+    
     project_list = list(all_projects.values())
-    _cache["projects"] = project_list
-    _cache["total"] = len(project_list)
-    _cache["last_load"] = now
-    return _cache["projects"], _cache["total"]
+    data_cache.set_main(project_list, len(project_list))
+    return project_list, len(project_list)
 
 
 def _clear_cache():
-    _cache["projects"] = []
-    _cache["last_load"] = 0
+    """清缓存 (v2: 调用 DataCache.invalidate)."""
+    return data_cache.invalidate("all")
 
 
 def _get_last_run():
@@ -708,3 +707,25 @@ def clear_cache_endpoint(request: Request, body: dict = None):
     _cache["projects"] = []
     _cache["last_load"] = 0
     return {"success": True}
+
+
+# ━━━ Cache 管理 API (admin only) - 2026-06-26 PR feat/data-cache-v2 ━━━
+
+@router.post("/internal/cache/clear")
+async def clear_cache_endpoint(request: Request, user: dict = Depends(get_current_user)):
+    """手动清 DataCache (L1 + L2 + filter 索引). Admin only."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="需要 admin 权限")
+    result = data_cache.invalidate("all")
+    return {
+        "status": "cleared",
+        "message": "DataCache L1 + L2 + filters 已清空",
+        "result": result,
+        "stats_after": data_cache.stats(),
+    }
+
+
+@router.get("/internal/cache/stats")
+async def cache_stats_endpoint(user: dict = Depends(get_current_user)):
+    """查看 DataCache 状态 (任意登录用户)."""
+    return data_cache.stats()
