@@ -1,12 +1,13 @@
 """项目路由"""
 
+import asyncio
 import json
 import os
 import re
 import time
 from pathlib import Path
 
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -275,7 +276,7 @@ def _get_last_run():
 
 
 @router.get("/projects")
-def get_projects(request: Request,
+async def get_projects(request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(500, ge=1, le=20000),  # 默认 500: 让全类型视图能见医院采购 (2026-06-26 PR #45)
     keyword: str = Query(""),
@@ -287,6 +288,7 @@ def get_projects(request: Request,
     sort_by: str = Query("date"),
     use_tfidf: bool = Query(False),
     use_vector: bool = Query(False),  # 修复 6-5: 默认改为 False (top_k=500 会返回 500 条松散相关结果，不如精确匹配可控)
+    stream: bool = Query(False, description="是否流式分块返回 NDJSON (data 页专用, 2026-06-26 PR #46)"),
 ):
     db = get_db()
     projects, _ = _load_projects()
@@ -425,6 +427,17 @@ def get_projects(request: Request,
         for p in page_projects:
             p["is_favorite"] = False
             p["annotation"] = None
+
+    # 2026-06-26 PR #46: 流式分块 (NDJSON) — data 页专用
+    # opt-in: ?stream=1 才启用, 默认保持 JSON 兼容现有客户端
+    if stream:
+        # 流式总是返回全部 filtered (不受 page/page_size 限制) — 前端一次性拉全表
+        # 已过滤的 _sort 后的全量数据, 客户端去重 + client-side filter
+        return StreamingResponse(
+            _stream_projects_ndjson(filtered, request, db, user_id),
+            media_type="application/x-ndjson",
+        )
+
     return JSONResponse(
         {
             "projects": page_projects,
@@ -434,6 +447,70 @@ def get_projects(request: Request,
             "last_run": _get_last_run(),
         }
     )
+
+
+async def _stream_projects_ndjson(projects, request, db, user_id):
+    """NDJSON 流式生成器 — 2026-06-26 PR #46
+
+    协议:
+      Line 1: {"_meta": true, "total": N, "last_run": "..."}  ← stats 立即可见
+      Lines 2..N+1: 项目字典 (一行一条 JSON)
+      Last line: {"_meta": true, "done": true, "yielded": M}  ← 结束标记
+
+    性能:
+      - BATCH=100 条/批 yield, 平衡延迟与开销
+      - 批间 asyncio.sleep(0) 协程让步
+      - 客户端断开 (is_disconnected) 立即停
+      - favorites/annotations 按批加载, 避免一次性 N+1
+    """
+    BATCH = 100
+    total = len(projects)
+
+    # 第一个 chunk: meta (stats 立即可见)
+    yield json.dumps(
+        {
+            "_meta": True,
+            "total": total,
+            "last_run": _get_last_run(),
+        },
+        ensure_ascii=False,
+        default=str,
+    ) + "\n"
+
+    yielded = 0
+    for i in range(0, total, BATCH):
+        # 客户端断开检查 (早返回, 节省 CPU/网络)
+        if await request.is_disconnected():
+            logger.info(f"[stream] 客户端断开, 已 yield {yielded}/{total}")
+            return
+
+        batch = projects[i : i + BATCH]
+        # 按批加载 fav/ann, 避免一次性 N×2 查询
+        urls = [p.get("url", "") for p in batch]
+        if user_id:
+            fav_map, ann_map = _batch_load_favorites_and_annotations(urls, db)
+            for p in batch:
+                url = p.get("url", "")
+                p["is_favorite"] = url in fav_map
+                p["_fid"] = fav_map[url]["id"] if url in fav_map else None
+                p["annotation"] = ann_map.get(url)
+        else:
+            for p in batch:
+                p["is_favorite"] = False
+                p["annotation"] = None
+
+        for p in batch:
+            yield json.dumps(p, ensure_ascii=False, default=str) + "\n"
+            yielded += 1
+
+        # 协程让步 + 允许其他请求处理
+        await asyncio.sleep(0)
+
+    # 最后一个 chunk: done 标记
+    yield json.dumps(
+        {"_meta": True, "done": True, "yielded": yielded},
+        ensure_ascii=False,
+    ) + "\n"
 
 
 @router.get("/project/{project_url}")
