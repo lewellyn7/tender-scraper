@@ -258,7 +258,21 @@ def get_health():
     - crawl_items_per_hour: 用 24h 总数 / 24 (避免 1h=0 误判)
     - crawl_success_rate: 7 日 full_content 完整率
     - trends_7d/trends_30d: DB 按日聚合
+
+    P1 修复 (2026-06-27):
+    - 加 DB ping 检查, 失败返回 503 unhealthy (之前永远 status:"ok" 掩盖故障)
     """
+    # ── 抢先 DB ping ──
+    db_ok = False
+    try:
+        db = get_db()
+        c = db._get_conn()
+        c.execute("SELECT 1")
+        c.fetchone()
+        db_ok = True
+    except Exception as e:
+        logger.error(f"Health DB ping failed: {e}")
+
     try:
         # 主数据源: DB 推算
         db_status = _compute_health_from_db()
@@ -273,20 +287,21 @@ def get_health():
             status = hm.get_current_status()
             status["data_source"] = "health_monitor_fallback"
             return JSONResponse(status)
-        except Exception as e:
+        except Exception:
+            # DB 不通 → unhealthy
             return JSONResponse({
-                "status": "ok",
-                "services": {},
-                "message": f"All health sources unavailable: {e}",
+                "status": "unhealthy",
+                "services": {"database": "unreachable"},
+                "message": "健康检查失败：数据库不可达",
                 "data_source": "none",
-            })
-    except Exception as e:
+            }, status_code=503)
+    except Exception:
         return JSONResponse({
-            "status": "ok",
-            "services": {},
-            "message": f"Health check failed: {e}",
+            "status": "unhealthy",
+            "services": {"database": "unreachable" if not db_ok else "unknown"},
+            "message": "健康检查失败：服务异常",
             "data_source": "none",
-        })
+        }, status_code=503)
 
 
 def _compute_health_from_db() -> dict:

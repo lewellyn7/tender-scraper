@@ -523,43 +523,6 @@ def parse_tender_result(content: str) -> list[dict]:
 
     return results
 
-    # 模式 1: 中标人 / 中标单位 — 兼容 "中标人(单位)名称"、"中标人单位名称"、"中标人：" 三种
-    # 策略: 找 "中标人" 之后到第一个冒号/全角冒号之间的内容, 然后取冒号后的名字
-    name_m = re.search(
-        r'(?:中标人|中标单位)[^：:\n]{0,30}[：:]\s*([^\n]{2,80})',
-        content
-    )
-    if name_m:
-        winner_name = name_m.group(1).strip()
-    else:
-        # 模式 2: 推荐/确定 中标候选人 (公示后转中标)
-        rec_m = re.search(
-            r'(?:确定|推荐)\s*中标候选人?[：:]\s*([^\n]{2,80})',
-            content
-        )
-        winner_name = rec_m.group(1).strip() if rec_m else None
-
-    if not winner_name:
-        return results
-
-    amt_m = re.search(r'中标金额[：:]\s*([^\n]{1,80})', content)
-    if not amt_m:
-        amt_m = re.search(r'中标（成交）价[：:]\s*([^\n]{1,80})', content)
-    bid_amount = amt_m.group(1).strip() if amt_m else None
-    bid_amount_num = parse_amount(bid_amount) if bid_amount else None
-
-    results.append({
-        'package_no': None,
-        'winner_name': winner_name,
-        'cleaned_winner_name': clean_winner_name(winner_name),
-        'winner_rank': 1,  # 中标结果只有最终中标人
-        'bid_amount': bid_amount,
-        'bid_amount_num': bid_amount_num,
-        'winner_score': None,
-    })
-
-    return results
-
 
 # ─── 主入口 ────────────────────────────────────────────────────────────────
 

@@ -56,8 +56,8 @@ async def semantic_search(
     except Exception as e:
         logger.error(f"Semantic search error: {sanitize_error_message(str(e))}")
         return JSONResponse(
-            status_code=500,
-            content={"code": 1, "message": f"Search failed: {e}", "data": {"results": []}},
+            status_code=503,
+            content={"code": 1, "message": "搜索服务暂时不可用", "data": {"results": []}},
         )
 
     # 构建响应
