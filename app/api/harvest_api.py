@@ -21,8 +21,10 @@ from typing import Any, Optional
 
 import uvicorn
 from app.crawlers.async_base import HumanCrawlerBase
-from fastapi import BackgroundTasks, FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
+
+from app.api.dependencies import get_current_user
 
 # 本地模块
 from app.core.harvest.smart_scheduler import (
@@ -178,16 +180,6 @@ class CrawlResultResponse(BaseModel):
     records: list[CrawlResultItem]
     total: int
     finished_at: Optional[str] = None
-
-
-class SourceStatItem(BaseModel):
-    """单个站点统计"""
-
-    success_rate: float
-    avg_response_ms: float
-    is_banned: bool
-    ban_until: Optional[str] = None
-    error_counts: dict[str, int]
 
 
 class StatsResponse(BaseModel):
@@ -377,7 +369,7 @@ app = FastAPI(
 
 
 @app.get("/health", tags=["健康检查"])
-async def health_check():
+async def health_check(user: dict = Depends(get_current_user)):
     return {
         "status": "healthy",
         "service": "tender-scraper-api",
@@ -392,7 +384,7 @@ async def health_check():
 
 
 @app.post("/crawl", response_model=CrawlResponse, tags=["采集"])
-async def trigger_crawl(request: CrawlRequest, background_tasks: BackgroundTasks):
+async def trigger_crawl(request: CrawlRequest, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
     """
     触发一个新的采集任务。
 
@@ -459,7 +451,7 @@ async def trigger_crawl(request: CrawlRequest, background_tasks: BackgroundTasks
 
 
 @app.get("/status/{task_id}", response_model=TaskStatusResponse, tags=["采集"])
-async def get_task_status(task_id: str):
+async def get_task_status(task_id: str, user: dict = Depends(get_current_user)):
     """查询指定任务ID的运行状态"""
     global _scheduler, _task_results
 
@@ -512,7 +504,7 @@ async def get_task_status(task_id: str):
 
 
 @app.get("/results/{task_id}", response_model=CrawlResultResponse, tags=["采集"])
-async def get_crawl_results(task_id: str):
+async def get_crawl_results(task_id: str, user: dict = Depends(get_current_user)):
     """获取指定任务的采集结果（结构化记录列表）"""
     global _task_results
 
@@ -554,7 +546,7 @@ async def get_crawl_results(task_id: str):
 
 
 @app.get("/stats", response_model=StatsResponse, tags=["统计"])
-async def get_stats():
+async def get_stats(user: dict = Depends(get_current_user)):
     """
     返回系统全局统计信息：
     - SmartScheduler 调度统计（站点级）

@@ -56,7 +56,7 @@ def _load_projects_pg():
             cols_cqggzy = [d[0] for d in cur.description]
             rows_cqggzy = cur.fetchall()
         except Exception as e:
-            print(f"[analytics] cqggzy error: {e}")
+            logger.warning(f"[analytics] cqggzy error: {e}", exc_info=True)
             conn.rollback()
 
         rows_ccgp = []
@@ -68,13 +68,13 @@ def _load_projects_pg():
             """)
             rows_ccgp = cur.fetchall()
         except Exception as e:
-            print(f"[analytics] ccgp skipped: {e}")
+            logger.warning(f"[analytics] ccgp skipped: {e}", exc_info=True)
             conn.rollback()
 
         cur.close()
         return rows_cqggzy + rows_ccgp, cols_cqggzy if cols_cqggzy else []
     except Exception as e:
-        print(f"[analytics] _load_projects_pg error: {e}")
+        logger.warning(f"[analytics] _load_projects_pg error: {e}", exc_info=True)
         return [], []
 
 
@@ -118,8 +118,8 @@ def _get_last_run():
         cur.close()
         if row and row[0]:
             return str(row[0])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"[_get_last_run] failed: {e}", exc_info=True)
     return "-"
 
 
@@ -131,7 +131,8 @@ def get_analytics(days: int = Query(365, ge=1, le=3650)):
     # 过滤指定天数内的项目
     try:
         start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[get_analytics] date parse failed: {e}", exc_info=True)
         start_date = "1970-01-01"
 
     recent_projects = [

@@ -5,22 +5,34 @@
 """
 
 import asyncio
-import os
 from datetime import datetime
 import json
 import random
 import re
 from typing import List
 
-import httpx
 from loguru import logger
 
 from app.crawlers.base import BaseCrawler
-from app.database import get_db
 from app.models.tender import TenderInfo
-from app.services.keywords_service import KeywordsService
-from app.utils.summarize import summarize as make_summary
-from app.utils.project_linker import normalize_project_name, extract_project_no
+from app.utils.project_linker import extract_project_no
+
+# ─── 模块级常量 (从循环内上提, P3.2) ────────────────────────────────────
+# 标题兜底拦截词：拦截资产招租等误分类项目
+_BLOCKED_TITLE_KEYWORDS = ('招租', '经营权出让')
+
+# categoryNum 前9位 → info_type 映射
+_CATEGORY_INFO_TYPE = {
+    '014001019': '招标计划',
+    '014001001': '招标公告',
+    '014001002': '答疑补遗',
+    '014001003': '中标候选人公示',
+    '014001004': '中标结果公示',
+    '014001021': '终止公告',
+    '014005001': '采购公告',
+    '014005002': '变更公告',
+    '014005004': '采购结果公告',
+}
 
 
 class CQGGZYCrawlerV2(BaseCrawler):
@@ -196,7 +208,6 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 # 2026-06-23 修复: 严格白名单 (用户 6-23 明确指令: 非以上来源不采集)
                 # 使用类级 _ALLOWED_CATNUM_PREFIXES (从 LIST_URLS.values() 生成)
                 # 标题关键词兜底: 拦截资产招租 (CQGGZY 偶发把房产招租挂载到 014001xxx 工程分类)
-                _BLOCKED_TITLE_KEYWORDS = ('招租', '经营权出让')
                 if (
                     not raw_catnum
                     or not any(raw_catnum.startswith(p) for p in self._ALLOWED_CATNUM_PREFIXES)
@@ -244,17 +255,6 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 _m = _re.search(r'categoryNum=(\d+)', full_url)
                 if _m:
                     _prefix9 = _m.group(1)[:9]
-                    _CATEGORY_INFO_TYPE = {
-                        '014001019': '招标计划',
-                        '014001001': '招标公告',
-                        '014001002': '答疑补遗',
-                        '014001003': '中标候选人公示',
-                        '014001004': '中标结果公示',
-                        '014001021': '终止公告',
-                        '014005001': '采购公告',
-                        '014005002': '变更公告',
-                        '014005004': '采购结果公告',
-                    }
                     tender.info_type = _CATEGORY_INFO_TYPE.get(_prefix9, '')
 
                 # 从 content 提取全文
