@@ -71,6 +71,12 @@ class DataCache:
         # L1 filters: filter_sig → [indices into _main]
         self._filters: Dict[str, List[int]] = {}
         self._filters_loaded_at: Dict[str, float] = {}
+        # Opt-5: page result cache (filter_sig + page + page_size) → result dict
+        # 同页同 filter 命中 0ms 返回, 5min TTL
+        self._pages: Dict[str, Dict[str, Any]] = {}
+        self._pages_loaded_at: Dict[str, float] = {}
+        # Opt-5: page cache 最大条数 (防内存膨胀, LRU 不严格, 仅限条数)
+        self._pages_max = int(os.getenv("DATA_CACHE_PAGES_MAX", "200"))
         # Opt-4: catnum → set of filter_sigs that depend on this catnum (智能失效索引)
         # 写法: filter_sig 写入时取其涉及 catnum, 双向索引; invalidate("catnum:xxx") 时 O(1) 清受影响的 sig
         self._catnum_to_sigs: Dict[str, set] = {}
@@ -83,6 +89,7 @@ class DataCache:
         self._stats = {
             "l1_hits": 0, "l2_hits": 0, "db_loads": 0,
             "invalidations": 0, "filter_hits": 0, "filter_misses": 0,
+            "page_hits": 0, "page_misses": 0,  # Opt-5
         }
     
     @classmethod
@@ -285,15 +292,71 @@ class DataCache:
                 catnums.add(digits[:9])
         return catnums
     
+    # ━━━ Page Cache API (Opt-5) ━━━
+    @staticmethod
+    def _make_page_key(filter_sig: str, page: int, page_size: int) -> str:
+        return f"{filter_sig}:{page}:{page_size}"
+
+    def get_page(self, filter_sig: str, page: int, page_size: int) -> Optional[Dict[str, Any]]:
+        """Opt-5: 获取 page-level result cache.
+
+        Args:
+            filter_sig: filter signature (需传入项目层构造的 sig, 不在 page cache 内部重建)
+            page: 页码 (1-based)
+            page_size: 每页大小
+
+        Returns:
+            {"projects": [...], "total": N, "last_run": "..."} 或 None (未命中)
+        """
+        key = self._make_page_key(filter_sig, page, page_size)
+        with self._lock:
+            entry = self._pages.get(key)
+            if entry is None:
+                self._stats["page_misses"] += 1
+                return None
+            age = time.time() - self._pages_loaded_at.get(key, 0)
+            if age >= IN_PROCESS_TTL_FILTER:  # 复用 5min TTL
+                self._pages.pop(key, None)
+                self._pages_loaded_at.pop(key, None)
+                self._stats["page_misses"] += 1
+                return None
+            self._stats["page_hits"] += 1
+            # 返回拷贝避免 caller 原地修改污染 cache
+            return {
+                "projects": list(entry["projects"]),
+                "total": entry["total"],
+                "last_run": entry.get("last_run", "-"),
+            }
+
+    def set_page(
+        self, filter_sig: str, page: int, page_size: int,
+        result: Dict[str, Any]
+    ) -> None:
+        """Opt-5: 写入 page-level result cache."""
+        key = self._make_page_key(filter_sig, page, page_size)
+        with self._lock:
+            # 上限防护: 超限后淘汰最早写入 (简单 FIFO)
+            if key not in self._pages and len(self._pages) >= self._pages_max:
+                if self._pages_loaded_at:
+                    oldest = min(self._pages_loaded_at, key=self._pages_loaded_at.get)
+                    self._pages.pop(oldest, None)
+                    self._pages_loaded_at.pop(oldest, None)
+            self._pages[key] = {
+                "projects": list(result["projects"]),
+                "total": result["total"],
+                "last_run": result.get("last_run", "-"),
+            }
+            self._pages_loaded_at[key] = time.time()
+
     # ━━━ Invalidation ━━━
     def invalidate(self, scope: str = "all") -> Dict[str, Any]:
         """清缓存 (同步, async-safe via RLock).
 
         Args:
-            scope: "all" | "main" | "filters" | "catnum:014001001" (Opt-4 智能失效)
+            scope: "all" | "main" | "filters" | "pages" | "catnum:014001001" (Opt-4 智能失效)
                    catnum 格式: 只清受该 catnum 影响的 filter sigs + L1 main (L1 main 需要重读才安全)
         """
-        result = {"scope": scope, "l1_cleared": False, "l2_cleared": False, "errors": [], "filter_sigs_cleared": 0}
+        result = {"scope": scope, "l1_cleared": False, "l2_cleared": False, "errors": [], "filter_sigs_cleared": 0, "pages_cleared": 0}
         with self._lock:
             if scope == "catnum":
                 # Opt-4: catnum 失效但不重读 L1 main (main 仍是旧数据, 等下次调用走 L2→L3 重读)
@@ -303,10 +366,25 @@ class DataCache:
                 self._main = None
                 self._main_loaded_at = 0.0
                 result["l1_cleared"] = True
+                # Opt-5: main 失效连带清 page cache (底层数据变了)
+                if self._pages:
+                    result["pages_cleared"] = len(self._pages)
+                    self._pages.clear()
+                    self._pages_loaded_at.clear()
             if scope in ("all", "filters"):
                 self._filters.clear()
                 self._filters_loaded_at.clear()
                 self._catnum_to_sigs.clear()  # Opt-4: 索引随 filter cache 清
+                # Opt-5: filters 失效连带清 page cache
+                if self._pages:
+                    result["pages_cleared"] += len(self._pages)
+                    self._pages.clear()
+                    self._pages_loaded_at.clear()
+            elif scope == "pages":
+                # Opt-5: 单独清 page cache
+                result["pages_cleared"] = len(self._pages)
+                self._pages.clear()
+                self._pages_loaded_at.clear()
             elif scope.startswith("catnum:"):
                 # Opt-4: 智能失效 - 按 catnum 桶清 filter cache (不动 main)
                 catnum = scope.split(":", 1)[1]
@@ -318,8 +396,17 @@ class DataCache:
                     if not other_refs:
                         self._filters.pop(sig, None)
                         self._filters_loaded_at.pop(sig, None)
+                # Opt-5: 同步清受 catnum 影响的 page cache
+                page_keys_to_del = [k for k in self._pages if k.split(":")[0] in sigs]
+                for k in page_keys_to_del:
+                    self._pages.pop(k, None)
+                    self._pages_loaded_at.pop(k, None)
                 result["filter_sigs_cleared"] = len(sigs)
-                logger.info(f"[DataCache] catnum 桶失效 {catnum}: 清理 {len(sigs)} filter sigs")
+                result["pages_cleared"] = len(page_keys_to_del)
+                logger.info(
+                    f"[DataCache] catnum 桶失效 {catnum}: 清理 {len(sigs)} filter sigs, "
+                    f"{len(page_keys_to_del)} page entries"
+                )
         if scope in ("all", "main"):
             client = self._get_redis()
             if client is not None:
@@ -440,6 +527,7 @@ class DataCache:
                 if self._main_loaded_at > 0 else -1
             )
             filter_count = len(self._filters)
+            page_count = len(self._pages)
         return {
             "l1": {
                 "alive": l1_alive,
@@ -447,6 +535,7 @@ class DataCache:
                 "ttl_seconds": IN_PROCESS_TTL_MAIN,
                 "count": l1_count,
                 "filters_cached": filter_count,
+                "pages_cached": page_count,  # Opt-5
             },
             "l2": {
                 "available": self._redis_available,
@@ -463,6 +552,7 @@ class DataCache:
             self._stats = {
                 "l1_hits": 0, "l2_hits": 0, "db_loads": 0,
                 "invalidations": 0, "filter_hits": 0, "filter_misses": 0,
+                "page_hits": 0, "page_misses": 0,
             }
 
 

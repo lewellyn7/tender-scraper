@@ -311,9 +311,46 @@ async def get_projects(request: Request,
     filter_cache_eligible = (
         not keyword and not use_tfidf and not use_vector
     )
+    page_cache_eligible = filter_cache_eligible and not stream  # 流式不走 page cache
     if filter_cache_eligible:
-        filter_parts = [category or "", date_start or "", date_end or "", source or ""]
+        filter_parts = [category or "", date_start or "", date_end or "", source or "", sort_by]
         filter_sig = hashlib.md5("|".join(filter_parts).encode()).hexdigest()
+        # Opt-5: page cache 检查 (filter_sig + page + page_size)
+        if page_cache_eligible:
+            cached_page = data_cache.get_page(filter_sig, page, page_size)
+            if cached_page is not None:
+                # page cache hit: 跳过 filter/sort, 只补 user 维度 (fav/ann)
+                page_projects = cached_page["projects"]
+                total_f = cached_page["total"]
+                user_id = get_current_user_id_optional(request)
+                urls = [p.get("url", "") for p in page_projects]
+                if user_id:
+                    fav_map, ann_map = _batch_load_favorites_and_annotations(urls, db)
+                    # copy 避免污染 cache (page cache 已 copy, 但这里需要 merge)
+                    page_projects = [dict(p) for p in page_projects]
+                    for i, p in enumerate(page_projects):
+                        url = p.get("url", "")
+                        p["is_favorite"] = url in fav_map
+                        p["_fid"] = fav_map[url]["id"] if url in fav_map else None
+                        p["annotation"] = ann_map.get(url)
+                else:
+                    page_projects = [dict(p) for p in page_projects]
+                    for p in page_projects:
+                        p["is_favorite"] = False
+                        p["annotation"] = None
+                logger.debug(
+                    f"[page-cache] hit sig={filter_sig[:8]} page={page}/{page_size}, "
+                    f"{len(page_projects)} 条"
+                )
+                return JSONResponse(
+                    {
+                        "projects": page_projects,
+                        "total": total_f,
+                        "page": page,
+                        "page_size": page_size,
+                        "last_run": cached_page.get("last_run", "-"),
+                    }
+                )
         cached_urls = data_cache.get_filter(filter_sig)
         if cached_urls is not None:
             url_set = set(cached_urls)
@@ -444,6 +481,21 @@ async def get_projects(request: Request,
     total_f = len(filtered)
     start = (page - 1) * page_size
     page_projects = filtered[start : start + page_size]
+    # Opt-5: page cache 写入 - filter_cache_eligible + 非流式 + sort 后
+    # 缓存公共数据 (不含 user 维度), 下次同 filter/page 命中后只补 fav/ann
+    if page_cache_eligible and filter_cache_eligible and not stream:
+        try:
+            data_cache.set_page(filter_sig, page, page_size, {
+                "projects": page_projects,
+                "total": total_f,
+                "last_run": _get_last_run(),
+            })
+            logger.debug(
+                f"[page-cache] write sig={filter_sig[:8]} page={page}/{page_size}, "
+                f"{len(page_projects)} 条"
+            )
+        except Exception as _pc_err:
+            logger.warning(f"[page-cache] write 失败: {_pc_err}")
     # 批量预加载 favorites 和 annotations（用户个性化数据，需登录）
     urls = [p.get("url", "") for p in page_projects]
     user_id = get_current_user_id_optional(request)
