@@ -417,13 +417,18 @@ async def get_projects(request: Request,
     user_id = get_current_user_id_optional(request)
     if user_id:
         fav_map, ann_map = _batch_load_favorites_and_annotations(urls, db)
-        for p in page_projects:
+        for i, p in enumerate(page_projects):
+            # P1: shallow copy 避免 DataCache L1 缓存 dict 原地污染 (跨用户泄漏 is_favorite)
+            p = dict(p)
+            page_projects[i] = p
             url = p.get("url", "")
             p["is_favorite"] = url in fav_map
             p["_fid"] = fav_map[url]["id"] if url in fav_map else None
             p["annotation"] = ann_map.get(url)
     else:
-        for p in page_projects:
+        for i, p in enumerate(page_projects):
+            p = dict(p)
+            page_projects[i] = p
             p["is_favorite"] = False
             p["annotation"] = None
 
@@ -488,13 +493,18 @@ async def _stream_projects_ndjson(projects, request, db, user_id):
         urls = [p.get("url", "") for p in batch]
         if user_id:
             fav_map, ann_map = _batch_load_favorites_and_annotations(urls, db)
-            for p in batch:
+            for i, p in enumerate(batch):
+                # P1: shallow copy 避免 DataCache L1 缓存 dict 原地污染 (跨用户泄漏 is_favorite)
+                p = dict(p)
+                batch[i] = p
                 url = p.get("url", "")
                 p["is_favorite"] = url in fav_map
                 p["_fid"] = fav_map[url]["id"] if url in fav_map else None
                 p["annotation"] = ann_map.get(url)
         else:
-            for p in batch:
+            for i, p in enumerate(batch):
+                p = dict(p)
+                batch[i] = p
                 p["is_favorite"] = False
                 p["annotation"] = None
 
@@ -519,6 +529,8 @@ def get_project(request: Request, project_url: str):
     user_id = get_current_user_id_optional(request)
     for p in projects:
         if p.get("url", "") == project_url:
+            # P1: shallow copy 避免 DataCache L1 缓存 dict 原地污染 (跨用户泄漏 is_favorite)
+            p = dict(p)
             if user_id:
                 fav = db.get_favorite(project_url, user_id)
                 p["is_favorite"] = bool(fav)

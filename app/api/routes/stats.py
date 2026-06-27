@@ -71,7 +71,12 @@ def get_stats(user_id: str = Depends(get_current_user)):
         last_run = last_run_row.strftime("%m-%d %H:%M") if last_run_row else "—"
         
         cursor.close()
-        conn.close()
+        # P1: psycopg2 pool 语义 — getconn 后必须 putconn, close() 会泄漏连接
+        _pg_pool = getattr(_get_pg_conn, "_pool", None)
+        if _pg_pool:
+            _pg_pool.putconn(conn)
+        else:
+            conn.close()
         
         return JSONResponse({
             "total": total,
