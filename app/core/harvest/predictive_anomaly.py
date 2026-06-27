@@ -209,8 +209,8 @@ class TrendAnalyzer:
         综合健康分 [0, 1]
         越高越健康
         """
-        # 基础分：成功率（权重 40%）
-        base_score = success_rate_7d * 0.4
+        # 基础分：成功率（权重 50%），起点 0.5 避免天花板 ~0.55
+        base_score = 0.5 + success_rate_7d * 0.5
 
         # 短期波动惩罚（权重 15%）：CV 越高越不健康
         cv_penalty = max(0.0, min(0.15, cv * 0.15))

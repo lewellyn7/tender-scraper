@@ -23,6 +23,8 @@ from threading import Thread
 
 import redis
 
+from app.utils.redis_url import parse_redis_url as _parse_redis_url
+
 # ── 日志 ──────────────────────────────────────────────────
 import logging
 logger = logging.getLogger("collector.worker")
@@ -38,21 +40,6 @@ if not logger.handlers:
 REDIS_URL = os.getenv("REDIS_URL", "redis://:infini_rag_flow@localhost:6379/0")
 TRIGGER_CHANNEL = os.getenv("COLLECT_CHANNEL", "tender:collect:trigger")
 RESULT_CHANNEL = os.getenv("RESULT_CHANNEL", "tender:collect:result")
-
-
-def _parse_redis_url(url: str) -> dict:
-    """解析 redis:// URL 为 redis-py 连接参数"""
-    import re
-    m = re.match(r"redis://(?::([^@]+)@)?([^:]+):(\d+)(?:/(\d+))?", url)
-    if not m:
-        return {"host": "localhost", "port": 6379, "db": 0, "password": None}
-    password, host, port, db = m.groups()
-    return {
-        "host": host,
-        "port": int(port),
-        "db": int(db) if db else 0,
-        "password": password,
-    }
 
 
 def _run_collection_sync(source: str = "cqggzy"):

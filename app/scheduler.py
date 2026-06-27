@@ -10,13 +10,17 @@
 """
 import json
 import os
-import re
 import sys
 import threading
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from app.utils.redis_url import parse_redis_url as _parse_redis_url
+
+
+# ── 配置 ──────────────────────────────────────────────────
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -29,19 +33,6 @@ logger.add("/dev/stderr", format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {me
 # ── Redis 配置 ──────────────────────────────────────────────
 REDIS_URL = os.getenv("REDIS_URL", "redis://:infini_rag_flow@localhost:6379/0")
 TRIGGER_CHANNEL = os.getenv("COLLECT_CHANNEL", "tender:collect:trigger")
-
-
-def _parse_redis_url(url: str) -> dict:
-    m = re.match(r"redis://(?::([^@]+)@)?([^:]+):(\d+)(?:/(\d+))?", url)
-    if not m:
-        return {"host": "localhost", "port": 6379, "db": 0, "password": None}
-    password, host, port, db = m.groups()
-    return {
-        "host": host,
-        "port": int(port),
-        "db": int(db) if db else 0,
-        "password": password,
-    }
 
 
 class _HealthHandler(BaseHTTPRequestHandler):
