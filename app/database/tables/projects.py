@@ -73,32 +73,21 @@ class ProjectsMixin:
         pno = None if not project_no else project_no
         try:
             if pno is not None:
-                # project_no 有值：尝试 UPDATE，不存在则 INSERT
-                existing = conn.execute(
-                    "SELECT id FROM projects WHERE project_no = ?", (pno,)
-                ).fetchone()
-                if existing:
-                    conn.execute(
-                        """UPDATE projects SET
-                           project_name=?, project_name_raw=?, business_type=?, region=?, industry=?, budget=?, updated_at=CURRENT_TIMESTAMP
-                           WHERE id = ?""",
-                        (
-                            project_name,
-                            project_name_raw,
-                            business_type,
-                            region,
-                            industry,
-                            budget,
-                            existing["id"],
-                        ),
-                    )
-                    conn.commit()
-                    return existing["id"]
-                # 未找到 → INSERT，用 RETURNING id 拿新 id
+                # 2026-06-27 修复 (P2 3.11): SELECT-then-UPDATE/INSERT → ON CONFLICT
+                # 消除 TOCTOU 竞态: 两线程同时查不到 → 同时 INSERT → duplicate key
+                # ON CONFLICT (project_no) 原子化执行, 避免窗口期
                 cur = conn.execute(
                     """INSERT INTO projects
                        (project_name, project_name_raw, project_no, business_type, region, industry, budget)
                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT (project_no) DO UPDATE SET
+                           project_name = EXCLUDED.project_name,
+                           project_name_raw = EXCLUDED.project_name_raw,
+                           business_type = EXCLUDED.business_type,
+                           region = EXCLUDED.region,
+                           industry = EXCLUDED.industry,
+                           budget = EXCLUDED.budget,
+                           updated_at = CURRENT_TIMESTAMP
                        RETURNING id""",
                     (
                         project_name,
