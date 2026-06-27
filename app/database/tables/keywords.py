@@ -85,6 +85,7 @@ class KeywordsMixin:
                     "INSERT OR IGNORE INTO keywords (keyword, category, match_mode, threshold, enabled) VALUES (?, ?, ?, ?, 1)",
                     (keyword, category, match_mode, threshold)
                 )
+            c.commit()
             return True
         except Exception as e:
             logger.warning(f"[Keywords] 添加失败: {e}")
@@ -92,12 +93,14 @@ class KeywordsMixin:
 
     def update_keyword(self, keyword_id: int, **kwargs) -> bool:
         """更新关键词"""
+        from app.database.db import USE_PG  # local import to avoid circular import
         allowed = ['keyword', 'category', 'match_mode', 'threshold', 'enabled']
+        placeholder = "%s" if USE_PG else "?"
         sets = []
         vals = []
         for k, v in kwargs.items():
             if k in allowed:
-                sets.append(f"{k} = ?")
+                sets.append(f"{k} = {placeholder}")
                 vals.append(v)
         if not sets:
             return False
@@ -106,9 +109,10 @@ class KeywordsMixin:
         try:
             c = self._get_conn()
             c.execute(
-                f"UPDATE keywords SET {', '.join(sets)} WHERE id = ?",
+                f"UPDATE keywords SET {', '.join(sets)} WHERE id = {placeholder}",
                 tuple(vals)
             )
+            c.commit()
             return True
         except Exception as e:
             logger.warning(f"[Keywords] 更新失败: {e}")
@@ -117,8 +121,11 @@ class KeywordsMixin:
     def delete_keyword(self, keyword_id: int) -> bool:
         """删除关键词"""
         try:
+            from app.database.db import USE_PG  # local import to avoid circular import
             c = self._get_conn()
-            c.execute("DELETE FROM keywords WHERE id = ?", (keyword_id,))
+            placeholder = "%s" if USE_PG else "?"
+            c.execute(f"DELETE FROM keywords WHERE id = {placeholder}", (keyword_id,))
+            c.commit()
             return True
         except Exception as e:
             logger.warning(f"[Keywords] 删除失败: {e}")
@@ -127,11 +134,14 @@ class KeywordsMixin:
     def toggle_keyword(self, keyword_id: int) -> bool:
         """切换关键词启用状态"""
         try:
+            from app.database.db import USE_PG  # local import to avoid circular import
             c = self._get_conn()
+            placeholder = "%s" if USE_PG else "?"
             c.execute(
-                "UPDATE keywords SET enabled = 1 - enabled, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                f"UPDATE keywords SET enabled = 1 - enabled, updated_at = CURRENT_TIMESTAMP WHERE id = {placeholder}",
                 (keyword_id,)
             )
+            c.commit()
             return True
         except Exception as e:
             logger.warning(f"[Keywords] 切换失败: {e}")
