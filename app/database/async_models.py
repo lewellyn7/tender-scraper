@@ -5,6 +5,7 @@ PostgreSQL 数据模型 — asyncpg 连接池 + CRUD
 """
 
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -12,6 +13,8 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import asyncpg
+
+logger = logging.getLogger(__name__)
 
 # ── 配置 ────────────────────────────────────────────────
 DATABASE_URL = os.getenv(
@@ -427,18 +430,25 @@ class HarvestRecord:
 
             try:
                 affected = await conn.execute(sql, *param_list)
-                # affected: "INSERT 0 10" (10 rows affected) or "UPDATE 10"
+                # affected: "INSERT 0 N" / "UPDATE N" / "INSERT 0 M UPDATE N" (upsert)
                 import re
-                m = re.search(r"(INSERT|UPDATE)\s+\d+\s+(\d+)", affected, re.IGNORECASE)
+                m = re.search(r"^INSERT 0 (\d+)$", affected)
                 if m:
-                    op, count = m.group(1).upper(), int(m.group(2))
-                    if op == "INSERT":
-                        total_inserted += count
-                        total_updated += n_rows - count
+                    total_inserted += int(m.group(1))
+                else:
+                    m = re.search(r"^UPDATE (\d+)$", affected)
+                    if m:
+                        total_updated += int(m.group(1))
                     else:
-                        total_updated += count
+                        m = re.search(r"^INSERT 0 (\d+) UPDATE (\d+)$", affected)
+                        if m:
+                            # ON CONFLICT DO UPDATE: PG doesn't split insert/update counts
+                            # — count all as updated for accurate monitoring
+                            total_updated += int(m.group(1)) + int(m.group(2))
+                        else:
+                            logger.warning(f"upsert_batch: unexpected PG result format: {affected!r}")
             except Exception as e:
-                logging.getLogger(__name__).error(f"upsert_batch chunk error: {e}")
+                logger.error(f"upsert_batch chunk error: {e}", exc_info=True)
 
         return total_inserted, total_updated
 
