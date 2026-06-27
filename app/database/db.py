@@ -442,13 +442,20 @@ class Database(
             placeholders = ",".join(["%s"] * len(cols))
             # 2026-06-05 修复：保护 full_content/content_preview 不被空值覆盖
             # 列表 API 不返回 content，upsert 会用空值覆盖已填的详情正文
-            # 同时保护 scraped_at — ccgp.py:358 在详情阶段会传 scraped_at=None
-            protected_cols = {"full_content", "content_preview", "scraped_at"}
+            # 2026-06-27 修复 (P2 3.12): scraped_at 改用 CASE WHEN 保护
+            # NULLIF 在 TIMESTAMP 字段报错 (PG 类型不匹配), 与 cqggzy/fahcqmu 统一
+            text_protected_cols = {"full_content", "content_preview"}
+            timestamp_protected_cols = {"scraped_at"}
             set_parts = []
             for c in cols[1:]:
-                if c in protected_cols:
+                if c in text_protected_cols:
                     set_parts.append(
                         f"{c}=COALESCE(NULLIF(EXCLUDED.{c}, ''), projects_ccgp.{c})"
+                    )
+                elif c in timestamp_protected_cols:
+                    set_parts.append(
+                        f"{c}=CASE WHEN EXCLUDED.{c} IS NOT NULL "
+                        f"THEN EXCLUDED.{c} ELSE projects_ccgp.{c} END"
                     )
                 else:
                     set_parts.append(f"{c}=EXCLUDED.{c}")
@@ -591,6 +598,15 @@ class Database(
               winner_score, publish_date
 
         返回: 写入条数.
+
+        ⚠️ 内存 dedup 与 DB UNIQUE 约束语义差 (P2 3.13):
+        - 内存 dedup key: (source, project_id, package_no, cleaned_winner_name OR winner_name)
+        - DB UNIQUE:        (source, project_id, package_no, cleaned_winner_name)
+        - 当 cleaned_winner_name 为 NULL/'' 时, dedup 回退用 winner_name, 但 PG 对 NULL
+          的 UNIQUE 语义是 "NULL != NULL", 所以同 (source, pid, pno) 的不同 winner_name
+          记录 (均 cleaned_winner_name=NULL) 不会被 UNIQUE 约束拦截, 可能产生语义重复行.
+        - 推荐修复: DB 端给 cleaned_winner_name 加 NOT NULL 约束, 或将 dedup key 下沉到
+          DB 层 (COALESCE in UNIQUE index). 本次只文档化, 不动 schema/逻辑.
         """
         if not rows:
             return 0
