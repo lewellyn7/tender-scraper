@@ -62,3 +62,4 @@ node_modules/
 output/latest.json
 secrets/
 .worktrees
+.pre-qual/
