@@ -355,7 +355,7 @@ class CCGPCrawlerV3(BaseCrawler):
                     "attachments": json.dumps(att_list) if att_list else "[]",
                     "keywords_matched": ",".join(tender.keywords_matched) if tender.keywords_matched else "",
                     "source_url": _v(tender.source_url or tender.url),
-                    "scraped_at": None,
+                    "scraped_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     "scraped_by": "",
                     "contract_amount": "",
                     "planned_publish_date": "",
