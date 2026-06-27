@@ -513,7 +513,7 @@ def _compute_daily_health_trends(cur, days: int) -> list:
     target_throughput = HEALTH_METRICS.get("crawl_items_per_hour", {}).get("target", 100)
 
     try:
-        cur.execute(f"""
+        cur.execute("""
             SELECT
               DATE(created_at) as day,
               COUNT(*) as total,
@@ -523,12 +523,12 @@ def _compute_daily_health_trends(cur, days: int) -> list:
                   AND full_content IS NOT NULL AND full_content != ''
                   AND scraped_at::timestamp > publish_date::timestamp) as avg_latency_ms
             FROM projects_cqggzy
-            WHERE created_at > NOW() - INTERVAL '{int(days)} days'
+            WHERE created_at > NOW() - INTERVAL %s days
             GROUP BY DATE(created_at)
             ORDER BY 1
-        """)
+        """, (f"{int(days)}",))
     except Exception:
-        cur.execute(f"""
+        cur.execute("""
             SELECT
               DATE(created_at) as day,
               COUNT(*) as total,
@@ -538,10 +538,10 @@ def _compute_daily_health_trends(cur, days: int) -> list:
                   AND full_content IS NOT NULL AND full_content != ''
                   AND scraped_at > publish_date) as avg_latency_ms
             FROM projects_cqggzy
-            WHERE created_at > datetime('now', '-{int(days)} days')
+            WHERE created_at > datetime('now', '-' || %s || ' days')
             GROUP BY DATE(created_at)
             ORDER BY 1
-        """)
+        """, (f"{int(days)}",))
 
     result = []
     for row in cur.fetchall():
