@@ -58,6 +58,7 @@ class DataCache:
     def __init__(self):
         # L1: 线程安全 (RLock 支持重入)
         self._lock = threading.RLock()
+        self._redis_lock = threading.Lock()  # 保护 _get_redis 延迟初始化
         # L1 main
         self._main: Optional[List[dict]] = None
         self._main_loaded_at: float = 0.0
@@ -89,18 +90,22 @@ class DataCache:
         """延迟初始化 sync redis 客户端, 失败时返回 None."""
         if self._redis_client is not None or self._redis_available is False:
             return self._redis_client
-        try:
-            import redis as redis_lib
-            self._redis_client = redis_lib.Redis.from_url(
-                REDIS_URL, decode_responses=False, socket_timeout=REDIS_TIMEOUT
-            )
-            self._redis_client.ping()
-            self._redis_available = True
-            logger.info(f"[DataCache] Redis 已连接: {REDIS_URL}")
-        except Exception as e:
-            logger.warning(f"[DataCache] Redis 不可用 ({e}), 降级到 L1 only")
-            self._redis_client = None
-            self._redis_available = False
+        with self._redis_lock:
+            # Double-check: 可能在等锁期间已被其他线程初始化
+            if self._redis_client is not None or self._redis_available is False:
+                return self._redis_client
+            try:
+                import redis as redis_lib
+                self._redis_client = redis_lib.Redis.from_url(
+                    REDIS_URL, decode_responses=False, socket_timeout=REDIS_TIMEOUT
+                )
+                self._redis_client.ping()
+                self._redis_available = True
+                logger.info(f"[DataCache] Redis 已连接: {REDIS_URL}")
+            except Exception as e:
+                logger.warning(f"[DataCache] Redis 不可用 ({e}), 降级到 L1 only")
+                self._redis_client = None
+                self._redis_available = False
         return self._redis_client
     
     # ━━━ Main Cache API ━━━

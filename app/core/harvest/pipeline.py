@@ -173,67 +173,50 @@ async def run_collection():
         # 2026-06-03 决策：扩大 detail_limit 30→100，确保大部分匹配项目有正文（列表 API 不再返回 content）
         # 2026-06-05 决策：再扩大到 300，覆盖 3684 匹配项目中的绝大部分（每周期 16min）
         detail_limit = min(300, len(matched_items))
-        # 按来源均衡选择，避免单一来源占满限额
+        # 2026-06-08 Bug 1 修复：detail_items[:300] 是按列表 API newid 顺序取的，
+        # 列表 API 的 newid 排序 ≠ publish_date 排序，导致 6-8 的新数据都在 [1013-7965] 位置、
+        # 从未进入前 300 个 SmartScheduler 任务。需要先按 publish_date 预排序全部 matched_items，
+        # 再截前 detail_limit 个。
+        def _sort_key(item):
+            pd = getattr(item, "publish_date", None)
+            if pd is None:
+                return (1, 0)  # 未知日期 → 降序底
+            return (0, -pd.timestamp())  # 有日期 → 按时间降序（负值倒置）
+
+        # 来源均衡 + publish_date 降序（仅计算一遍）
         from collections import defaultdict
+        all_sorted = sorted(matched_items, key=_sort_key)
         by_source = defaultdict(list)
-        for item in matched_items:
+        for item in all_sorted:
             src = "ccgp" if (hasattr(item, "source_url") and "ccgp" in (item.source_url or "")) else "cqggzy"
             by_source[src].append(item)
-        # 轮询从每个来源取，确保都有机会
-        detail_items = []
         sources = list(by_source.keys())
         max_per_source = max(5, detail_limit // len(sources)) if sources else detail_limit
-        for src in sources:
-            detail_items.extend(by_source[src][:max_per_source])
-        detail_items = detail_items[:detail_limit]
+        # 轮询：首次从每源取 1 个，再从每源取下一个，... 直到每源达到 max_per_source
+        detail_items = []
+        ptrs = {src: 0 for src in sources}
+        taken = {src: 0 for src in sources}
+        while len(detail_items) < detail_limit:
+            progressed = False
+            for src in sources:
+                if taken[src] >= max_per_source:
+                    continue
+                if ptrs[src] >= len(by_source[src]):
+                    continue
+                detail_items.append(by_source[src][ptrs[src]])
+                ptrs[src] += 1
+                taken[src] += 1
+                progressed = True
+                if len(detail_items) >= detail_limit:
+                    break
+            if not progressed:
+                break
+        logger.info(
+            f"  📊 预排序+来源均衡：matched_items ({len(matched_items)}) → 按 publish_date 降序后取前 {len(detail_items)}"
+        )
 
         if detail_items:
             logger.info(f"📄 使用 SmartScheduler 并行采集 {len(detail_items)} 个详情页...")
-
-            # 2026-06-08 Bug 1 修复：detail_items[:300] 是按列表 API newid 顺序取的，
-            # 列表 API 的 newid 排序 ≠ publish_date 排序，导致 6-8 的新数据都在 [1013-7965] 位置、
-            # 从未进入前 300 个 SmartScheduler 任务。需要先按 publish_date 预排序全部 matched_items，
-            # 再截前 detail_limit 个。
-            def _sort_key(item):
-                pd = getattr(item, "publish_date", None)
-                if pd is None:
-                    return (1, 0)  # 未知日期 → 降序底
-                return (0, -pd.timestamp())  # 有日期 → 按时间降序（负值倒置）
-            # 按来源均衡选择后重新按 publish_date 降序排序
-            # 注意：这里 detail_items 本身已经是来源均衡选择过的。需重做来源均衡：
-            # 先把全部 matched_items 按 publish_date 降序排，再按来源轮询取
-            all_sorted = sorted(matched_items, key=_sort_key)
-
-            # 重新按来源均衡
-            by_source_sorted = defaultdict(list)
-            for item in all_sorted:
-                src = "ccgp" if (hasattr(item, "source_url") and "ccgp" in (item.source_url or "")) else "cqggzy"
-                by_source_sorted[src].append(item)
-            detail_items_new = []
-            sources = list(by_source_sorted.keys())
-            max_per_source = max(5, detail_limit // len(sources)) if sources else detail_limit
-            # 轮询：首次从每源取 1 个，再从每源取下一个，... 直到每源达到 max_per_source
-            ptrs = {src: 0 for src in sources}
-            taken = {src: 0 for src in sources}
-            while len(detail_items_new) < detail_limit:
-                progressed = False
-                for src in sources:
-                    if taken[src] >= max_per_source:
-                        continue
-                    if ptrs[src] >= len(by_source_sorted[src]):
-                        continue
-                    detail_items_new.append(by_source_sorted[src][ptrs[src]])
-                    ptrs[src] += 1
-                    taken[src] += 1
-                    progressed = True
-                    if len(detail_items_new) >= detail_limit:
-                        break
-                if not progressed:
-                    break
-            detail_items = detail_items_new
-            logger.info(
-                f"  📊 预排序：matched_items ({len(matched_items)}) → 按 publish_date 降序后按来源均衡取前 {len(detail_items)}"
-            )
 
             # 2026-06-08 Bug 1-C 修复: 24h 漏采回放
             # 1. SELECT 最近 7 天发布 且 content_preview 为空 且 本轮未采集的 URL

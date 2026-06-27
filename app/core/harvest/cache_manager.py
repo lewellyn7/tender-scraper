@@ -15,6 +15,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+import threading
+
 import redis.asyncio as redis
 from redis.asyncio.client import Redis
 
@@ -35,6 +37,7 @@ class RedisManager:
     # 内存回退：Redis 不可用时使用
     _fallback: dict = {}
     _fallback_time: dict = {}
+    _fallback_lock = threading.RLock()  # 保护 _fallback/_fallback_time 并发读写
     _using_fallback: bool = False
 
     @classmethod
@@ -67,12 +70,13 @@ class RedisManager:
             return await client.get(key)
         # 内存回退
         import time
-        expiry = cls._fallback_time.get(key, 0)
-        if expiry > time.time():
-            return cls._fallback.get(key)
-        cls._fallback.pop(key, None)
-        cls._fallback_time.pop(key, None)
-        return None
+        with cls._fallback_lock:
+            expiry = cls._fallback_time.get(key, 0)
+            if expiry > time.time():
+                return cls._fallback.get(key)
+            cls._fallback.pop(key, None)
+            cls._fallback_time.pop(key, None)
+            return None
 
     @classmethod
     async def set(cls, key: str, value: str, ttl: int = 3600) -> bool:
@@ -82,8 +86,9 @@ class RedisManager:
             await client.set(key, value, ex=ttl)
             return True
         import time
-        cls._fallback[key] = value
-        cls._fallback_time[key] = time.time() + ttl
+        with cls._fallback_lock:
+            cls._fallback[key] = value
+            cls._fallback_time[key] = time.time() + ttl
         return True
 
     @classmethod
