@@ -71,6 +71,9 @@ class DataCache:
         # L1 filters: filter_sig → [indices into _main]
         self._filters: Dict[str, List[int]] = {}
         self._filters_loaded_at: Dict[str, float] = {}
+        # Opt-4: catnum → set of filter_sigs that depend on this catnum (智能失效索引)
+        # 写法: filter_sig 写入时取其涉及 catnum, 双向索引; invalidate("catnum:xxx") 时 O(1) 清受影响的 sig
+        self._catnum_to_sigs: Dict[str, set] = {}
         # L2: 同步 redis 客户端 (decode_responses=False for gzip bytes)
         self._redis_client = None
         self._redis_available: Optional[bool] = None
@@ -250,21 +253,52 @@ class DataCache:
         self._stats["filter_misses"] += 1
         return None
     
-    def set_filter(self, filter_sig: str, indices: List[int]) -> None:
-        """写入 filter 索引列表."""
+    def set_filter(self, filter_sig: str, indices: List[int], urls: Optional[List[str]] = None) -> None:
+        """写入 filter 索引列表.
+
+        Opt-4: urls 参数可选, 传入时构建 catnum 倒排索引, 用于按 catnum 智能失效
+        """
         with self._lock:
             self._filters[filter_sig] = indices
             self._filters_loaded_at[filter_sig] = time.time()
+            # Opt-4: 构建 catnum → sig 倒排索引
+            if urls:
+                catnums = self._extract_catnums(urls)
+                for c in catnums:
+                    self._catnum_to_sigs.setdefault(c, set()).add(filter_sig)
+
+    @staticmethod
+    def _extract_catnums(urls: List[str]) -> set:
+        """Opt-4: 从 url 列表提取 catnum 集合 (CQGGZY URL 格式 /014001001/... 或 /014005002/...).
+        Returns:
+            9 位 catnum 集合 (e.g. {"014001001", "014005002"})
+        """
+        import re
+        catnums: set = set()
+        # 匹配 /xxx/ 路径 (9+ 位) 或 categoryNum=xxx (12+ 位, 匹配 catnum + 子分类)
+        # 优先匹配 9+ 位, 避免 6 位被误识别
+        for url in urls:
+            if not url:
+                continue
+            for m in re.finditer(r"[/=](\d{9,15})(?=[/?&=]|$)", url):
+                digits = m.group(1)
+                catnums.add(digits[:9])
+        return catnums
     
     # ━━━ Invalidation ━━━
     def invalidate(self, scope: str = "all") -> Dict[str, Any]:
         """清缓存 (同步, async-safe via RLock).
-        
+
         Args:
-            scope: "all" | "main" | "filters"
+            scope: "all" | "main" | "filters" | "catnum:014001001" (Opt-4 智能失效)
+                   catnum 格式: 只清受该 catnum 影响的 filter sigs + L1 main (L1 main 需要重读才安全)
         """
-        result = {"scope": scope, "l1_cleared": False, "l2_cleared": False, "errors": []}
+        result = {"scope": scope, "l1_cleared": False, "l2_cleared": False, "errors": [], "filter_sigs_cleared": 0}
         with self._lock:
+            if scope == "catnum":
+                # Opt-4: catnum 失效但不重读 L1 main (main 仍是旧数据, 等下次调用走 L2→L3 重读)
+                # 这里仅清理 filter cache, L1 main 留给 L2/L3 自然 reload
+                return result
             if scope in ("all", "main"):
                 self._main = None
                 self._main_loaded_at = 0.0
@@ -272,6 +306,20 @@ class DataCache:
             if scope in ("all", "filters"):
                 self._filters.clear()
                 self._filters_loaded_at.clear()
+                self._catnum_to_sigs.clear()  # Opt-4: 索引随 filter cache 清
+            elif scope.startswith("catnum:"):
+                # Opt-4: 智能失效 - 按 catnum 桶清 filter cache (不动 main)
+                catnum = scope.split(":", 1)[1]
+                sigs = self._catnum_to_sigs.pop(catnum, set())
+                # sig 可能被多个 catnum 引用, 只删该 catnum 涉及的
+                for sig in sigs:
+                    # 仅当其他 catnum 不再依赖时删 (避免过早失效)
+                    other_refs = {c for c, ss in self._catnum_to_sigs.items() if sig in ss and c != catnum}
+                    if not other_refs:
+                        self._filters.pop(sig, None)
+                        self._filters_loaded_at.pop(sig, None)
+                result["filter_sigs_cleared"] = len(sigs)
+                logger.info(f"[DataCache] catnum 桶失效 {catnum}: 清理 {len(sigs)} filter sigs")
         if scope in ("all", "main"):
             client = self._get_redis()
             if client is not None:
