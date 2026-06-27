@@ -599,10 +599,15 @@ class Database(
             from psycopg2.extras import execute_values
 
             # 按 UNIQUE 约束去重 (同 batch 内重复会触发 DO UPDATE conflict)
+            # 2026-06-27 修复：唯一约束已改用 cleaned_winner_name (PR #40), 这里必须同步用 cleaned_winner_name
+            # 不然 ON CONFLICT 找不到匹配的 UNIQUE 约束 → "there is no unique or exclusion constraint matching"
             seen = set()
             values = []
             for r in rows:
-                key = (r.get('source', 'cqggzy'), r['project_id'], r['package_no'], r['winner_name'])
+                # 用 cleaned_winner_name 作为去重 key; 若未传入, 回退 winner_name
+                # (PR #41 已让 bid_parser 写 cleaned_winner_name, 但旧 pipeline 调用可能没传)
+                dedup_key = r.get('cleaned_winner_name') or r.get('winner_name') or ''
+                key = (r.get('source', 'cqggzy'), r['project_id'], r['package_no'], dedup_key)
                 if key in seen:
                     continue
                 seen.add(key)
@@ -614,6 +619,8 @@ class Database(
                     r.get('category', ''),
                     r['package_no'],
                     r['winner_name'],
+                    # 2026-06-27 修复：补传 cleaned_winner_name (PR #40 加的列, PR #41 应用层写, 但 db 层一直没接)
+                    r.get('cleaned_winner_name') or None,
                     r['winner_rank'],
                     r['bid_amount'],
                     r['bid_amount_num'],
@@ -627,14 +634,17 @@ class Database(
             insert_sql = """
                 INSERT INTO bid_results (
                   source, project_id, url, info_type, category, package_no,
-                  winner_name, winner_rank, bid_amount, bid_amount_num,
+                  winner_name, cleaned_winner_name, winner_rank, bid_amount, bid_amount_num,
                   winner_score, publish_date
                 )
                 VALUES %s
-                ON CONFLICT (source, project_id, package_no, winner_name)
+                ON CONFLICT (source, project_id, package_no, cleaned_winner_name)
                 DO UPDATE SET
                   info_type = EXCLUDED.info_type,
                   category = EXCLUDED.category,
+                  winner_name = EXCLUDED.winner_name,
+                  -- 2026-06-27 修复：保护已存在的 cleaned_winner_name, 避免空值覆盖手工填值
+                  cleaned_winner_name = COALESCE(NULLIF(EXCLUDED.cleaned_winner_name, ''), bid_results.cleaned_winner_name),
                   winner_rank = EXCLUDED.winner_rank,
                   bid_amount = EXCLUDED.bid_amount,
                   bid_amount_num = EXCLUDED.bid_amount_num,
