@@ -188,33 +188,51 @@ class DataCache:
             self._l2_write_sync(projects, total)
     
     def _l2_write_sync(self, projects: List[dict], total: int) -> None:
-        """同步 L2 写入 (供 startup / 无 loop 时用). Opt-2: msgpack 序列化, 体积 -45% + 5-10x deserialize."""
+        """同步 L2 写入 (供 startup / 无 loop 时用). Opt-2: msgpack 序列化, 体积 -45% + 5-10x deserialize.
+
+        3 keys 独立 try: detail 写失败不阻塞 main/meta (避免 maxmemory 退出连锁)
+        """
         client = self._get_redis()
         if client is None:
             return
+        sizes = {}
+
+        # 1. 旧 main key (gzip+JSON, 向后兼容)
         try:
-            # 旧 key (向后兼容 gzip+JSON)
             payload = json.dumps({"projects": projects, "total": total}, ensure_ascii=False, default=str)
             compressed = gzip.compress(payload.encode("utf-8"))
             client.setex(REDIS_KEY_MAIN, REDIS_TTL, compressed)
-            # Opt-2: v3 拆分 + msgpack (default=str 处理 datetime 等不可序列化对象)
-            meta_list, detail_dict = self._split_meta_detail(projects)
-            # msgpack 纯 bytes (二进制), 无需 utf-8 转换
-            # raw=False 确保 str 字段以 msgpack bin 类型存储, 避免编码问题
+            sizes["main"] = len(compressed)
+        except Exception as e:
+            logger.warning(f"[DataCache] L2 main 写入失败: {e}")
+
+        # Opt-2: v3 meta key (msgpack, 独立 try)
+        try:
+            meta_list, _ = self._split_meta_detail(projects)
             meta_packed = msgpack.packb(
                 {"projects": meta_list, "total": total}, use_bin_type=True, default=str
             )
+            client.setex(REDIS_KEY_META_V3, REDIS_TTL, meta_packed)
+            sizes["meta"] = len(meta_packed)
+        except Exception as e:
+            logger.warning(f"[DataCache] L2 meta 写入失败: {e}")
+
+        # Opt-1: v3 detail key (msgpack, 独立 try - 内存紧时可降级, 不影响 main/meta)
+        try:
+            _, detail_dict = self._split_meta_detail(projects)
             detail_packed = msgpack.packb(
                 detail_dict, use_bin_type=True, default=str
             )
-            client.setex(REDIS_KEY_META_V3, REDIS_TTL, meta_packed)
             client.setex(REDIS_KEY_DETAIL_V3, REDIS_TTL, detail_packed)
-            logger.info(
-                f"[DataCache] L2 同步写入 ({len(projects)} 条, "
-                f"main={len(compressed):,}B meta={len(meta_packed):,}B detail={len(detail_packed):,}B msgpack)"
-            )
+            sizes["detail"] = len(detail_packed)
         except Exception as e:
-            logger.warning(f"[DataCache] L2 同步写入失败: {e}")
+            logger.warning(f"[DataCache] L2 detail 写入失败 (内存紧可降级): {e}")
+
+        logger.info(
+            f"[DataCache] L2 写入完成 ({len(projects)} 条, "
+            + " ".join(f"{k}={v:,}B" for k, v in sizes.items())
+            + ")"
+        )
 
     @staticmethod
     def _split_meta_detail(projects: List[dict]) -> Tuple[List[dict], Dict[str, dict]]:
@@ -242,35 +260,42 @@ class DataCache:
             logger.warning(f"[DataCache] L2 异步写入失败: {e}")
     
     # ━━━ Filter Cache API ━━━
-    def get_filter(self, filter_sig: str) -> Optional[List[int]]:
-        """获取 filter 索引列表.
-        
+    def get_filter(self, filter_sig: str) -> Optional[List[str]]:
+        """获取 filter url 列表 (Opt-3 重设计: 存 urls 而非 indices, 便于 _main 失效后仍可用)
+
         Args:
             filter_sig: filter signature string (由调用方构造)
-        
+
         Returns:
-            索引列表 (指向 main list), 或 None (未命中)
+            url 列表 (满足 filter 条件的项目 url), 或 None (未命中)
         """
         with self._lock:
             if filter_sig in self._filters:
                 age = time.time() - self._filters_loaded_at[filter_sig]
-                if age < IN_PROCESS_TTL_FILTER and self._main is not None:
+                if age < IN_PROCESS_TTL_FILTER:
                     self._stats["filter_hits"] += 1
-                    return self._filters[filter_sig]
+                    # 返回拷贝避免 caller 原地修改污染 cache
+                    return list(self._filters[filter_sig])
         self._stats["filter_misses"] += 1
         return None
     
-    def set_filter(self, filter_sig: str, indices: List[int], urls: Optional[List[str]] = None) -> None:
-        """写入 filter 索引列表.
+    def set_filter(self, filter_sig: str, urls_or_indices: List) -> None:
+        """写入 filter 缓存 (兼容性: 接受 url 列表 或 indices 列表)
 
-        Opt-4: urls 参数可选, 传入时构建 catnum 倒排索引, 用于按 catnum 智能失效
+        Opt-3 重设计: 存 url 列表而非 indices (便于 _main 失效后仍可用)
+        Opt-4: 自动从 urls 构建 catnum 倒排索引, 用于按 catnum 智能失效
+
+        Args:
+            filter_sig: filter signature
+            urls_or_indices: list of str (urls) 或 list of int (旧 indices 接口, 仅写入不建索引)
         """
         with self._lock:
-            self._filters[filter_sig] = indices
+            # 存入 (始终 list, 转为 str 以统一旧 indices 调用)
+            self._filters[filter_sig] = list(urls_or_indices)
             self._filters_loaded_at[filter_sig] = time.time()
-            # Opt-4: 构建 catnum → sig 倒排索引
-            if urls:
-                catnums = self._extract_catnums(urls)
+            # Opt-4: 仅 urls (str) 构建 catnum 倒排索引; 旧 indices 接口跳过
+            if urls_or_indices and isinstance(urls_or_indices[0], str):
+                catnums = self._extract_catnums(urls_or_indices)
                 for c in catnums:
                     self._catnum_to_sigs.setdefault(c, set()).add(filter_sig)
 
