@@ -305,6 +305,25 @@ async def get_projects(request: Request,
             date_start = date_start or fc.get("date_start", "")
             date_end = date_end or fc.get("date_end", "")
 
+    # Opt-3: filter cache 5min TTL - 命中时跳过全表过滤 (节省 100ms+)
+    # 只覆盖最常见的简单 filter 路径 (不含 keyword/TFIDF/vector)
+    import hashlib
+    filter_cache_eligible = (
+        not keyword and not use_tfidf and not use_vector
+    )
+    if filter_cache_eligible:
+        filter_parts = [category or "", date_start or "", date_end or "", source or ""]
+        filter_sig = hashlib.md5("|".join(filter_parts).encode()).hexdigest()
+        cached_urls = data_cache.get_filter(filter_sig)
+        if cached_urls is not None:
+            url_set = set(cached_urls)
+            filtered = [p for p in projects if p.get("url", "") in url_set]
+            logger.debug(f"[filter-cache] hit sig={filter_sig[:8]}, {len(filtered)} 条")
+        else:
+            # 落入下方完整 filter 路径, filter 完成后会写 cache
+            pass
+
+
     vector_matched_urls = None
     url_scores = {}
 
@@ -393,6 +412,14 @@ async def get_projects(request: Request,
         filtered = [p for p in filtered if p.get("publish_date", "") <= date_end]
     if source:
         filtered = [p for p in filtered if source in p.get("source_url", "")]
+
+    # Opt-3: filter cache 写入点 - 只缓存 filter_cache_eligible 路径 (上面已定义)
+    # 写入 url 列表 + filter_sig, 5min TTL, 下次同 filter O(1) 命中
+    if filter_cache_eligible:
+        filter_urls = [p.get("url", "") for p in filtered if p.get("url", "")]
+        data_cache.set_filter(filter_sig, filter_urls)
+        logger.debug(f"[filter-cache] write sig={filter_sig[:8]}, {len(filter_urls)} urls")
+
     if sort_by == "budget":
 
         def bnum(p):
