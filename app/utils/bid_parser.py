@@ -616,6 +616,9 @@ def parse_bid_results(
             'category': category or '',
             'package_no': r['package_no'],
             'winner_name': r['winner_name'],
+            # 2026-06-27 修复：主入口包装时漏了 cleaned_winner_name (PR #41 加了字段
+            # 但 parse_bid_results 重写 dict 时没复制, 导致回填 101 行 cleaned 全为 NULL)
+            'cleaned_winner_name': r.get('cleaned_winner_name'),
             'winner_rank': r['winner_rank'],
             'bid_amount': r['bid_amount'],
             'bid_amount_num': r['bid_amount_num'],
