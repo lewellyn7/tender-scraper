@@ -57,6 +57,11 @@ SYS_PATH = Path('/app') if Path('/.dockerenv').exists() else Path(__file__).pare
 _tfidf_cache = {"matcher": None, "expiry": 0}
 TFIDF_CACHE_TTL = 300  # 5分钟
 
+# /project/{url} 单条查询缓存 — 避免全表 O(n) 扫描 (P3.7)
+_project_cache: dict = {}
+_project_cache_ttl = 60  # 1 分钟
+_project_cache_lock = asyncio.Lock()
+
 
 def _batch_load_favorites_and_annotations(urls: list, db):
     """批量预加载 favorites 和 annotations，避免 N+1 查询"""
@@ -523,10 +528,20 @@ async def _stream_projects_ndjson(projects, request, db, user_id):
 
 
 @router.get("/project/{project_url}")
-def get_project(request: Request, project_url: str):
+async def get_project(request: Request, project_url: str):
+    """获取单条项目详情 (P3.7: 加 1min cache 避免 O(n) 全表扫描)"""
     db = get_db()
-    projects, _ = _load_projects()
     user_id = get_current_user_id_optional(request)
+
+    # 缓存层: 命中则免全表扫描
+    now_ts = time.time()
+    cache_key = f"{project_url}:{user_id or 'anon'}"
+    async with _project_cache_lock:
+        cached = _project_cache.get(cache_key)
+        if cached and (now_ts - cached["ts"]) < _project_cache_ttl:
+            return JSONResponse(cached["data"])
+
+    projects, _ = _load_projects()
     for p in projects:
         if p.get("url", "") == project_url:
             # P1: shallow copy 避免 DataCache L1 缓存 dict 原地污染 (跨用户泄漏 is_favorite)
@@ -539,6 +554,8 @@ def get_project(request: Request, project_url: str):
             else:
                 p["is_favorite"] = False
                 p["annotation"] = None
+            async with _project_cache_lock:
+                _project_cache[cache_key] = {"ts": now_ts, "data": p}
             return JSONResponse(p)
     return JSONResponse({"error": "not found"}, status_code=404)
 

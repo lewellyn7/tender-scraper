@@ -43,6 +43,19 @@ BLACKLIST_CATNUMS = {'014001015', '014005008'}
 # 标题兜底拦截词
 BLOCKED_TITLE_KEYWORDS = ('招租', '经营权出让')
 
+# categoryNum 前9位 → info_type 映射 (从循环内上提, P3.3)
+_CATEGORY_INFO_TYPE = {
+    '014001019': '招标计划',
+    '014001001': '招标公告',
+    '014001002': '答疑补遗',
+    '014001003': '中标候选人公示',
+    '014001004': '中标结果公示',
+    '014001021': '终止公告',
+    '014005001': '采购公告',
+    '014005002': '变更公告',
+    '014005004': '采购结果公告',
+}
+
 # API endpoint
 API_URL = "https://www.cqggzy.com/api/special-zone/search-engine-page"
 DETAIL_BASE = "https://www.cqggzy.com"
