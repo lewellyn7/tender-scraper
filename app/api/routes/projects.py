@@ -277,7 +277,7 @@ def _get_last_run():
 @router.get("/projects")
 async def get_projects(request: Request,
     page: int = Query(1, ge=1),
-    page_size: int = Query(500, ge=1, le=20000),  # 默认 500: 让全类型视图能见医院采购 (2026-06-26 PR #45)
+    page_size: int = Query(500, ge=1, le=5000),  # 默认 500: 让全类型视图能见医院采购 (2026-06-26 PR #45) / P2: 20000→5000 (DoS 防护)
     keyword: str = Query(""),
     category: str = Query(""),
     date_start: str = Query(""),
@@ -694,19 +694,6 @@ def get_project_groups(request: Request, limit: int = Query(100, le=500), biz_ty
         import traceback; traceback.print_exc()
         logger.error(f"get_project_groups: {e}")
         return JSONResponse({"groups": [], "error": str(e)}, status_code=500)
-
-
-@router.post("/cache/clear")
-def clear_cache_endpoint(request: Request, body: dict = None):
-    """清除项目缓存（供 collector 内部调用）"""
-    import os
-    expected = os.getenv("INTERNAL_CACHE_CLEAR_KEY", "")
-    internal_key = (body or {}).get("internal_key", "") if body else ""
-    if expected and internal_key != expected:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    _cache["projects"] = []
-    _cache["last_load"] = 0
-    return {"success": True}
 
 
 # ━━━ Cache 管理 API (admin only) - 2026-06-26 PR feat/data-cache-v2 ━━━
