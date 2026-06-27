@@ -40,6 +40,11 @@ from loguru import logger
 # ━━━ 配置 ━━━
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 REDIS_KEY_MAIN = "projects:cache:full:v2"
+# Opt-1: L2 拆分 (meta 列表 + detail 字典), 减少 deserialize 内存 + 按需加载详情
+REDIS_KEY_META_V3 = "projects:meta:v3"
+REDIS_KEY_DETAIL_V3 = "projects:detail:v3"
+# 列表端点默认返回的 6 个核心字段 (Opt-1 拆分依据)
+META_FIELDS = ("url", "title", "type", "publish_date", "source_url", "business_type")
 REDIS_PUBSUB_CHANNEL = "data:cache:invalidate"
 
 IN_PROCESS_TTL_MAIN = int(os.getenv("DATA_CACHE_L1_TTL", "3600"))        # 1h
@@ -172,17 +177,46 @@ class DataCache:
             self._l2_write_sync(projects, total)
     
     def _l2_write_sync(self, projects: List[dict], total: int) -> None:
-        """同步 L2 写入 (供 startup / 无 loop 时用)."""
+        """同步 L2 写入 (供 startup / 无 loop 时用). Opt-1: 同时写 meta + detail v3 key."""
         client = self._get_redis()
         if client is None:
             return
         try:
+            # 旧 key (向后兼容 gzip+JSON)
             payload = json.dumps({"projects": projects, "total": total}, ensure_ascii=False, default=str)
             compressed = gzip.compress(payload.encode("utf-8"))
             client.setex(REDIS_KEY_MAIN, REDIS_TTL, compressed)
-            logger.info(f"[DataCache] L2 同步写入 ({len(projects)} 条, 压缩后 {len(compressed):,}B)")
+            # Opt-1: v3 拆分 (后续 commit 切 msgpack, 此 commit 仅拆 key 不换格式)
+            meta_list, detail_dict = self._split_meta_detail(projects)
+            meta_payload = json.dumps({"projects": meta_list, "total": total}, ensure_ascii=False, default=str)
+            meta_compressed = gzip.compress(meta_payload.encode("utf-8"))
+            detail_payload = json.dumps(detail_dict, ensure_ascii=False, default=str)
+            detail_compressed = gzip.compress(detail_payload.encode("utf-8"))
+            client.setex(REDIS_KEY_META_V3, REDIS_TTL, meta_compressed)
+            client.setex(REDIS_KEY_DETAIL_V3, REDIS_TTL, detail_compressed)
+            logger.info(
+                f"[DataCache] L2 同步写入 ({len(projects)} 条, "
+                f"main={len(compressed):,}B meta={len(meta_compressed):,}B detail={len(detail_compressed):,}B)"
+            )
         except Exception as e:
             logger.warning(f"[DataCache] L2 同步写入失败: {e}")
+
+    @staticmethod
+    def _split_meta_detail(projects: List[dict]) -> Tuple[List[dict], Dict[str, dict]]:
+        """Opt-1: 拆分项目为 meta (6 字段) + detail (其余字段).
+        Returns:
+            (meta_list, detail_dict) - detail_dict 以 url 为 key, 便于按 URL 查询
+        """
+        meta_list: List[dict] = []
+        detail_dict: Dict[str, dict] = {}
+        for p in projects:
+            url = p.get("url", "")
+            meta = {k: p.get(k, "") for k in META_FIELDS}
+            meta_list.append(meta)
+            if url:
+                # 保留 url 在 detail 里便于查找 (不重复占空间, url 字段小)
+                detail_dict[url] = {"url": url, **{k: v for k, v in p.items() if k not in META_FIELDS}}
+        return meta_list, detail_dict
     
     async def _l2_write_async(self, projects: List[dict], total: int) -> None:
         """异步 L2 写入 (在 thread pool 跑 gzip + setex, 不阻塞事件循环)."""
@@ -237,7 +271,8 @@ class DataCache:
             client = self._get_redis()
             if client is not None:
                 try:
-                    client.delete(REDIS_KEY_MAIN)
+                    # Opt-1: 同时清 v3 拆分的 meta + detail key
+                    client.delete(REDIS_KEY_MAIN, REDIS_KEY_META_V3, REDIS_KEY_DETAIL_V3)
                     result["l2_cleared"] = True
                 except Exception as e:
                     result["errors"].append(f"l2: {e}")
