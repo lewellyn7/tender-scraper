@@ -66,7 +66,20 @@ def export_excel(
         params.append(f"%{category}%")
 
     where = " AND ".join(conditions)
-    rows = conn.execute(f"SELECT * FROM favorites WHERE {where} LIMIT 10000", params).fetchall()
+    # 修复: Excel 导出之前错查 favorites 表 (copy-paste bug), 现改为 projects_cqggzy
+    rows = conn.execute(f"""
+        SELECT
+            title,
+            COALESCE(NULLIF(tender_type, ''), info_type) AS tender_type,
+            COALESCE(budget, '') AS budget,
+            COALESCE(publish_date::text, '') AS publish_date,
+            COALESCE(NULLIF(source_url, ''), url) AS project_url,
+            COALESCE(info_type, '') AS status
+        FROM projects_cqggzy
+        WHERE {where}
+        ORDER BY publish_date DESC NULLS LAST
+        LIMIT 10000
+    """, params).fetchall()
     row_count = len(rows)
 
     output = io.BytesIO()
