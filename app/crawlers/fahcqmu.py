@@ -193,13 +193,25 @@ class FahcqmuCrawler:
 
     # ─── HTTP ──────────────────────────────────────────────────────
 
-    async def _get(self, url: str) -> str:
-        """GET URL, 返回 HTML 文本. 始终带 visited=1 cookie."""
+    async def _get(self, url: str, retries: int = 3) -> str:
+        """GET URL, 返回 HTML 文本. 始终带 visited=1 cookie.
+        
+        3.3 fix: 添加 retry(3), 网络错误不中断采集.
+        """
         if self._session is None:
             raise RuntimeError("Use 'async with' or pass session")
-        async with self._session.get(url) as resp:
-            resp.raise_for_status()
-            return await resp.text()
+        last_err = None
+        for attempt in range(retries):
+            try:
+                async with self._session.get(url) as resp:
+                    resp.raise_for_status()
+                    return await resp.text()
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                last_err = e
+                if attempt < retries - 1:
+                    await asyncio.sleep(1.0 * (attempt + 1))  # 递增退避
+                    continue
+        raise last_err  # type: ignore[misc]
 
     # ─── 列表解析 ──────────────────────────────────────────────────
 
@@ -329,13 +341,14 @@ class FahcqmuCrawler:
 
         page=1 等同 base URL (无 /p/1 后缀).
         空页: 返回 [] (调用方应停止翻页).
+        3.3 fix: retry(3) 后仍失败才返回 []; 单页失败不中断整类翻页.
         """
         url = build_list_url(cat.url_path, page)
         try:
-            html = await self._get(url)
-        except aiohttp.ClientError as e:
-            logger.warning(f"[{cat.info_type}] page={page} GET {url} failed: {e}")
-            return []
+            html = await self._get(url, retries=3)
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            logger.warning(f"[{cat.info_type}] page={page} GET {url} 3次重试后仍失败: {e}")
+            return []  # 不中止翻页, 跳过此页继续
         # 检测 shell (1.3KB 无 news-content)
         if "<html" in html and len(html) < 3000:
             logger.warning(f"[{cat.info_type}] page={page} got shell (size={len(html)}), cookie 失效?")
@@ -383,11 +396,11 @@ class FahcqmuCrawler:
         return unique
 
     async def fetch_detail(self, item: TenderInfo) -> TenderInfo:
-        """采集单个详情页."""
+        """采集单个详情页. 3.3 fix: 加 retry(3)."""
         try:
-            html = await self._get(item.url)
-        except aiohttp.ClientError as e:
-            logger.warning(f"详情页 GET {item.url} 失败: {e}")
+            html = await self._get(item.url, retries=3)
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            logger.warning(f"详情页 GET {item.url} 3次重试后仍失败: {e}")
             return item
         if len(html) < 3000:
             logger.warning(f"详情页 {item.url} 返回 shell (size={len(html)})")
@@ -424,11 +437,15 @@ class FahcqmuCrawler:
 # ============================================================================
 # DB 写入辅助
 # ============================================================================
+
+# 3.7 fix: 从 tender_to_db_row 内部函数上提到模块级 (避免每次调用重定义)
+def _s(v):
+    """安全处理 None / 空值."""
+    return v if v else ""
+
+
 def tender_to_db_row(item: TenderInfo, org_unit: str) -> Dict:
     """将 TenderInfo 转换为 projects_fahcqmu upsert 字典."""
-    # 安全处理 None / 空
-    def _s(v):
-        return v if v else ""
 
     publish_date = item.publish_date
     if isinstance(publish_date, date) and not isinstance(publish_date, datetime):

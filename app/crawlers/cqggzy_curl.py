@@ -24,6 +24,7 @@ from typing import List, Optional
 import aiohttp
 
 from app.crawlers.base import TenderInfo
+from app.services.keywords_service import KeywordsService
 from app.utils.clean_noise import make_content_preview
 from app.crawlers.cqggzy import CQGGZYCrawlerV2  # 复用 LIST_URLS / 字段映射
 
@@ -45,6 +46,19 @@ BLOCKED_TITLE_KEYWORDS = ('招租', '经营权出让')
 # API endpoint
 API_URL = "https://www.cqggzy.com/api/special-zone/search-engine-page"
 DETAIL_BASE = "https://www.cqggzy.com"
+
+# 3.6 fix: _CATEGORY_INFO_TYPE 从 item 循环内上提到模块级 (与 cqggzy.py 一致)
+_CATEGORY_INFO_TYPE = {
+    '014001019': '招标计划',
+    '014001001': '招标公告',
+    '014001002': '答疑补遗',
+    '014001003': '中标候选人公示',
+    '014001004': '中标结果公示',
+    '014001021': '终止公告',
+    '014005001': '采购公告',
+    '014005002': '变更公告',
+    '014005004': '采购结果公告',
+}
 
 
 def _filter_record(item: dict) -> Optional[dict]:
@@ -154,10 +168,10 @@ class CqggzyCurlCrawler(CQGGZYCrawlerV2):
         else:
             trade_id, category_num = ('014005', '014005001') if 'gov' in category else ('014001', '014001001')
 
-        # API 6 位 prefix 用于列表查询 (PR #33 验证)
-        cat6 = category_num[:6]
+        # 3.2 fix: 传 9 位 category_num (与 Playwright cqggzy.py 路径一致)
+        cat9 = category_num[:9]
         pn = page_num - 1
-        payload = _build_payload(cat6, pn=pn, rn=rn)
+        payload = _build_payload(cat9, pn=pn, rn=rn)
         if sdt:
             payload['sdt'] = sdt
         if edt:
@@ -190,6 +204,9 @@ class CqggzyCurlCrawler(CQGGZYCrawlerV2):
         results = []
         seen_urls = set()
         tender_type = self.INFO_TYPE_MAP.get(category, "政府采购" if category == "gov_purchase" else "工程建设")
+
+        # 3.1 fix: KeywordsService 只实例化一次 (之前每个 item 都 new)
+        _ks = KeywordsService()
 
         for item in items:
             filtered = _filter_record(item)
@@ -245,17 +262,6 @@ class CqggzyCurlCrawler(CQGGZYCrawlerV2):
             m9 = re.search(r'categoryNum=(\d+)', full_url)
             if m9:
                 prefix9 = m9.group(1)[:9]
-                _CATEGORY_INFO_TYPE = {
-                    '014001019': '招标计划',
-                    '014001001': '招标公告',
-                    '014001002': '答疑补遗',
-                    '014001003': '中标候选人公示',
-                    '014001004': '中标结果公示',
-                    '014001021': '终止公告',
-                    '014005001': '采购公告',
-                    '014005002': '变更公告',
-                    '014005004': '采购结果公告',
-                }
                 tender.info_type = _CATEGORY_INFO_TYPE.get(prefix9, '')
 
             # content 提取
@@ -266,11 +272,10 @@ class CqggzyCurlCrawler(CQGGZYCrawlerV2):
                 tender.full_content = clean
                 tender.content_preview = make_content_preview(clean, tender.title)
 
-            # keywords matched
+            # keywords matched (3.1 fix: KeywordsService 已在循环外实例化)
             try:
-                from app.services.keywords_service import KeywordsService
                 _text = tender.title + " " + (raw_content or "")
-                _match = KeywordsService().match(_text)
+                _match = _ks.match(_text)
                 if _match:
                     _inc = _match.get("include", [])
                     _exc = _match.get("exclude", [])

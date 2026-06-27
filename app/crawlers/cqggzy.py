@@ -172,6 +172,9 @@ class CQGGZYCrawlerV2(BaseCrawler):
             results = []
             seen_urls = set()  # 2026-06-08 Bug 1 修复：去重 list API 返回的重复 url
 
+            # 3.1 fix: KeywordsService 只实例化一次 (之前每个 item 都 new)
+            _ks = KeywordsService()
+
             for item in items:
                 title = item.get('title', '').strip()
                 if len(title) < 5:
@@ -244,17 +247,6 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 _m = _re.search(r'categoryNum=(\d+)', full_url)
                 if _m:
                     _prefix9 = _m.group(1)[:9]
-                    _CATEGORY_INFO_TYPE = {
-                        '014001019': '招标计划',
-                        '014001001': '招标公告',
-                        '014001002': '答疑补遗',
-                        '014001003': '中标候选人公示',
-                        '014001004': '中标结果公示',
-                        '014001021': '终止公告',
-                        '014005001': '采购公告',
-                        '014005002': '变更公告',
-                        '014005004': '采购结果公告',
-                    }
                     tender.info_type = _CATEGORY_INFO_TYPE.get(_prefix9, '')
 
                 # 从 content 提取全文
@@ -275,14 +267,10 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 # 保证列表阶段写空不会冲掉详情阶段已回填的值
 
 
-                # 2026-06-12 P0 修复: 列表阶段调 KeywordsService + cp 兜底拼装
-                # 修 2 永久 BUG:
-                #   1. keywords_matched 99.1% 空 (采集器从未调 KeywordsService)
-                #   2. content_preview 86.5% 空 (raw_content 永远空, 留空等详情, 详情可能失败)
+                # 3.1 fix: KeywordsService 在循环外实例化, 循环内复用 _ks
                 try:
-                    from app.services.keywords_service import KeywordsService
                     _text = tender.title + " " + (raw_content or "")
-                    _match = KeywordsService().match(_text)
+                    _match = _ks.match(_text)
                     if _match:
                         _inc = _match.get("include", [])
                         _exc = _match.get("exclude", [])
@@ -797,6 +785,20 @@ class CQGGZYCrawlerV2(BaseCrawler):
         """智能随机等待 (0.3-0.8s)"""
         await asyncio.sleep(0.3 + random.random() * 0.5)
 
+
+# ─── 模块级常量 (避免循环内重复构造) ──────────────────────────────────────────
+# 3.5 fix: _CATEGORY_INFO_TYPE 从 item 循环内上提到模块级
+_CATEGORY_INFO_TYPE = {
+    '014001019': '招标计划',
+    '014001001': '招标公告',
+    '014001002': '答疑补遗',
+    '014001003': '中标候选人公示',
+    '014001004': '中标结果公示',
+    '014001021': '终止公告',
+    '014005001': '采购公告',
+    '014005002': '变更公告',
+    '014005004': '采购结果公告',
+}
 
 # ─── 全局 helper 函数 (模块级) ────────────────────────────────────────────────
 
