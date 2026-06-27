@@ -1,12 +1,13 @@
 """分析统计路由 - 基于 PostgreSQL 项目数据分析"""
 
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from loguru import logger
 import re
 from collections import Counter
 
+from app.api.dependencies import get_current_user
 from app.database.db import get_db
 
 router = APIRouter(prefix="/api/analytics", tags=["分析"])
@@ -123,7 +124,10 @@ def _get_last_run():
     return "-"
 
 
-def get_analytics(days: int = Query(365, ge=1, le=3650)):
+def get_analytics(
+    days: int = Query(365, ge=1, le=3650),
+    current_user: dict = Depends(get_current_user),
+):
     """获取分析数据"""
     rows, cols = _load_projects_pg()
     projects = [_row_to_project(r, cols) for r in rows]
