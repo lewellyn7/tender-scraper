@@ -35,11 +35,17 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+import msgpack
 from loguru import logger
 
 # ━━━ 配置 ━━━
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 REDIS_KEY_MAIN = "projects:cache:full:v2"
+# Opt-1: L2 拆分 (meta 列表 + detail 字典), 减少 deserialize 内存 + 按需加载详情
+REDIS_KEY_META_V3 = "projects:meta:v3"
+REDIS_KEY_DETAIL_V3 = "projects:detail:v3"
+# 列表端点默认返回的 6 个核心字段 (Opt-1 拆分依据)
+META_FIELDS = ("url", "title", "type", "publish_date", "source_url", "business_type")
 REDIS_PUBSUB_CHANNEL = "data:cache:invalidate"
 
 IN_PROCESS_TTL_MAIN = int(os.getenv("DATA_CACHE_L1_TTL", "3600"))        # 1h
@@ -65,6 +71,15 @@ class DataCache:
         # L1 filters: filter_sig → [indices into _main]
         self._filters: Dict[str, List[int]] = {}
         self._filters_loaded_at: Dict[str, float] = {}
+        # Opt-5: page result cache (filter_sig + page + page_size) → result dict
+        # 同页同 filter 命中 0ms 返回, 5min TTL
+        self._pages: Dict[str, Dict[str, Any]] = {}
+        self._pages_loaded_at: Dict[str, float] = {}
+        # Opt-5: page cache 最大条数 (防内存膨胀, LRU 不严格, 仅限条数)
+        self._pages_max = int(os.getenv("DATA_CACHE_PAGES_MAX", "200"))
+        # Opt-4: catnum → set of filter_sigs that depend on this catnum (智能失效索引)
+        # 写法: filter_sig 写入时取其涉及 catnum, 双向索引; invalidate("catnum:xxx") 时 O(1) 清受影响的 sig
+        self._catnum_to_sigs: Dict[str, set] = {}
         # L2: 同步 redis 客户端 (decode_responses=False for gzip bytes)
         self._redis_client = None
         self._redis_available: Optional[bool] = None
@@ -74,6 +89,7 @@ class DataCache:
         self._stats = {
             "l1_hits": 0, "l2_hits": 0, "db_loads": 0,
             "invalidations": 0, "filter_hits": 0, "filter_misses": 0,
+            "page_hits": 0, "page_misses": 0,  # Opt-5
         }
     
     @classmethod
@@ -172,17 +188,68 @@ class DataCache:
             self._l2_write_sync(projects, total)
     
     def _l2_write_sync(self, projects: List[dict], total: int) -> None:
-        """同步 L2 写入 (供 startup / 无 loop 时用)."""
+        """同步 L2 写入 (供 startup / 无 loop 时用). Opt-2: msgpack 序列化, 体积 -45% + 5-10x deserialize.
+
+        3 keys 独立 try: detail 写失败不阻塞 main/meta (避免 maxmemory 退出连锁)
+        """
         client = self._get_redis()
         if client is None:
             return
+        sizes = {}
+
+        # 1. 旧 main key (gzip+JSON, 向后兼容)
         try:
             payload = json.dumps({"projects": projects, "total": total}, ensure_ascii=False, default=str)
             compressed = gzip.compress(payload.encode("utf-8"))
             client.setex(REDIS_KEY_MAIN, REDIS_TTL, compressed)
-            logger.info(f"[DataCache] L2 同步写入 ({len(projects)} 条, 压缩后 {len(compressed):,}B)")
+            sizes["main"] = len(compressed)
         except Exception as e:
-            logger.warning(f"[DataCache] L2 同步写入失败: {e}")
+            logger.warning(f"[DataCache] L2 main 写入失败: {e}")
+
+        # Opt-2: v3 meta key (msgpack, 独立 try)
+        try:
+            meta_list, _ = self._split_meta_detail(projects)
+            meta_packed = msgpack.packb(
+                {"projects": meta_list, "total": total}, use_bin_type=True, default=str
+            )
+            client.setex(REDIS_KEY_META_V3, REDIS_TTL, meta_packed)
+            sizes["meta"] = len(meta_packed)
+        except Exception as e:
+            logger.warning(f"[DataCache] L2 meta 写入失败: {e}")
+
+        # Opt-1: v3 detail key (msgpack, 独立 try - 内存紧时可降级, 不影响 main/meta)
+        try:
+            _, detail_dict = self._split_meta_detail(projects)
+            detail_packed = msgpack.packb(
+                detail_dict, use_bin_type=True, default=str
+            )
+            client.setex(REDIS_KEY_DETAIL_V3, REDIS_TTL, detail_packed)
+            sizes["detail"] = len(detail_packed)
+        except Exception as e:
+            logger.warning(f"[DataCache] L2 detail 写入失败 (内存紧可降级): {e}")
+
+        logger.info(
+            f"[DataCache] L2 写入完成 ({len(projects)} 条, "
+            + " ".join(f"{k}={v:,}B" for k, v in sizes.items())
+            + ")"
+        )
+
+    @staticmethod
+    def _split_meta_detail(projects: List[dict]) -> Tuple[List[dict], Dict[str, dict]]:
+        """Opt-1: 拆分项目为 meta (6 字段) + detail (其余字段).
+        Returns:
+            (meta_list, detail_dict) - detail_dict 以 url 为 key, 便于按 URL 查询
+        """
+        meta_list: List[dict] = []
+        detail_dict: Dict[str, dict] = {}
+        for p in projects:
+            url = p.get("url", "")
+            meta = {k: p.get(k, "") for k in META_FIELDS}
+            meta_list.append(meta)
+            if url:
+                # 保留 url 在 detail 里便于查找 (不重复占空间, url 字段小)
+                detail_dict[url] = {"url": url, **{k: v for k, v in p.items() if k not in META_FIELDS}}
+        return meta_list, detail_dict
     
     async def _l2_write_async(self, projects: List[dict], total: int) -> None:
         """异步 L2 写入 (在 thread pool 跑 gzip + setex, 不阻塞事件循环)."""
@@ -193,51 +260,184 @@ class DataCache:
             logger.warning(f"[DataCache] L2 异步写入失败: {e}")
     
     # ━━━ Filter Cache API ━━━
-    def get_filter(self, filter_sig: str) -> Optional[List[int]]:
-        """获取 filter 索引列表.
-        
+    def get_filter(self, filter_sig: str) -> Optional[List[str]]:
+        """获取 filter url 列表 (Opt-3 重设计: 存 urls 而非 indices, 便于 _main 失效后仍可用)
+
         Args:
             filter_sig: filter signature string (由调用方构造)
-        
+
         Returns:
-            索引列表 (指向 main list), 或 None (未命中)
+            url 列表 (满足 filter 条件的项目 url), 或 None (未命中)
         """
         with self._lock:
             if filter_sig in self._filters:
                 age = time.time() - self._filters_loaded_at[filter_sig]
-                if age < IN_PROCESS_TTL_FILTER and self._main is not None:
+                if age < IN_PROCESS_TTL_FILTER:
                     self._stats["filter_hits"] += 1
-                    return self._filters[filter_sig]
+                    # 返回拷贝避免 caller 原地修改污染 cache
+                    return list(self._filters[filter_sig])
         self._stats["filter_misses"] += 1
         return None
     
-    def set_filter(self, filter_sig: str, indices: List[int]) -> None:
-        """写入 filter 索引列表."""
+    def set_filter(self, filter_sig: str, urls_or_indices: List) -> None:
+        """写入 filter 缓存 (兼容性: 接受 url 列表 或 indices 列表)
+
+        Opt-3 重设计: 存 url 列表而非 indices (便于 _main 失效后仍可用)
+        Opt-4: 自动从 urls 构建 catnum 倒排索引, 用于按 catnum 智能失效
+
+        Args:
+            filter_sig: filter signature
+            urls_or_indices: list of str (urls) 或 list of int (旧 indices 接口, 仅写入不建索引)
+        """
         with self._lock:
-            self._filters[filter_sig] = indices
+            # 存入 (始终 list, 转为 str 以统一旧 indices 调用)
+            self._filters[filter_sig] = list(urls_or_indices)
             self._filters_loaded_at[filter_sig] = time.time()
+            # Opt-4: 仅 urls (str) 构建 catnum 倒排索引; 旧 indices 接口跳过
+            if urls_or_indices and isinstance(urls_or_indices[0], str):
+                catnums = self._extract_catnums(urls_or_indices)
+                for c in catnums:
+                    self._catnum_to_sigs.setdefault(c, set()).add(filter_sig)
+
+    @staticmethod
+    def _extract_catnums(urls: List[str]) -> set:
+        """Opt-4: 从 url 列表提取 catnum 集合 (CQGGZY URL 格式 /014001001/... 或 /014005002/...).
+        Returns:
+            9 位 catnum 集合 (e.g. {"014001001", "014005002"})
+        """
+        import re
+        catnums: set = set()
+        # 匹配 /xxx/ 路径 (9+ 位) 或 categoryNum=xxx (12+ 位, 匹配 catnum + 子分类)
+        # 优先匹配 9+ 位, 避免 6 位被误识别
+        for url in urls:
+            if not url:
+                continue
+            for m in re.finditer(r"[/=](\d{9,15})(?=[/?&=]|$)", url):
+                digits = m.group(1)
+                catnums.add(digits[:9])
+        return catnums
     
+    # ━━━ Page Cache API (Opt-5) ━━━
+    @staticmethod
+    def _make_page_key(filter_sig: str, page: int, page_size: int) -> str:
+        return f"{filter_sig}:{page}:{page_size}"
+
+    def get_page(self, filter_sig: str, page: int, page_size: int) -> Optional[Dict[str, Any]]:
+        """Opt-5: 获取 page-level result cache.
+
+        Args:
+            filter_sig: filter signature (需传入项目层构造的 sig, 不在 page cache 内部重建)
+            page: 页码 (1-based)
+            page_size: 每页大小
+
+        Returns:
+            {"projects": [...], "total": N, "last_run": "..."} 或 None (未命中)
+        """
+        key = self._make_page_key(filter_sig, page, page_size)
+        with self._lock:
+            entry = self._pages.get(key)
+            if entry is None:
+                self._stats["page_misses"] += 1
+                return None
+            age = time.time() - self._pages_loaded_at.get(key, 0)
+            if age >= IN_PROCESS_TTL_FILTER:  # 复用 5min TTL
+                self._pages.pop(key, None)
+                self._pages_loaded_at.pop(key, None)
+                self._stats["page_misses"] += 1
+                return None
+            self._stats["page_hits"] += 1
+            # 返回拷贝避免 caller 原地修改污染 cache
+            return {
+                "projects": list(entry["projects"]),
+                "total": entry["total"],
+                "last_run": entry.get("last_run", "-"),
+            }
+
+    def set_page(
+        self, filter_sig: str, page: int, page_size: int,
+        result: Dict[str, Any]
+    ) -> None:
+        """Opt-5: 写入 page-level result cache."""
+        key = self._make_page_key(filter_sig, page, page_size)
+        with self._lock:
+            # 上限防护: 超限后淘汰最早写入 (简单 FIFO)
+            if key not in self._pages and len(self._pages) >= self._pages_max:
+                if self._pages_loaded_at:
+                    oldest = min(self._pages_loaded_at, key=self._pages_loaded_at.get)
+                    self._pages.pop(oldest, None)
+                    self._pages_loaded_at.pop(oldest, None)
+            self._pages[key] = {
+                "projects": list(result["projects"]),
+                "total": result["total"],
+                "last_run": result.get("last_run", "-"),
+            }
+            self._pages_loaded_at[key] = time.time()
+
     # ━━━ Invalidation ━━━
     def invalidate(self, scope: str = "all") -> Dict[str, Any]:
         """清缓存 (同步, async-safe via RLock).
-        
+
         Args:
-            scope: "all" | "main" | "filters"
+            scope: "all" | "main" | "filters" | "pages" | "catnum:014001001" (Opt-4 智能失效)
+                   catnum 格式: 只清受该 catnum 影响的 filter sigs + L1 main (L1 main 需要重读才安全)
         """
-        result = {"scope": scope, "l1_cleared": False, "l2_cleared": False, "errors": []}
+        result = {"scope": scope, "l1_cleared": False, "l2_cleared": False, "errors": [], "filter_sigs_cleared": 0, "pages_cleared": 0}
         with self._lock:
+            if scope == "catnum":
+                # Opt-4: catnum 失效但不重读 L1 main (main 仍是旧数据, 等下次调用走 L2→L3 重读)
+                # 这里仅清理 filter cache, L1 main 留给 L2/L3 自然 reload
+                return result
             if scope in ("all", "main"):
                 self._main = None
                 self._main_loaded_at = 0.0
                 result["l1_cleared"] = True
+                # Opt-5: main 失效连带清 page cache (底层数据变了)
+                if self._pages:
+                    result["pages_cleared"] = len(self._pages)
+                    self._pages.clear()
+                    self._pages_loaded_at.clear()
             if scope in ("all", "filters"):
                 self._filters.clear()
                 self._filters_loaded_at.clear()
+                self._catnum_to_sigs.clear()  # Opt-4: 索引随 filter cache 清
+                # Opt-5: filters 失效连带清 page cache
+                if self._pages:
+                    result["pages_cleared"] += len(self._pages)
+                    self._pages.clear()
+                    self._pages_loaded_at.clear()
+            elif scope == "pages":
+                # Opt-5: 单独清 page cache
+                result["pages_cleared"] = len(self._pages)
+                self._pages.clear()
+                self._pages_loaded_at.clear()
+            elif scope.startswith("catnum:"):
+                # Opt-4: 智能失效 - 按 catnum 桶清 filter cache (不动 main)
+                catnum = scope.split(":", 1)[1]
+                sigs = self._catnum_to_sigs.pop(catnum, set())
+                # sig 可能被多个 catnum 引用, 只删该 catnum 涉及的
+                for sig in sigs:
+                    # 仅当其他 catnum 不再依赖时删 (避免过早失效)
+                    other_refs = {c for c, ss in self._catnum_to_sigs.items() if sig in ss and c != catnum}
+                    if not other_refs:
+                        self._filters.pop(sig, None)
+                        self._filters_loaded_at.pop(sig, None)
+                # Opt-5: 同步清受 catnum 影响的 page cache
+                page_keys_to_del = [k for k in self._pages if k.split(":")[0] in sigs]
+                for k in page_keys_to_del:
+                    self._pages.pop(k, None)
+                    self._pages_loaded_at.pop(k, None)
+                result["filter_sigs_cleared"] = len(sigs)
+                result["pages_cleared"] = len(page_keys_to_del)
+                logger.info(
+                    f"[DataCache] catnum 桶失效 {catnum}: 清理 {len(sigs)} filter sigs, "
+                    f"{len(page_keys_to_del)} page entries"
+                )
         if scope in ("all", "main"):
             client = self._get_redis()
             if client is not None:
                 try:
-                    client.delete(REDIS_KEY_MAIN)
+                    # Opt-1: 同时清 v3 拆分的 meta + detail key
+                    client.delete(REDIS_KEY_MAIN, REDIS_KEY_META_V3, REDIS_KEY_DETAIL_V3)
                     result["l2_cleared"] = True
                 except Exception as e:
                     result["errors"].append(f"l2: {e}")
@@ -352,6 +552,7 @@ class DataCache:
                 if self._main_loaded_at > 0 else -1
             )
             filter_count = len(self._filters)
+            page_count = len(self._pages)
         return {
             "l1": {
                 "alive": l1_alive,
@@ -359,6 +560,7 @@ class DataCache:
                 "ttl_seconds": IN_PROCESS_TTL_MAIN,
                 "count": l1_count,
                 "filters_cached": filter_count,
+                "pages_cached": page_count,  # Opt-5
             },
             "l2": {
                 "available": self._redis_available,
@@ -375,6 +577,7 @@ class DataCache:
             self._stats = {
                 "l1_hits": 0, "l2_hits": 0, "db_loads": 0,
                 "invalidations": 0, "filter_hits": 0, "filter_misses": 0,
+                "page_hits": 0, "page_misses": 0,
             }
 
 

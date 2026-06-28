@@ -91,6 +91,55 @@ def _publish_result(result: dict):
         logger.warning(f"[Collector] 结果发布失败: {e}")
 
 
+def _query_recent_catnums(minutes: int = 5) -> list:
+    """Opt-4: 查询最近 N 分钟新增项目的 catnum 列表 (智能失效用)
+
+    返回 9 位 catnum 集合 (去重), e.g. ["014001001", "014005002"]
+    失败返回空 list (调用方走 main 全清兜底)
+    """
+    try:
+        from app.database import get_db
+        from datetime import datetime, timedelta
+        db = get_db()
+        conn = db._get_conn()
+        # 最近 N 分钟 scraped_at (采集时间, 不是 publish_date)
+        # 使用 projects_cqggzy.created_at (采集入库时间)
+        threshold = datetime.now() - timedelta(minutes=minutes)
+        placeholder = "%s" if getattr(db, 'USE_PG', False) else "?"
+        rows = conn.execute(
+            f"SELECT DISTINCT url FROM projects_cqggzy "
+            f"WHERE created_at > {placeholder} AND url IS NOT NULL LIMIT 500",
+            (threshold,)
+        ).fetchall()
+        urls = [row[0] if not isinstance(row, dict) else row.get("url", "") for row in rows]
+        if urls:
+            from app.core.harvest.data_cache import DataCache
+            return sorted(DataCache._extract_catnums(urls))
+        return []
+    except Exception as e:
+        logger.warning(f"[Collector] 查询最近 catnum 失败: {e}")
+        return []
+
+
+def _publish_invalidate_smart():
+    """Opt-4: 智能失效 - 按 catnum 桶发失效消息, 没有受影响 catnum 时兑底全清 main"""
+    try:
+        from app.core.harvest.data_cache import DataCache
+        affected_catnums = _query_recent_catnums(minutes=5)
+        if affected_catnums:
+            for c in affected_catnums:
+                DataCache.publish_invalidate(f"catnum:{c}")
+            logger.info(
+                f"[Collector] 已按 catnum 失效 {len(affected_catnums)} 个: "
+                f"{affected_catnums[:5]}{'...' if len(affected_catnums) > 5 else ''}"
+            )
+        else:
+            DataCache.publish_invalidate("main")
+            logger.info("[Collector] 已发布 DataCache invalidate(main) (兑底)")
+    except Exception as e:
+        logger.warning(f"[Collector] publish_invalidate 失败: {e}")
+
+
 class CollectorWorker:
     """Redis Pub/Sub 采集 Worker"""
 
@@ -129,12 +178,8 @@ class CollectorWorker:
                     result = await loop.run_in_executor(None, lambda: _run_collection_sync(source=source))
                     _publish_result(result)
                     # 2026-06-26: PR feat/data-cache-v2 - 通知 web 容器 DataCache 失效
-                    try:
-                        from app.core.harvest.data_cache import DataCache
-                        DataCache.publish_invalidate("main")
-                        logger.info(f"[Collector] 已发布 DataCache invalidate(main)")
-                    except Exception as e:
-                        logger.warning(f"[Collector] publish_invalidate 失败: {e}")
+                    # Opt-4: 智能失效 (按 catnum 桶), 兑底走 main 全清
+                    _publish_invalidate_smart()
                     # P1-2: 更新 health state
                     from app.workers.collector_health import CollectorState
                     status = result.get("status", "ok") if isinstance(result, dict) else "ok"

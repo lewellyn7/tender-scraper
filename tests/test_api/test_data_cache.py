@@ -24,6 +24,12 @@ from unittest.mock import patch, MagicMock, AsyncMock
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 
+# Opt-1: 从 data_cache 导入新 key 常量供测试使用
+from app.core.harvest.data_cache import (
+    REDIS_KEY_MAIN, REDIS_KEY_META_V3, REDIS_KEY_DETAIL_V3, META_FIELDS,
+)
+
+
 def _make_sample(n: int = 5) -> list:
     return [{"url": f"http://x.com/{i}", "title": f"项目{i}"} for i in range(n)]
 
@@ -118,28 +124,36 @@ class TestDataCacheL2(unittest.TestCase):
         self.assertEqual(source, "l2")
     
     def test_set_main_l2_write_gzip(self):
-        """set_main → L2 setex (gzip bytes)"""
+        """set_main → L2 setex (gzip bytes) — Opt-1 后同时写 main+meta+detail 3 keys"""
         mock_redis = MagicMock()
         mock_redis.ping.return_value = True
         mock_redis.setex = MagicMock()
         self.cache._redis_client = mock_redis
         self.cache._redis_available = True
-        
+
         # 用 _l2_write_sync 直接测 (避免异步依赖)
         self.cache._l2_write_sync(_make_sample(1), 1)
-        
+
         self.assertTrue(mock_redis.setex.called)
-        call_args = mock_redis.setex.call_args
-        # setex(key, ttl, value)
-        self.assertIn("projects:cache", call_args[0][0])
-        self.assertGreater(call_args[0][1], 0)
-        # value 应是 gzip bytes
-        value = call_args[0][2]
-        self.assertIsInstance(value, bytes)
-        # 解压可还原
-        decompressed = gzip.decompress(value).decode("utf-8")
-        payload = json.loads(decompressed)
-        self.assertEqual(payload["total"], 1)
+        # Opt-1: 现在会写 3 个 key (main gzip+json, meta msgpack, detail msgpack)
+        # call.args[0] 是第 1 个位置参数 (key), 不是 key[0]
+        keys = [c.args[0] for c in mock_redis.setex.call_args_list]
+        # 旧 main key 应仍写 (向后兼容)
+        self.assertIn(REDIS_KEY_MAIN, keys)
+        # v3 keys
+        self.assertIn(REDIS_KEY_META_V3, keys)
+        self.assertIn(REDIS_KEY_DETAIL_V3, keys)
+        # 旧 main key 应是 gzip bytes
+        for call in mock_redis.setex.call_args_list:
+            if call.args[0] == REDIS_KEY_MAIN:
+                value = call.args[2]
+                self.assertIsInstance(value, bytes)
+                # 解压可还原
+                decompressed = gzip.decompress(value).decode("utf-8")
+                payload = json.loads(decompressed)
+                self.assertEqual(payload["total"], 1)
+                return
+        self.fail(f"main key {REDIS_KEY_MAIN} not found in setex calls: {keys}")
 
 
 class TestDataCacheFilter(unittest.TestCase):

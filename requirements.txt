@@ -49,3 +49,6 @@ aiohttp==3.9.5
 anthropic==0.21.0
 
 pypdf==5.1.0
+
+# Opt-2: msgpack L2 序列化 (gzip+JSON 替代, -45% 体积 + 5-10x deserialize)
+msgpack>=1.0.5

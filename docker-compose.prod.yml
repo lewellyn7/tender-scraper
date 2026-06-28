@@ -205,10 +205,11 @@ services:
     restart: unless-stopped
     ports:
       - "6380:6379"           # 使用 6380 避免与外部 Redis 6379 冲突
-    command: valkey-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: valkey-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --activedefrag yes --requirepass "${REDIS_PASSWORD:-CHANGE_ME_redis_password}"
     volumes:
       - redis_data:/data
     networks:
+      - tender-net
       - scraper-net
     deploy:
       resources:
@@ -287,6 +288,9 @@ services:
 networks:
   scraper-net:
     driver: bridge
+  tender-net:
+    external: true
+    name: tender-scraper_tender-net
 
 volumes:
   prometheus_data:
