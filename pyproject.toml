@@ -46,6 +46,7 @@ ignore = [
     "F821",   # undefined name (forward references in type hints)
     "F841",   # unused local variable (minor)
     "E722",   # bare except (legacy code)
+    "N802",   # function name casing (Chinese test names in legacy tests)
     "N999",   # invalid module name (webhook script)
     "N805",   # first argument naming (legacy async code)
     "E712",   # equality comparison to True/False (test assertions)
