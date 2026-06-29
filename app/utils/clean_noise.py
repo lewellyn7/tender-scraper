@@ -185,13 +185,45 @@ def make_content_preview(full_content: str, title: str, max_len: int = 500) -> s
     1. clean_text 剥 UI 噪点 (面包屑/按钮等)
     2. strip_title_dup 去掉 title 重复
     3. 截断到 max_len + '...'
+    4. 2026-06-29 新增: 兑底提取附件名+日期 (答疑补遗类)
     """
     if not full_content:
         return ''
     cleaned = clean_text(full_content)
     cleaned = strip_title_dup(cleaned, title)
     if not cleaned:
-        return ''
+        # 兑底: 从 fc 提取附件名 + 日期 (答疑补遗等附件类内容)
+        cleaned = _fallback_extract_metadata(full_content)
+        if not cleaned:
+            return ''
     if len(cleaned) > max_len:
         return cleaned[:max_len] + '...'
     return cleaned
+
+
+def _fallback_extract_metadata(fc: str) -> str:
+    """2026-06-29 新增: 从 fc 提取附件名 + 日期 (main make_content_preview 兑底)
+
+    适用于答疑补遗/补遗公告等以附件为主的项目 - 主要内容在附件中, 页面仅含标题+日期+附件名.
+    返回格式: "包含 N 个版本 (YYYY-MM-DD~YYYY-MM-DD) | 附件: name1.pdf, name2.pdf"
+    """
+    if not fc:
+        return ''
+    # 提取附件名 (.pdf/.doc/.docx/.rar/.zip/.xlsx/.xls/.csv)
+    files = re.findall(r'[\w一-鿿（）()【】\[\]_-]+\.(?:pdf|doc|docx|rar|zip|xlsx|xls|csv|7z|tar|gz)\b', fc)
+    # 提取日期
+    dates = re.findall(r'\d{4}-\d{2}-\d{2}', fc)
+    parts = []
+    if dates:
+        unique_dates = sorted(set(dates))
+        if len(unique_dates) == 1:
+            parts.append(f"包含 {len(dates)} 个版本 ({unique_dates[0]})")
+        else:
+            parts.append(f"包含 {len(dates)} 个版本 ({unique_dates[0]}~{unique_dates[-1]})")
+    if files:
+        seen = []
+        for f in files:
+            if f not in seen:
+                seen.append(f)
+        parts.append(f"附件: {', '.join(seen[:3])}" + (" 等" if len(seen) > 3 else ""))
+    return ' | '.join(parts)
