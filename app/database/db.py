@@ -14,6 +14,7 @@ import re
 from contextlib import contextmanager
 import threading
 from pathlib import Path
+from typing import Dict, List, Optional
 
 from loguru import logger
 
@@ -588,6 +589,114 @@ class Database(
             self._sync_projects_link(rows_original, source_table="projects_fahcqmu")
         except Exception as e:
             logger.warning(f"_sync_projects_link (fahcqmu) failed: {e}")
+
+    # ━━━ Delta Sync (DataCache v4 增量加载) ━━━
+    def delta_load_since(self, since_ts: Optional[str] = None, limit_per_table: int = 5000) -> List[dict]:
+        """DataCache v4 增量加载: 读取 updated_at > since_ts 的所有项目 (跨 3 表).
+
+        Args:
+            since_ts: ISO 格式时间戳字符串 (e.g. "2026-06-29 11:00:00").
+                     None 或 "" 表示全表加载 (启动首次加载用).
+            limit_per_table: 每张表最大返回行数 (防爆, 默认 5000).
+
+        Returns:
+            List[dict]: 项目字典列表, 字段与 _load_projects row_to_project 一致.
+                       按 url 去重 (URL 是 3 表唯一键, 但 union 可能产生重复, 用 dict 兜底).
+
+        性能:
+            - 有 since_ts: 走 idx_*_updated_at 索引 (~5ms, 通常 <100 行)
+            - since_ts=None: 全表 seq scan (~2.9s, 仅启动时)
+
+        应用场景:
+            1. DataCache v4 get_main() L1 miss/TTL 失效时, 取代全表 108k 加载
+            2. catnum 失效触发增量同步时
+        """
+        # where 条件: 有 since_ts 时按 updated_at 过滤
+        if since_ts:
+            where_clause = "WHERE updated_at > %s"
+            params = (since_ts,)
+            limit_clause = f"LIMIT {int(limit_per_table)}"
+        else:
+            # 全量加载 (cold start): 不加 LIMIT (各表最大 ~107k)
+            where_clause = ""
+            params = None
+            limit_clause = ""
+
+        results: Dict[str, dict] = {}  # url -> dict (去重)
+        tables = ("projects_cqggzy", "projects_ccgp", "projects_fahcqmu")
+
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            for tbl in tables:
+                sql = f"SELECT * FROM {tbl} {where_clause} ORDER BY updated_at ASC {limit_clause}"
+                cur.execute(sql, params)
+                rows = cur.fetchall()
+                cols = [d[0] for d in cur.description] if hasattr(cur, "description") and cur.description else None
+                if not cols:
+                    continue
+                for row in rows:
+                    if hasattr(row, "keys"):
+                        d = dict(row)
+                    else:
+                        d = dict(zip(cols, row))
+                    # 复用 _load_projects row_to_project 字段映射
+                    p = self._delta_row_to_project(d, tbl)
+                    url = p.get("url")
+                    if url and url not in results:
+                        results[url] = p
+            cur.close()
+        except Exception as e:
+            logger.warning(f"[delta_load_since] DB 错误: {e}")
+
+        out = list(results.values())
+        logger.info(
+            f"[delta_load_since] since={since_ts or 'FULL'} tables={tables} "
+            f"返回 {len(out)} 条 (limit_per_table={limit_per_table if since_ts else 'NONE'})"
+        )
+        return out
+
+    def _delta_row_to_project(self, d: dict, tbl: str) -> dict:
+        """将单行映射为标准 project dict (与 projects.py row_to_project 一致).
+
+        注意: 这里故意不复用 projects.py 的 row_to_project, 因为那是 local 闭包.
+              保持独立, 未来如果 schema 变动可以快速同步.
+        """
+        # updated_at 是字符串 (e.g. "2026-06-29 11:00:00.123456")
+        # delta_sync 用它做时间戳比较, 必须保留在 dict 里
+        updated_at = d.get("updated_at")
+        return {
+            "title": d.get("title", ""),
+            "type": d.get("category", ""),
+            "publish_date": str(d.get("publish_date", "")) if d.get("publish_date") else "",
+            "publish_date_raw": d.get("publish_date_raw", ""),
+            "url": d.get("url", ""),
+            "source_url": d.get("source_url") or d.get("url", ""),
+            "content_preview": (d.get("content_preview") or "").replace("\n", " "),
+            "budget": d.get("budget", ""),
+            "deadline": str(d.get("deadline", "")) if d.get("deadline") else "",
+            "region": d.get("region", ""),
+            "tender_type": d.get("tender_type", ""),
+            "keywords_matched": d.get("keywords_matched", ""),
+            "contact_name": d.get("contact_name", ""),
+            "contact_phone": d.get("contact_phone", ""),
+            "contact_email": d.get("contact_email", ""),
+            "attachments_count": d.get("attachments_count", 0) or 0,
+            "attachments": d.get("attachments", "[]"),
+            "scraped_at": str(d.get("created_at", "")) if d.get("created_at") else "",
+            "scraped_by": d.get("scraped_by", ""),
+            "business_type": d.get("business_type", ""),
+            "info_type": d.get("info_type", ""),
+            "project_no": d.get("project_no", ""),
+            "project_overview": (d.get("project_overview") or "").replace("\n", " "),
+            "bidder_requirements": d.get("bidder_requirements", ""),
+            "submission_deadline": d.get("submission_deadline", ""),
+            "bid_amount": d.get("bid_amount", ""),
+            "full_content": d.get("full_content", "") or "",
+            "tender_content": d.get("tender_content", "") or "",
+            "_table": tbl,  # delta sync 内部用, 不暴露给 API
+            "_updated_at": str(updated_at) if updated_at else "",  # delta sync 时间戳
+        }
 
 
     def upsert_bid_results(self, rows: list) -> int:
