@@ -65,9 +65,14 @@ class DataCache:
         # L1: 线程安全 (RLock 支持重入)
         self._lock = threading.RLock()
         self._redis_lock = threading.Lock()  # 保护 _get_redis 延迟初始化
-        # L1 main
-        self._main: Optional[List[dict]] = None
+        # L1 main: dict (url -> project) for O(1) delta merge
+        self._main: Optional[Dict[str, dict]] = None
         self._main_loaded_at: float = 0.0
+        # v4 delta sync: 记录上次同步时间戳, get_main() 增量加载依据
+        self._last_main_sync_at: float = 0.0
+        # v4 delta sync: catnum invalidate 后, 下次 get_main 触发增量同步
+        # 不立即同步 (避免 pub/sub 回调阻塞 + 跳过空仓场景)
+        self._pending_delta: bool = False
         # L1 filters: filter_sig → [indices into _main]
         self._filters: Dict[str, List[int]] = {}
         self._filters_loaded_at: Dict[str, float] = {}
@@ -87,7 +92,7 @@ class DataCache:
         self._pubsub_task: Optional[asyncio.Task] = None
         # 统计
         self._stats = {
-            "l1_hits": 0, "l2_hits": 0, "db_loads": 0,
+            "l1_hits": 0, "l2_hits": 0, "db_loads": 0, "delta_loads": 0,
             "invalidations": 0, "filter_hits": 0, "filter_misses": 0,
             "page_hits": 0, "page_misses": 0,  # Opt-5
         }
@@ -127,21 +132,40 @@ class DataCache:
     # ━━━ Main Cache API ━━━
     def get_main(self) -> Tuple[Optional[List[dict]], int, str]:
         """获取主项目列表 (108k items). 同步 (FastAPI 兼容).
-        
+
+        v4 增量同步 (delta sync):
+        - L1 alive + 无 pending delta: 直接返回 (0ms)
+        - L1 alive + pending delta (catnum 失效触发): 增量同步 后返回
+        - L1 TTL 失效 / 冷启: L2 → L3 fallback (可能走增量)
+
         Returns:
-            (projects, total, source) - source ∈ {"l1", "l2", "miss"}
+            (projects, total, source) - source ∈ {"l1", "l1+delta", "l2", "l2+delta", "db_full", "db_delta", "miss"}
         """
         now = time.time()
-        # L1
+
+        # 1. L1 alive 检查
         with self._lock:
-            if (
+            l1_alive = (
                 self._main is not None
                 and (now - self._main_loaded_at) < IN_PROCESS_TTL_MAIN
-            ):
+            )
+
+            if l1_alive:
+                # a. pending delta (catnum invalidate 触发) → 同步增量
+                if self._pending_delta:
+                    merged, src = self._do_delta_sync_locked(now)
+                    if merged is not None:
+                        return list(merged.values()), len(merged), src
+                    # delta 同步失败 (DB 错误), 降级返现有
+                    logger.warning("[DataCache] delta sync 失败, 返现有 L1 (可能略过期)")
+                    self._stats["l1_hits"] += 1
+                    return list(self._main.values()), len(self._main), "l1"
+
+                # b. fast path: L1 hit
                 self._stats["l1_hits"] += 1
-                return self._main, len(self._main), "l1"
-        
-        # L2
+                return list(self._main.values()), len(self._main), "l1"
+
+        # 2. L1 未命中 (TTL 失效 或 冷启) → L2 fallback
         client = self._get_redis()
         if client is not None:
             try:
@@ -156,25 +180,121 @@ class DataCache:
                     payload = json.loads(decompressed)
                     projects = payload.get("projects", [])
                     with self._lock:
-                        self._main = projects
+                        # L2 → L1 (转 dict 以便后续 delta merge)
+                        self._main = {p.get("url"): p for p in projects if p.get("url")}
                         self._main_loaded_at = now
                         # main 变了, filter 索引失效
                         self._filters.clear()
                         self._filters_loaded_at.clear()
+                        self._pending_delta = False  # L2 加载后 不需要 delta (否则会重复同步)
                     self._stats["l2_hits"] += 1
-                    logger.info(f"[DataCache] L2 Redis 命中 main ({len(projects)} 条)")
-                    return projects, len(projects), "l2"
+                    logger.info(f"[DataCache] L2 Redis 命中 main ({len(self._main)} 条)")
+
+                    # v4: L2 加载后 立即增量同步 补足 (L2 可能过期)
+                    merged, src = self._do_delta_sync_locked(now)
+                    if merged is not None:
+                        return list(merged.values()), len(merged), src
+                    return list(self._main.values()), len(self._main), "l2"
             except Exception as e:
                 logger.warning(f"[DataCache] Redis 读取失败: {e}")
-        
-        return None, 0, "miss"
+
+        # 3. L3 cold start / all caches miss → 全表加载
+        try:
+            from app.database.db import Database
+            db = Database()
+            rows = db.delta_load_since()  # since=None → 全表
+            with self._lock:
+                self._main = {p.get("url"): p for p in rows if p.get("url")}
+                self._main_loaded_at = now
+                self._last_main_sync_at = now
+                self._pending_delta = False
+                # 冷启时 清 filter/page
+                self._filters.clear()
+                self._filters_loaded_at.clear()
+                self._pages.clear()
+                self._pages_loaded_at.clear()
+            self._stats["db_loads"] += 1
+            logger.info(f"[DataCache] L3 cold start 加载 ({len(self._main)} 条)")
+            return list(self._main.values()), len(self._main), "db_full"
+        except Exception as e:
+            logger.warning(f"[DataCache] L3 cold start 加载失败: {e}")
+            return None, 0, "miss"
+
+    def _do_delta_sync_locked(self, now: float) -> Tuple[Optional[Dict[str, dict]], Optional[str]]:
+        """v4 增量同步核心: 在持锁状态下执行 delta_load_since + merge.
+
+        调用者必须已持有 self._lock。
+        Returns:
+            (merged_dict, source_str) - source_str ∈ {"l1+delta", "l2+delta", "db_delta"}
+        """
+        if self._main is None:
+            # 主仓未初始化, 不能增量 merge → 返 None 让上层走 L2/L3
+            return None, None
+        try:
+            from app.database.db import Database
+            db = Database()
+            if self._last_main_sync_at > 0:
+                # 增量: since last sync
+                from datetime import datetime, timezone
+                dt = datetime.fromtimestamp(self._last_main_sync_at, tz=timezone.utc)
+                since_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                delta = db.delta_load_since(since_str, limit_per_table=5000)
+            else:
+                # 无记录 last sync → 保守全表同步 (首次 delta)
+                delta = db.delta_load_since()
+            if not delta:
+                # 无变化 → 仅重置 _pending_delta + 更新 sync_at
+                self._pending_delta = False
+                self._last_main_sync_at = now
+                self._main_loaded_at = now
+                return self._main, "l1+delta"
+
+            # merge: 按 url 覆盖 或 新增
+            new_count = 0
+            update_count = 0
+            for p in delta:
+                url = p.get("url")
+                if not url:
+                    continue
+                if url in self._main:
+                    update_count += 1
+                else:
+                    new_count += 1
+                self._main[url] = p
+
+            self._pending_delta = False
+            self._last_main_sync_at = now
+            self._main_loaded_at = now
+            self._stats["delta_loads"] += 1
+            logger.info(
+                f"[DataCache] delta sync +{new_count} ~{update_count} (total={len(self._main)})"
+            )
+            return self._main, "l1+delta"
+        except Exception as e:
+            logger.warning(f"[DataCache] delta sync 失败: {e}")
+            return None, None
+
+    @staticmethod
+    def _format_unix_to_pg(unix_ts: float) -> str:
+        """unix timestamp → PG timestamp string (UTC wall clock).
+
+        与 projects_cqggzy.updated_at (timestamp without tz, 记录为 UTC wall clock) 对齐。
+        """
+        from datetime import datetime, timezone
+        dt = datetime.fromtimestamp(unix_ts, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
     
     def set_main(self, projects: List[dict], total: int) -> None:
-        """写入 L1 (同步) + L2 (异步后台)."""
+        """写入 L1 (同步) + L2 (异步后台).
+
+        v4: 接受 list (兼容旧 caller), 转 dict 存储 便于 delta merge.
+        """
         now = time.time()
         with self._lock:
-            self._main = projects
+            self._main = {p.get("url"): p for p in projects if p.get("url")}
             self._main_loaded_at = now
+            self._last_main_sync_at = now  # v4: 调用者刚同步过, 记录时间
+            self._pending_delta = False
             # main 变了, filter 索引失效
             self._filters.clear()
             self._filters_loaded_at.clear()
@@ -380,16 +500,22 @@ class DataCache:
         Args:
             scope: "all" | "main" | "filters" | "pages" | "catnum:014001001" (Opt-4 智能失效)
                    catnum 格式: 只清受该 catnum 影响的 filter sigs + L1 main (L1 main 需要重读才安全)
+
+        v4 delta sync:
+            catnum 失效不再只是"标记 main 过期", 而是 标记 _pending_delta = True。
+            下次 get_main() 会自动 delta sync (只读 updated_at > last_sync 的行, 合并到 L1)。
+            避免了"1h 窗口漏新数据"的正确性 bug (PR #64 Opt-4 遗留)。
         """
-        result = {"scope": scope, "l1_cleared": False, "l2_cleared": False, "errors": [], "filter_sigs_cleared": 0, "pages_cleared": 0}
+        result = {"scope": scope, "l1_cleared": False, "l2_cleared": False, "errors": [], "filter_sigs_cleared": 0, "pages_cleared": 0, "delta_pending": False}
         with self._lock:
             if scope == "catnum":
-                # Opt-4: catnum 失效但不重读 L1 main (main 仍是旧数据, 等下次调用走 L2→L3 重读)
-                # 这里仅清理 filter cache, L1 main 留给 L2/L3 自然 reload
+                # v4 已废弃该 scope, 走 catnum:xxx 分支
                 return result
             if scope in ("all", "main"):
                 self._main = None
                 self._main_loaded_at = 0.0
+                self._last_main_sync_at = 0.0  # v4: 重置 sync 时间戳
+                self._pending_delta = False
                 result["l1_cleared"] = True
                 # Opt-5: main 失效连带清 page cache (底层数据变了)
                 if self._pages:
@@ -428,10 +554,21 @@ class DataCache:
                     self._pages_loaded_at.pop(k, None)
                 result["filter_sigs_cleared"] = len(sigs)
                 result["pages_cleared"] = len(page_keys_to_del)
-                logger.info(
-                    f"[DataCache] catnum 桶失效 {catnum}: 清理 {len(sigs)} filter sigs, "
-                    f"{len(page_keys_to_del)} page entries"
-                )
+
+                # v4 delta sync: 标记下次 get_main 触发增量同步
+                # 不立即执行 (避免 pub/sub 回调阻塞), 留给下次请求时与 L1 合并
+                if self._main is not None:
+                    self._pending_delta = True
+                    result["delta_pending"] = True
+                    logger.info(
+                        f"[DataCache] catnum 桶失效 {catnum}: 清理 {len(sigs)} filter sigs, "
+                        f"{len(page_keys_to_del)} page entries, 标记 delta sync 待执行"
+                    )
+                else:
+                    logger.info(
+                        f"[DataCache] catnum 桶失效 {catnum}: 清理 {len(sigs)} filter sigs, "
+                        f"{len(page_keys_to_del)} page entries, _main 空 下次全量加载"
+                    )
         if scope in ("all", "main"):
             client = self._get_redis()
             if client is not None:
@@ -575,7 +712,7 @@ class DataCache:
         """重置统计 (测试用)."""
         with self._lock:
             self._stats = {
-                "l1_hits": 0, "l2_hits": 0, "db_loads": 0,
+                "l1_hits": 0, "l2_hits": 0, "db_loads": 0, "delta_loads": 0,
                 "invalidations": 0, "filter_hits": 0, "filter_misses": 0,
                 "page_hits": 0, "page_misses": 0,
             }
