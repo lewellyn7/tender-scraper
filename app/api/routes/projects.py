@@ -686,11 +686,11 @@ def get_stats(request: Request):
     week_start_str = week_start.isoformat()
     today_count = sum(
         1 for p in projects
-        if p.get("publish_date") and str(p.get("publish_date")).startswith(today_str)
+        if p.get("scraped_at") and str(p.get("scraped_at"))[:10] == today_str
     )
     weekly_count = sum(
         1 for p in projects
-        if p.get("publish_date") and str(p.get("publish_date")) >= week_start_str
+        if p.get("scraped_at") and str(p.get("scraped_at"))[:10] >= week_start_str
     )
     # 详情完整率（最近 7 天 publish_date 中 full_content 非空占比）
     # TODO: 这是代理指标，crawl_executions/task_executions 暂无数据
