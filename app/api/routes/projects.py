@@ -248,10 +248,13 @@ def _delta_sync_response(request: Request, since: str):
 
 
 def _load_projects():
-    """加载全表项目数据 (v2: 接入 DataCache 统一层)."""
+    """加载全表项目数据 (v2: 接入 DataCache 统一层).
+
+    6-30 修复: projects=空 list 时不直接返回 (避免 poison cache 永远命中)
+    """
     # L1 / L2 尝试
     projects, total, source = data_cache.get_main()
-    if projects is not None:
+    if projects is not None and len(projects) > 0:
         return projects, total
     
     # L3: DB load

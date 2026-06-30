@@ -141,12 +141,19 @@ class DataCache:
         now = time.time()
         # L1
         with self._lock:
+            # 6-30 修复: self._main 是空 list 时不当 hit (避免 poison cache 永远命中)
             if (
                 self._main is not None
+                and len(self._main) > 0
                 and (now - self._main_loaded_at) < IN_PROCESS_TTL_MAIN
             ):
                 self._stats["l1_hits"] += 1
                 return self._main, len(self._main), "l1"
+            # 空 list 防御: 如果 L1 是空, 当 miss, 强制重 load
+            if self._main is not None and len(self._main) == 0:
+                logger.warning(f"[DataCache] L1 main 是空 list (poison?), 强制重 load")
+                self._main = None
+                self._main_loaded_at = 0.0
         
         # L2
         client = self._get_redis()
@@ -177,7 +184,14 @@ class DataCache:
         return None, 0, "miss"
     
     def set_main(self, projects: List[dict], total: int) -> None:
-        """写入 L1 (同步) + L2 (异步后台)."""
+        """写入 L1 (同步) + L2 (异步后台).
+
+        6-30 修复: 拒绝写入空 cache (DB stale-conn / 锁等待返回空时保护)
+        → 避免 poison cache (空 cache 命中后永远不重 load)
+        """
+        if not projects:  # 空 list/dict/None 都不写
+            logger.warning(f"[DataCache] set_main refused: empty projects list (poison cache 防护)")
+            return
         now = time.time()
         with self._lock:
             self._main = projects
