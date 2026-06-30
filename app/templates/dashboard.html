@@ -282,7 +282,8 @@
         });
 
         bySource = grouped;
-        document.getElementById('statSourceCount').textContent = Object.keys(grouped).length;
+        // 6-30 修复: statSourceCount 由 updateStats 从 /api/stats.source_count 权威赋值
+        // (page_size=500 样本不全, 不能用 grouped.length)
         renderSourceGroups();
     }
 
