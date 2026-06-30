@@ -127,30 +127,36 @@
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(d) { return d && typeof d.total === 'number' ? d.total : null; })
             .catch(function() { return null; });
-        fetch('/api/projects?page_size=1000', {headers: authHeaders()})
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
-                projects = data.data || data.projects || [];
-                document.getElementById('skeletonLoader').style.display = 'none';
-                updateStats({
-                    total: data.total || 0,
-                    filtered: data.filtered || data.total || 0,
-                    last_run: data.last_run || '-'
-                });
-                processBySource();
-                bindFilterCounts();
-            })
-            .catch(function(e) {
-                console.error('加载数据失败:', e);
-                document.getElementById('skeletonLoader').style.display = 'none';
+        // 6-30 Bug2: 改用 /api/stats 拿轻量统计 + 单独拉 source 维度
+        // 避免 page_size=1000 全量拉取 + 走 page cache
+        Promise.all([
+            fetch('/api/stats', {headers: authHeaders()}).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+            fetch('/api/projects?page_size=500', {headers: authHeaders()}).then(function(r) { return r.json(); }).catch(function() { return null; })
+        ]).then(function(results) {
+            var stats = results[0] || {};
+            var data = results[1] || {projects: [], data: [], total: 0};
+            projects = data.data || data.projects || [];
+            document.getElementById('skeletonLoader').style.display = 'none';
+            updateStats({
+                total: stats.total || data.total || 0,
+                filtered: stats.weekly_count || data.total || 0,
+                last_run: stats.last_run || '-'
             });
+            // 6-30 Bug4: 来源站点数 = 当前 projects 中 hostname 分组数
+            // (dashboard 本来就需要 projects 数据渲染, 顺便统计 source)
+            processBySource();
+            bindFilterCounts();
+        });
         favPromise.then(function(n) { updateFavoritesCount(n); });
     }
 
     // ── Update stat cards ────────────────────────────────────────────
     function updateStats(stats) {
         document.getElementById('statFiltered').textContent = stats.filtered;
-        document.getElementById('statLastRun').textContent = stats.last_run;
+        // 6-30 Bug3: last_run 截取到分钟 (后端返回带毫秒)
+        var lr = String(stats.last_run || '-');
+        var m = lr.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/);
+        document.getElementById('statLastRun').textContent = m ? m[1] : lr;
     }
     // 6-17 修复: 加 statFavorites 更新（与 /api/projects 并行拉取）
     function updateFavoritesCount(n) {

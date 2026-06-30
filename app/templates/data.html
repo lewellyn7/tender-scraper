@@ -765,6 +765,25 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
             if (obj.done) {
               var dur = (Date.now() - startTime) / 1000;
               console.log('[stream] 完成, yield=' + obj.yielded + '/' + totalExpected + ', 耗时=' + dur.toFixed(2) + 's');
+              // 6-30 Bug1: stream 完成后调 /api/stats 填 statWeekly / statFiltered / statRate
+              fetch('/api/stats', {headers: authHeaders()})
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(stats) {
+                  if (!stats) return;
+                  var sw = document.getElementById('statWeekly');
+                  if (sw) sw.textContent = stats.weekly_count != null ? stats.weekly_count : '0';
+                  var sf = document.getElementById('statFiltered');
+                  if (sf) sf.textContent = stats.today != null ? stats.today : '0';
+                  var sr = document.getElementById('statRate');
+                  if (sr) sr.textContent = stats.success_rate || '—';
+                  // 6-30 Bug3: last_run 截取到分钟
+                  var lr = document.getElementById('statLastRun');
+                  if (lr && stats.last_run) {
+                    var m = String(stats.last_run).match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/);
+                    lr.textContent = m ? m[1] : stats.last_run;
+                  }
+                })
+                .catch(function(e) { console.warn('[stream] /api/stats 拉取失败:', e); });
             }
           } else {
             // 数据行
