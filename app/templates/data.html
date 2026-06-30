@@ -29,7 +29,7 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
     </div>
     <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4">
       <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">本周采集<span class="help-btn" data-tooltip="按 ISO 周统计 (周一~周日, Asia/Shanghai): 本周累计采集项目总数">?</span></div>
-      <p id="statLastRun" class="text-5xl font-bold tracking-tight text-gray-700 dark:text-gray-200">—</p>
+      <p id="statWeekly" class="text-5xl font-bold tracking-tight text-gray-700 dark:text-gray-200">—</p>
     </div>
   </div>
 
@@ -692,7 +692,7 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
           document.getElementById('statTotal').textContent = stats.total || allItems.length;
           document.getElementById('statFiltered').textContent = stats.today || '0';
           document.getElementById('statRate').textContent = stats.success_rate || '—';
-          document.getElementById('statLastRun').textContent = stats.weekly_count != null ? stats.weekly_count : (stats.last_run || '—');
+          document.getElementById('statWeekly').textContent = stats.weekly_count != null ? stats.weekly_count : '—';
           // 2026-06-30: Mon-Sun 7 日 mini bar
           } else {
           document.getElementById('statTotal').textContent = allItems.length;
@@ -758,8 +758,9 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
               if (progressEl) progressEl.textContent = obj.total.toLocaleString();
             }
             if (obj.last_run) {
-              var lrEl = document.getElementById('statLastRun');
-              if (lrEl) lrEl.textContent = obj.last_run;
+              // 2026-06-30 修复: stream _meta.last_run 不再覆盖本周采集卡片 (id 冲突)
+              // 此字段已无 UI 展示位置, 仅 console.log 便于调试
+              console.log('[stream] last_run:', obj.last_run);
             }
             if (obj.done) {
               var dur = (Date.now() - startTime) / 1000;
