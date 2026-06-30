@@ -66,10 +66,17 @@ async def get_login_page(request: Request):
 @router.get("/dashboard")
 async def dashboard_page(request: Request):
     """仪表盘页面"""
+    from fastapi.responses import HTMLResponse
     user = _get_user_info(request)
     if user.get("role") == "guest":
         return RedirectResponse(url="/login?redirect=/dashboard", status_code=302)
-    return _render(request, "dashboard.html")
+    # 6-30 修复: dashboard.html 频繁修改 (JS bug 修复), 加 no-cache 防浏览器缓存旧 JS
+    response = _render(request, "dashboard.html")
+    if isinstance(response, HTMLResponse):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 
 @router.get("/", response_class=HTMLResponse)
