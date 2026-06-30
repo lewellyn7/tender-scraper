@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     TIME_RANGE_HOURS: int = 24
 
     # 输出配置
-    OUTPUT_DIR: str = "output"
+    OUTPUT_DIR: str = "/app/output"  # 2026-06-29 修复: 相对路径 'output' 在容器内与 bind-mount host 权限冲突 (appuser 无写权限), 改绝对路径
 
     # 浏览器配置
     HEADLESS: bool = True
