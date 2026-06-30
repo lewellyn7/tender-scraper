@@ -7,8 +7,9 @@ from datetime import timedelta
 import re
 import time
 from pathlib import Path
+from typing import Optional
 
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, Response
 from loguru import logger
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -539,10 +540,20 @@ async def get_projects(request: Request,
     # 2026-06-26 PR #46: 流式分块 (NDJSON) — data 页专用
     # opt-in: ?stream=1 才启用, 默认保持 JSON 兼容现有客户端
     if stream:
+        # 2026-06-30: stream 预序列化 cache (5min TTL)
+        # /api/projects?stream=1 每次 yield 109K 条 14.6s, 走 cache 后 <100ms
+        # cache key 粒度: 当前 user_id + filter (无 filter 时全表共享)
+        user_id = get_current_user_id_optional(request)
+        stream_cache_key_user = user_id or "_anon"
+        if not keyword and not category and not date_start and not date_end and not source and not preset_key:
+            # 无 filter: 试 user 维度 cache
+            cached_stream = data_cache.get_stream_full_for_user(stream_cache_key_user)
+            if cached_stream is not None:
+                return Response(content=cached_stream, media_type="application/x-ndjson")
         # 流式总是返回全部 filtered (不受 page/page_size 限制) — 前端一次性拉全表
         # 已过滤的 _sort 后的全量数据, 客户端去重 + client-side filter
         return StreamingResponse(
-            _stream_projects_ndjson(filtered, request, db, user_id),
+            _stream_projects_ndjson(filtered, request, db, user_id, stream_cache_key_user if not keyword and not category and not date_start and not date_end and not source and not preset_key else None),
             media_type="application/x-ndjson",
         )
 
@@ -557,7 +568,7 @@ async def get_projects(request: Request,
     )
 
 
-async def _stream_projects_ndjson(projects, request, db, user_id):
+async def _stream_projects_ndjson(projects, request, db, user_id, cache_user_key: Optional[str] = None):
     """NDJSON 流式生成器 — 2026-06-26 PR #46
 
     协议:
@@ -570,12 +581,16 @@ async def _stream_projects_ndjson(projects, request, db, user_id):
       - 批间 asyncio.sleep(0) 协程让步
       - 客户端断开 (is_disconnected) 立即停
       - favorites/annotations 按批加载, 避免一次性 N+1
+
+    2026-06-30: cache_user_key 传入时, 缓存完整 NDJSON 响应字符串
+    (避免下次刷新再 yield 14s)
     """
     BATCH = 100
     total = len(projects)
+    cache_buffer: list = [] if cache_user_key else None  # 拼接完整 NDJSON 字符串
 
     # 第一个 chunk: meta (stats 立即可见)
-    yield json.dumps(
+    meta_line = json.dumps(
         {
             "_meta": True,
             "total": total,
@@ -584,6 +599,9 @@ async def _stream_projects_ndjson(projects, request, db, user_id):
         ensure_ascii=False,
         default=str,
     ) + "\n"
+    yield meta_line
+    if cache_buffer is not None:
+        cache_buffer.append(meta_line)
 
     yielded = 0
     for i in range(0, total, BATCH):
@@ -613,17 +631,29 @@ async def _stream_projects_ndjson(projects, request, db, user_id):
                 p["annotation"] = None
 
         for p in batch:
-            yield json.dumps(p, ensure_ascii=False, default=str) + "\n"
+            line = json.dumps(p, ensure_ascii=False, default=str) + "\n"
+            yield line
+            if cache_buffer is not None:
+                cache_buffer.append(line)
             yielded += 1
 
         # 协程让步 + 允许其他请求处理
         await asyncio.sleep(0)
 
     # 最后一个 chunk: done 标记
-    yield json.dumps(
+    done_line = json.dumps(
         {"_meta": True, "done": True, "yielded": yielded},
         ensure_ascii=False,
     ) + "\n"
+    yield done_line
+    if cache_buffer is not None:
+        cache_buffer.append(done_line)
+        # 写 cache (5min TTL, 后续刷新 <100ms 返回)
+        try:
+            data_cache.set_stream_full_for_user(cache_user_key, "".join(cache_buffer))
+            logger.info(f"[stream] 缓存写入: user={cache_user_key}, {len(cache_buffer)} 行, {sum(len(l) for l in cache_buffer)} bytes")
+        except Exception as e:
+            logger.warning(f"[stream] 缓存写入失败 (非阻塞): {e}")
 
 
 @router.get("/project/{project_url}")
@@ -746,6 +776,11 @@ def get_stats(request: Request):
 def get_project_groups(request: Request, limit: int = Query(100, le=500), biz_type: str = None):
     """获取按项目分组的聚合数据（从 PostgreSQL，按 project_no 分组）"""
     user_id = get_current_user_id_required(request)
+    # 2026-06-30: groups cache (5min TTL, biz_type 维度)
+    # 避免每次刷新重新 GROUP BY + N+1 (原本 6.5s)
+    cached = data_cache.get_groups(biz_type)
+    if cached is not None:
+        return JSONResponse(cached)
     try:
         db = get_db()
         conn = db._get_conn()
@@ -780,7 +815,7 @@ def get_project_groups(request: Request, limit: int = Query(100, le=500), biz_ty
 
         result = []
         for row in rows:
-            key, name, code, biz_type, overview, latest_date, info_types_str, cnt, sample_url = row
+            key, name, code, row_biz_type, overview, latest_date, info_types_str, cnt, sample_url = row
             # 过滤掉被污染的分组 key（过短或含中文）
             if not key or len(key) < 6 or re.search(r'[\u4e00-\u9fff]', key):
                 continue
@@ -814,7 +849,7 @@ def get_project_groups(request: Request, limit: int = Query(100, le=500), biz_ty
             result.append({
                 "name": name or key,
                 "code": code if code and len(code) >= 5 else "-",
-                "business_type": biz_type or "",
+                "business_type": row_biz_type or "",
                 "record_types": sorted([it for it in (info_types_str.split("|") if info_types_str else []) if it]),
                 "count": cnt,
                 "updated_at": str(latest_date) if latest_date else "",
@@ -823,6 +858,8 @@ def get_project_groups(request: Request, limit: int = Query(100, le=500), biz_ty
                 "items": items,  # P1-3a: 子公告列表
             })
 
+        # 2026-06-30: 写 groups cache (5min TTL)
+        data_cache.set_groups(biz_type, {"groups": result})
         return JSONResponse({"groups": result})
     except Exception as e:
         import traceback; traceback.print_exc()

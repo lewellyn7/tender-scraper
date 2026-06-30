@@ -77,6 +77,13 @@ class DataCache:
         self._pages_loaded_at: Dict[str, float] = {}
         # Opt-5: page cache 最大条数 (防内存膨胀, LRU 不严格, 仅限条数)
         self._pages_max = int(os.getenv("DATA_CACHE_PAGES_MAX", "200"))
+        # 2026-06-30: stream cache (?stream=1) — 预序列化 NDJSON 字符串, 避免每次 yield 109K 条
+        # per-user 隔离 (避免 is_favorite 跨用户泄漏), 5min TTL
+        self._stream_full: Dict[str, str] = {}  # user_key → ndjson body
+        self._stream_full_loaded_at: Dict[str, float] = {}
+        # 2026-06-30: groups cache (/api/projects/groups) — 预序列化 JSON 响应, 避免每次 GROUP BY + N+1
+        self._groups: Dict[str, Any] = {}  # key: "biz_type:None" or "biz_type:xxx" → result dict
+        self._groups_loaded_at: Dict[str, float] = {}
         # Opt-4: catnum → set of filter_sigs that depend on this catnum (智能失效索引)
         # 写法: filter_sig 写入时取其涉及 catnum, 双向索引; invalidate("catnum:xxx") 时 O(1) 清受影响的 sig
         self._catnum_to_sigs: Dict[str, set] = {}
@@ -373,6 +380,49 @@ class DataCache:
             }
             self._pages_loaded_at[key] = time.time()
 
+    # ━━━ Stream + Groups Cache (2026-06-30) ━━━
+    def get_stream_full_for_user(self, user_key: str) -> Optional[str]:
+        """获取预序列化的 NDJSON 全表响应 (per-user, 5min TTL).
+        返回完整 stream body (含 _meta 行 + 项目行 + done 行), 命中时直接 send.
+        """
+        now = time.time()
+        with self._lock:
+            entry = self._stream_full.get(user_key)
+            if entry is not None and (now - self._stream_full_loaded_at.get(user_key, 0)) < IN_PROCESS_TTL_FILTER:
+                self._stats.setdefault("stream_hits", 0)
+                self._stats["stream_hits"] += 1
+                return entry
+        return None
+
+    def set_stream_full_for_user(self, user_key: str, ndjson_body: str) -> None:
+        """缓存 NDJSON 字符串 (per-user, 含 _meta + 项目 + done)."""
+        now = time.time()
+        with self._lock:
+            self._stream_full[user_key] = ndjson_body
+            self._stream_full_loaded_at[user_key] = now
+
+    def get_groups(self, biz_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """获取预序列化的 /api/projects/groups 响应 (5min TTL).
+        biz_type 维度 cache, miss 时走原始 SQL 路径.
+        """
+        key = f"biz_type:{biz_type or ''}"
+        now = time.time()
+        with self._lock:
+            entry = self._groups.get(key)
+            if entry is not None and (now - self._groups_loaded_at.get(key, 0)) < IN_PROCESS_TTL_FILTER:
+                self._stats.setdefault("group_hits", 0)
+                self._stats["group_hits"] += 1
+                return entry
+        return None
+
+    def set_groups(self, biz_type: Optional[str], result: Dict[str, Any]) -> None:
+        """缓存 /api/projects/groups 响应."""
+        key = f"biz_type:{biz_type or ''}"
+        now = time.time()
+        with self._lock:
+            self._groups[key] = result
+            self._groups_loaded_at[key] = now
+
     # ━━━ Invalidation ━━━
     def invalidate(self, scope: str = "all") -> Dict[str, Any]:
         """清缓存 (同步, async-safe via RLock).
@@ -396,6 +446,11 @@ class DataCache:
                     result["pages_cleared"] = len(self._pages)
                     self._pages.clear()
                     self._pages_loaded_at.clear()
+                # 2026-06-30: main 变 → stream/groups cache 也要清
+                self._stream_full.clear()
+                self._stream_full_loaded_at.clear()
+                self._groups.clear()
+                self._groups_loaded_at.clear()
             if scope in ("all", "filters"):
                 self._filters.clear()
                 self._filters_loaded_at.clear()
