@@ -835,6 +835,20 @@ def get_stats(request: Request):
     # 2026-06-30: Mon-Sun 7 天每日项目数（前端 mini bar 用）
     week_dates = [week_start + timedelta(days=i) for i in range(7)]
     weekly_by_day = _compute_weekly_by_day(projects, week_start)
+    # 6-30 修复: 来源站点数 (URL hostname 去重, 不依赖前端 page_size 覆盖)
+    from urllib.parse import urlparse
+    source_hosts = set()
+    for p in projects:
+        url = p.get("source_url") or p.get("url", "")
+        try:
+            host = urlparse(url).hostname
+            if host:
+                source_hosts.add(host)
+        except Exception:
+            pass
+    source_count = len(source_hosts)
+    source_hosts_sorted = sorted(source_hosts)
+    
     # 详情完整率（最近 7 天 publish_date 中 full_content 非空占比）
     # TODO: 这是代理指标，crawl_executions/task_executions 暂无数据
     # 真正"采集成功率"待 collector 写入这些表后切换
@@ -857,6 +871,8 @@ def get_stats(request: Request):
             # 临时: 详情完整率代理成功率（DB 暂无真成功率数据）
             "success_rate": detail_completeness,
             "last_run": _get_last_run(),
+            "source_count": source_count,  # 6-30: 后端扫 109K 全表 hostname 数
+            "source_hosts": source_hosts_sorted,  # 调试用, 前端可不用
             "db_stats": {},
         }
     )

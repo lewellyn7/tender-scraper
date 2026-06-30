@@ -140,10 +140,9 @@
             updateStats({
                 total: stats.total || data.total || 0,
                 filtered: stats.weekly_count || data.total || 0,
-                last_run: stats.last_run || '-'
+                last_run: stats.last_run || '-',
+                source_count: stats.source_count  // 6-30 修复: 用后端 109K 全表统计, 不依赖 page_size
             });
-            // 6-30 Bug4: 来源站点数 = 当前 projects 中 hostname 分组数
-            // (dashboard 本来就需要 projects 数据渲染, 顺便统计 source)
             processBySource();
             bindFilterCounts();
         });
@@ -157,6 +156,10 @@
         var lr = String(stats.last_run || '-');
         var m = lr.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/);
         document.getElementById('statLastRun').textContent = m ? m[1] : lr;
+        // 6-30 Bug4 修复: 用后端权威 source_count (避免 page_size=500 漏覆盖)
+        if (typeof stats.source_count === 'number') {
+            document.getElementById('statSourceCount').textContent = stats.source_count;
+        }
     }
     // 6-17 修复: 加 statFavorites 更新（与 /api/projects 并行拉取）
     function updateFavoritesCount(n) {
