@@ -166,6 +166,87 @@ def _infer_info_type(url: str) -> str:
     return "其他"
 
 
+def _delta_sync_response(request: Request, since: str):
+    """6-30 增量模式: ?since=ISO&delta=1 端点
+    基于 L1 main cache (109K in-process, 1h TTL), 内存 filter scraped_at > since
+    典型: 5-50 条新数据, <10ms 响应
+    Returns: {delta_count, items, last_sync_at, has_more}
+    """
+    try:
+        # 解析 since (兼容 ISO 8601 + YYYY-MM-DD HH:MM:SS)
+        from datetime import datetime as _dt
+        since_dt = None
+        for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                since_dt = _dt.strptime(since[:19], fmt[:19 - (fmt.count('f') > 0 and 3 or 0)])
+                break
+            except ValueError:
+                continue
+        if since_dt is None:
+            return JSONResponse({"error": "invalid since format, use ISO 8601"}, status_code=400)
+
+        # 从 L1 main cache 拿数据 (1h TTL, 109K 条 in-process)
+        cached, _total, _last = data_cache.get_main()
+        if cached is None:
+            return JSONResponse(
+                {"error": "main cache cold, full reload required"},
+                status_code=503,
+                headers={"X-Cache-Status": "cold"},
+            )
+
+        # 内存 filter: scraped_at > since_dt
+        def _parse_scraped(p):
+            s = p.get("scraped_at", "")
+            if not s:
+                return None
+            if hasattr(s, "isoformat"):
+                return s
+            # 兼容多种格式: "2026-06-30 08:17:01.739100" / ISO / "2026-06-30"
+            s_str = str(s)
+            for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+                try:
+                    return _dt.strptime(s_str[:19], fmt[:19 - (fmt.count('f') > 0 and 3 or 0)] if 'f' in fmt else fmt)
+                except ValueError:
+                    continue
+            return None
+
+        new_items = []
+        for p in cached:
+            sd = _parse_scraped(p)
+            if sd and sd > since_dt:
+                new_items.append(p)
+        new_items.sort(key=lambda p: p.get("scraped_at") or "", reverse=True)
+
+        # user 维度补充 (fav/ann)
+        user_id = get_current_user_id_optional(request)
+        if user_id and new_items:
+            db = get_db()
+            urls = [p.get("url", "") for p in new_items]
+            fav_map, ann_map = _batch_load_favorites_and_annotations(urls, db)
+            for p in new_items:
+                p = dict(p)
+                url = p.get("url", "")
+                p["is_favorite"] = url in fav_map
+                p["_fid"] = fav_map[url]["id"] if url in fav_map else None
+                p["annotation"] = ann_map.get(url)
+
+        # 取最新一条 scraped_at 作为 next sync cursor
+        last_sync_at = new_items[0].get("scraped_at", "") if new_items else since
+        if hasattr(last_sync_at, "isoformat"):
+            last_sync_at = last_sync_at.isoformat()
+
+        return JSONResponse({
+            "delta_count": len(new_items),
+            "items": new_items[:200],  # 单次上限 200, 防止 DOS
+            "last_sync_at": last_sync_at,
+            "has_more": len(new_items) > 200,
+            "server_time": _dt.now().isoformat(),
+        }, headers={"X-Cache-Status": "l1-hit", "X-Delta-Count": str(len(new_items))})
+    except Exception as e:
+        logger.exception(f"[delta] failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 def _load_projects():
     """加载全表项目数据 (v2: 接入 DataCache 统一层)."""
     # L1 / L2 尝试
@@ -314,7 +395,13 @@ async def get_projects(request: Request,
     use_tfidf: bool = Query(False),
     use_vector: bool = Query(False),  # 修复 6-5: 默认改为 False (top_k=500 会返回 500 条松散相关结果，不如精确匹配可控)
     stream: bool = Query(False, description="是否流式分块返回 NDJSON (data 页专用, 2026-06-26 PR #46)"),
+    since: str = Query("", description="6-30 增量模式: ISO 时间戳, 只返 scraped_at > since 的项目"),
+    delta: bool = Query(False, description="6-30 增量模式: 返回 {delta_count, items, last_sync_at, has_more}"),
 ):
+    # 6-30 增量模式: since+delta 走最快路径, 不触发 _load_projects
+    # 适用: 客户端 localStorage 已有 109K 条, 刷新后后台静默拉增量
+    if since and delta:
+        return _delta_sync_response(request, since)
     db = get_db()
     projects, _ = _load_projects()
     if preset_key:

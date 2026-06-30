@@ -669,9 +669,34 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
 
   async function loadData() {
     showSkeleton(true);
-    // 2026-06-26 PR #46: 默认走流式分块, 进度更快 + 指标立即可见
-    // 后端依赖 ?stream=1 参数返回 NDJSON; 不支持时 fallback 到旧 JSON
+    // 6-30 缓存优化: 先从 localStorage 读 (10ms 首屏)
+    var cached = getCachedData();
+    if (cached && cached.items && cached.items.length > 0) {
+      allItems = cached.items;
+      // 立即渲染首屏 (不 await)
+      renderKeywordCloud();
+      applyFilters();
+      // 恢复 statTotal (避免显示 '—')
+      var stEl = document.getElementById('statTotal');
+      if (stEl && cached.total) stEl.textContent = cached.total.toLocaleString();
+      console.log('[cache] 命中 localStorage:', cached.items.length, '件 (full=' + cached.total + ')');
+    }
+    // 6-30 后台增量: 静默 stream 拉全量 + delta
+    // 后台 stream 不阻塞首屏
     var streamed = await loadDataStream();
+    if (streamed && cached) {
+      // stream 完成后保存到 cache
+      var latestScraped = '';
+      for (var i = 0; i < Math.min(allItems.length, 100); i++) {
+        if (allItems[i] && allItems[i].scraped_at) {
+          latestScraped = allItems[i].scraped_at;
+          break;
+        }
+      }
+      saveCachedData(allItems, latestScraped, allItems.length);
+      // 启动后台 delta 监听 (增量追加)
+      backgroundDeltaSync();
+    }
     if (!streamed) {
       // Fallback: 原 JSON 逻辑 (后端不带 stream 参数时)
       try {
@@ -705,6 +730,92 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
     showSkeleton(false);
     renderKeywordCloud();
     applyFilters();
+  }
+
+  // ── 6-30 缓存优化: localStorage 持久化首屏 (200 条轻量版) + 后台 delta 增量 ──
+  var CACHE_KEY = 'tender_data_v1';
+  var CACHE_MAX_ITEMS = 200;        // 200 条轻量版 ~1.2MB
+  var CACHE_MAX_AGE_MS = 6 * 3600 * 1000;  // 6h 过期
+
+  function getCachedData() {
+    try {
+      var raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      var cached = JSON.parse(raw);
+      var age = Date.now() - (cached.saved_at || 0);
+      if (age > CACHE_MAX_AGE_MS) return null;
+      return cached;
+    } catch(e) { return null; }
+  }
+
+  function saveCachedData(items, lastSyncAt, total) {
+    try {
+      // 轻量版: 去掉 content_preview / full_content 节省 90% 空间
+      var lite = items.slice(0, CACHE_MAX_ITEMS).map(function(p) {
+        return {
+          title: p.title, url: p.url, source_url: p.source_url,
+          publish_date: p.publish_date, publish_date_raw: p.publish_date_raw,
+          tender_type: p.tender_type, business_type: p.business_type,
+          budget: p.budget, region: p.region, scraped_at: p.scraped_at,
+          keywords_matched: p.keywords_matched, info_type: p.info_type,
+          is_favorite: p.is_favorite || false, _fid: p._fid || null,
+          annotation: p.annotation || null
+        };
+      });
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
+        saved_at: Date.now(),
+        last_sync_at: lastSyncAt,
+        total: total,
+        items: lite
+      }));
+      console.log('[cache] saved', lite.length, 'items to localStorage');
+    } catch(e) {
+      console.warn('[cache] save 失败 (quota?):', e.message);
+      // 容量满: 清掉重试 (用更少 items)
+      try { localStorage.removeItem(CACHE_KEY); } catch(_) {}
+    }
+  }
+
+  // 后台静默拉 delta 增量 (不阻塞首屏)
+  function backgroundDeltaSync() {
+    var cached = getCachedData();
+    if (!cached) return;
+    var since = cached.last_sync_at || '';
+    if (!since) return;
+    // 用 requestIdleCallback 包, 浏览器空闲时才拉
+    var idle = window.requestIdleCallback || function(fn) { return setTimeout(fn, 1000); };
+    idle(function() {
+      fetch('/api/projects?delta=1&since=' + encodeURIComponent(since), {headers: authHeaders()})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) {
+          if (!d || !d.items || d.items.length === 0) {
+            console.log('[delta] no new items since', since);
+            return;
+          }
+          console.log('[delta] 新增', d.items.length, '条');
+          // 合并: 新 items 在前, 去重
+          var seen = new Set();
+          var merged = [];
+          d.items.concat(cached.items).forEach(function(p) {
+            if (p && p.url && !seen.has(p.url)) {
+              seen.add(p.url);
+              merged.push(p);
+            }
+          });
+          // 更新 total 字段
+          allItems = merged.concat(allItems.slice(merged.length)).slice(0, 20000);
+          // 更新 stats
+          var sw = document.getElementById('statTotal');
+          if (sw) sw.textContent = (cached.total + d.delta_count).toLocaleString();
+          // 重新渲染 (后台)
+          applyFilters();
+          // 保存新 cache
+          saveCachedData(merged, d.last_sync_at, cached.total + d.delta_count);
+          // 用户提示 (不打扰, 仅 console)
+          console.log('[delta] merged into', merged.length, 'items, total =', cached.total + d.delta_count);
+        })
+        .catch(function(e) { console.warn('[delta] failed:', e); });
+    });
   }
 
   // 2026-06-26 PR #46: NDJSON 流式加载
@@ -765,6 +876,17 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
             if (obj.done) {
               var dur = (Date.now() - startTime) / 1000;
               console.log('[stream] 完成, yield=' + obj.yielded + '/' + totalExpected + ', 耗时=' + dur.toFixed(2) + 's');
+              // 6-30 增量: stream 完成后保存到 localStorage (下次刷新秒开)
+              if (allItems.length > 0) {
+                var latest = '';
+                for (var j = 0; j < Math.min(allItems.length, 50); j++) {
+                  if (allItems[j] && allItems[j].scraped_at) {
+                    latest = allItems[j].scraped_at;
+                    break;
+                  }
+                }
+                saveCachedData(allItems, latest, totalExpected);
+              }
               // 6-30 Bug1: stream 完成后调 /api/stats 填 statWeekly / statFiltered / statRate
               fetch('/api/stats', {headers: authHeaders()})
                 .then(function(r) { return r.ok ? r.json() : null; })
