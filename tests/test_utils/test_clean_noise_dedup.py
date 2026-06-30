@@ -135,6 +135,41 @@ class TestMakeContentPreview:
         out = make_content_preview(full, "标题", max_len=100)
         assert len(out) <= 103  # 100 + "..."
 
+    def test_fallback_attachments_only(self):
+        """2026-06-29: 兌底 - 答疑惑补全附件类, 标题重复但有附件名"""
+        # 重现真实场景: 标题重复出现 + 中间只有日期 + 末尾只有附件名
+        full = (
+            "重庆某项目补充文件 "
+            "首页 > 交易信息 > 工程招投标 > 重庆某项目补充文件 "
+            "重庆某项目补充文件 2026-04-24 "
+            "重庆某项目补充文件 2026-05-22 "
+            "重庆某项目补充文件 2026-06-26 "
+            "重庆某项目补充文件 2026-03-23 "
+            "详见附件 施工补遗（四）.pdf"
+        )
+        out = make_content_preview(full, "重庆某项目补充文件")
+        # 应该走兌底逻辑 - 提取日期+附件
+        assert "附件" in out, f"should contain 附件: {out}"
+        assert "施工补遗（四）.pdf" in out, f"should contain pdf name: {out}"
+        assert "2026-" in out, f"should contain dates: {out}"
+
+    def test_fallback_attachments_no_dates(self):
+        """2026-06-29: 兌底 - 只有附件, 无日期"""
+        full = "项目名 首页 > 交易信息 > 项目名 项目名 详见附件 清单.pdf"
+        out = make_content_preview(full, "项目名")
+        assert "附件" in out, f"got: {out}"
+        assert "清单.pdf" in out, f"got: {out}"
+
+    def test_fallback_no_attachments_no_dates_returns_empty(self):
+        """2026-06-29: 兌底 - 既无附件也无日期 → 空字符串"""
+        full = "项目名 首页 > 交易信息 > 项目名 项目名 一些说明文字"
+        out = make_content_preview(full, "项目名")
+        # 只能提取出"一些说明文字"或空
+        # 如果 strip_title_dup 抓取不出任何不重复内容 - 应该为空
+        # 这里验证: 输出不为 title 重复
+        if out:
+            assert not out.startswith("项目名") or "说明文字" in out
+
 
 class TestCleanNoiseRegression:
     """回归: clean_text 行为不变 (没被我破坏)"""

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+from datetime import timedelta
 import re
 import time
 from pathlib import Path
@@ -242,6 +243,25 @@ def _load_projects():
 def _clear_cache():
     """清缓存 (v2: 调用 DataCache.invalidate)."""
     return data_cache.invalidate("all")
+
+
+def _compute_weekly_by_day(projects, week_start_date):
+    """Mon-Sun 7 天每日项目数（基于 scraped_at 日期）
+
+    Args:
+        projects: list of dict (含 'scraped_at' 字段, ISO timestamp 字符串)
+        week_start_date: datetime.date, ISO 周一
+    Returns:
+        list[int] 长度=7, 索引 0=周一, 6=周日
+    """
+    week_dates = [week_start_date + timedelta(days=i) for i in range(7)]
+    return [
+        sum(
+            1 for p in projects
+            if p.get("scraped_at") and str(p.get("scraped_at"))[:10] == d.isoformat()
+        )
+        for d in week_dates
+    ]
 
 
 def _get_last_run():
@@ -686,12 +706,15 @@ def get_stats(request: Request):
     week_start_str = week_start.isoformat()
     today_count = sum(
         1 for p in projects
-        if p.get("publish_date") and str(p.get("publish_date")).startswith(today_str)
+        if p.get("scraped_at") and str(p.get("scraped_at"))[:10] == today_str
     )
     weekly_count = sum(
         1 for p in projects
-        if p.get("publish_date") and str(p.get("publish_date")) >= week_start_str
+        if p.get("scraped_at") and str(p.get("scraped_at"))[:10] >= week_start_str
     )
+    # 2026-06-30: Mon-Sun 7 天每日项目数（前端 mini bar 用）
+    week_dates = [week_start + timedelta(days=i) for i in range(7)]
+    weekly_by_day = _compute_weekly_by_day(projects, week_start)
     # 详情完整率（最近 7 天 publish_date 中 full_content 非空占比）
     # TODO: 这是代理指标，crawl_executions/task_executions 暂无数据
     # 真正"采集成功率"待 collector 写入这些表后切换
@@ -708,6 +731,9 @@ def get_stats(request: Request):
             "filtered": len([p for p in projects if p.get("keywords_matched")]),
             "today": today_count,
             "weekly_count": weekly_count,
+            "weekly_by_day": weekly_by_day,  # [Mon..Sun] 7 元素
+            "week_dates": [d.isoformat() for d in week_dates],  # ISO 周一到周日
+            "weekday_today": now_sh.weekday(),  # 0=Mon, 6=Sun (前端高亮今日)
             # 临时: 详情完整率代理成功率（DB 暂无真成功率数据）
             "success_rate": detail_completeness,
             "last_run": _get_last_run(),

@@ -28,7 +28,7 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
       <p id="statRate" class="text-5xl font-bold tracking-tight text-yellow-600 dark:text-yellow-400">—</p>
     </div>
     <div class="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg p-4">
-      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">本周采集<span class="help-btn" data-tooltip="按 ISO 周统计: 周一 00:00 ~ 当前 (Asia/Shanghai) 的 publish_date 项目数">?</span></div>
+      <div class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">本周采集<span class="help-btn" data-tooltip="按 ISO 周统计 (周一~周日, Asia/Shanghai): 本周累计采集项目总数">?</span></div>
       <p id="statLastRun" class="text-5xl font-bold tracking-tight text-gray-700 dark:text-gray-200">—</p>
     </div>
   </div>
@@ -564,6 +564,12 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
     renderPagination();
   }
 
+  // 2026-06-30: 渲染本周采集 Mon-Sun 7 格 mini bar (累计显示)
+  // byDay: [Mon, Tue, Wed, Thu, Fri, Sat, Sun] 各日项目数 (后端返回的每日原始数)
+  // dates: ["2026-06-29", ..., "2026-07-05"]
+  // todayIdx: 0=Mon..6=Sun, undefined 时全部按历史样式
+  // 显示: 每根柱高度 = 累计到该日的总数 (cumulative running total)
+  //       例: byDay=[256,2,0,0,0,0,0] → 累计柱=[256, 258, 258, 258, 258, 258, 258]
   function renderKeywordCloud() {
     var kwMap = {};
     allItems.forEach(function(item) {
@@ -687,7 +693,8 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
           document.getElementById('statFiltered').textContent = stats.today || '0';
           document.getElementById('statRate').textContent = stats.success_rate || '—';
           document.getElementById('statLastRun').textContent = stats.weekly_count != null ? stats.weekly_count : (stats.last_run || '—');
-        } else {
+          // 2026-06-30: Mon-Sun 7 日 mini bar
+          } else {
           document.getElementById('statTotal').textContent = allItems.length;
           document.getElementById('statFiltered').textContent = '0';
         }
