@@ -746,6 +746,62 @@ async def _stream_projects_ndjson(projects, request, db, user_id, cache_user_key
             logger.warning(f"[stream] 缓存写入失败 (非阻塞): {e}")
 
 
+@router.get("/projects/latest")
+async def get_projects_latest(request: Request,
+    limit: int = Query(1000, ge=1, le=5000, description="返回最新 N 条 (按 scraped_at DESC); 默认 1000, 上限 5000"),
+):
+    """2026-07-01 PR: 首屏 1000 条优先加载 + 后台 delta 增量。
+
+    设计目标:
+      - 替换 data 页每次拉 109K 全量 stream 的高带宽路径
+      - 首屏 <50ms (L1 hit) / <200ms (L2 hit) / <1s (cold)
+      - 后续变化量通过 /api/projects?since=&delta= 增量同步
+
+    路径:
+      1) DataCache L1 (in-memory 109K): sort + slice → 1-5ms
+      2) DataCache L2 (Redis gzip 109K): 解压 + sort + slice → 5-30ms
+      3) DB fallback: ORDER BY scraped_at DESC LIMIT N → 200-800ms + 触发 set_main
+    """
+    import time as _t
+    t0 = _t.time()
+    db = get_db()
+
+    # L1/L2 命中 → 复用现有 main cache (避免重复 load)
+    projects, total, source = data_cache.get_main()
+
+    if projects is None or not projects:
+        # Miss → DB fallback
+        logger.info(f"[latest] L1/L2 miss, DB fallback limit={limit}")
+        # DB 层提供 ORDER BY scraped_at DESC LIMIT N
+        projects = db.get_latest_projects(limit=limit)
+        total = len(projects)
+        # 触发 set_main 让后续请求 L1 hit
+        try:
+            data_cache.set_main(projects, total)
+        except Exception as e:
+            logger.warning(f"[latest] set_main 失败 (非阻塞): {e}")
+        source = "db"
+    else:
+        # L1/L2 hit → 客户端按 scraped_at 倒序取前 N
+        # 注: main cache 默认已是按 scraped_at 倒序 (set_main 路径保证, db.py:load_projects 已排序)
+        latest = projects[:limit]
+        projects = latest
+        source = f"{source}_slice"
+        logger.debug(f"[latest] {source} → slice top {limit}/{total} in {(_t.time()-t0)*1000:.1f}ms")
+
+    elapsed_ms = (_t.time() - t0) * 1000
+    logger.info(f"[latest] 返回 {len(projects)} 条 (total={total}, source={source}, limit={limit}, {elapsed_ms:.1f}ms)")
+
+    return {
+        "projects": projects,
+        "total": total,
+        "limit": limit,
+        "source": source,
+        "elapsed_ms": round(elapsed_ms, 1),
+        "latest_scraped_at": projects[0].get("scraped_at") if projects else None,
+    }
+
+
 @router.get("/project/{project_url}")
 async def get_project(request: Request, project_url: str):
     """获取单条项目详情 (P3.7: 加 1min cache 避免 O(n) 全表扫描)"""

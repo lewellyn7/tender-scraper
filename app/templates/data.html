@@ -169,7 +169,7 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
     <p class="text-sm mt-1">调整筛选条件或等待采集任务执行</p>
   </div>
 
-  <!-- 分页（进度条拖拉拽 + 数字跳转） -->
+    <!-- 分页（进度条拖拉拽 + 数字跳转） -->
   <div id="pagination" class="hidden flex flex-col gap-3 px-4 py-3 bg-white rounded-lg shadow">
     <!-- 第一行: 每页条数 + 信息 + 跳转控件 -->
     <div class="flex flex-wrap items-center justify-between gap-3">
@@ -669,71 +669,233 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
 
   async function loadData() {
     showSkeleton(true);
-    // 6-30 缓存优化: 先从 localStorage 读 (10ms 首屏)
+    // ────── 阶段 0: localStorage cache (10ms) ──────
     var cached = getCachedData();
     if (cached && cached.items && cached.items.length > 0) {
       allItems = cached.items;
-      // 立即渲染首屏 (不 await)
       renderKeywordCloud();
       applyFilters();
-      // 恢复 statTotal (避免显示 '—')
       var stEl = document.getElementById('statTotal');
       if (stEl && cached.total) stEl.textContent = cached.total.toLocaleString();
-      console.log('[cache] 命中 localStorage:', cached.items.length, '件 (full=' + cached.total + ')');
+      console.log('[cache] 命中 localStorage:', cached.items.length, '条 (full=' + cached.total + ', fully_loaded=' + (cached.fully_loaded||false) + ')');
     }
-    // 6-30 后台增量: 静默 stream 拉全量 + delta
-    // 后台 stream 不阻塞首屏
-    var streamed = await loadDataStream();
-    if (streamed && cached) {
-      // stream 完成后保存到 cache
-      var latestScraped = '';
-      for (var i = 0; i < Math.min(allItems.length, 100); i++) {
-        if (allItems[i] && allItems[i].scraped_at) {
-          latestScraped = allItems[i].scraped_at;
-          break;
-        }
-      }
-      saveCachedData(allItems, latestScraped, allItems.length);
-      // 启动后台 delta 监听 (增量追加)
-      backgroundDeltaSync();
-    }
-    if (!streamed) {
-      // Fallback: 原 JSON 逻辑 (后端不带 stream 参数时)
-      try {
-        var qs = '?page_size=20000';
-        var res = await authFetch('/api/projects' + qs);
-        var data = await res.json();
-        allItems = data.projects || data.data || [];
-        var seenUrls = new Set();
-        allItems = allItems.filter(function(item) {
-          if (seenUrls.has(item.url)) return false;
-          seenUrls.add(item.url);
-          return true;
-        });
 
-        var statsRes = await authFetch('/api/stats');
-        var stats = statsRes.ok ? await statsRes.json() : null;
-        if (stats) {
-          document.getElementById('statTotal').textContent = stats.total || allItems.length;
-          document.getElementById('statFiltered').textContent = stats.today || '0';
-          document.getElementById('statRate').textContent = stats.success_rate || '—';
-          document.getElementById('statWeekly').textContent = stats.weekly_count != null ? stats.weekly_count : '—';
-          // 2026-06-30: Mon-Sun 7 日 mini bar
-          } else {
-          document.getElementById('statTotal').textContent = allItems.length;
-          document.getElementById('statFiltered').textContent = '0';
-        }
-      } catch(e) {
-        console.error('加载失败:', e);
+    // ────── 阶段 1: /api/projects/latest?limit=1000 (50ms) ──────
+    // 立即补足 1000 条 (L1 hit 0.1ms / L2 hit 30ms / cold 500ms)
+    try {
+      var latestRes = await authFetch('/api/projects/latest?limit=' + LATEST_LIMIT);
+      if (latestRes.ok) {
+        var latest = await latestRes.json();
+        mergeLatestItems(latest.projects || []);
+        applyFilters();
+        saveCachedData(allItems.slice(0, CACHE_MAX_ITEMS), latest.projects[0] ? latest.projects[0].scraped_at : '', latest.total || allItems.length, cached && cached.fully_loaded || false);
+        var stEl2 = document.getElementById('statTotal');
+        if (stEl2 && latest.total) stEl2.textContent = latest.total.toLocaleString();
+        console.log('[latest] fetch', allItems.length, '/', latest.total, '条 in', latest.elapsed_ms, 'ms (source=' + latest.source + ')');
+        fetchStatsSummary();
+      } else {
+        console.warn('[latest] 端点返回', latestRes.status, '→ fallback stream');
+        await loadDataStreamLegacy();
       }
+    } catch(e) {
+      console.error('[latest] 失败:', e);
+      await loadDataStreamLegacy();
     }
+
+    // ────── 阶段 2: 智能后台同步 ──────
+    // 决策: 首次进入 / cache 未 fully_loaded → 后台 stream 全量
+    //       已有 fully_loaded=true 的 cache → 后台 delta only (since lastSync)
     showSkeleton(false);
     renderKeywordCloud();
     applyFilters();
+    backgroundSync(cached);
+  }
+
+  // 7-01: 合并 latest 项目到 allItems (按 scraped_at DESC, 去重)
+  function mergeLatestItems(latestProjects) {
+    var map = new Map();
+    (latestProjects || []).forEach(function(p) { if (p && p.url) map.set(p.url, p); });
+    if (allItems && allItems.length > 0) {
+      allItems.forEach(function(p) { if (p && p.url && !map.has(p.url)) map.set(p.url, p); });
+    }
+    allItems = Array.from(map.values());
+    // 截断上限 (防御性, 正常 stream 全量 ~110K 不会触发)
+    if (allItems.length > MAX_ALL_ITEMS) allItems = allItems.slice(0, MAX_ALL_ITEMS);
+    // 按 scraped_at DESC 排序
+    allItems.sort(function(a, b) {
+      return (b.scraped_at || '').localeCompare(a.scraped_at || '');
+    });
+  }
+
+  // 7-01: 智能后台同步 — 首次 stream 全量, 后续 delta
+  // 决策依据: localStorage cache 的 fully_loaded 字段
+  function backgroundSync(cached) {
+    var fullyLoaded = cached && cached.fully_loaded;
+    var lastSync = cached ? (cached.last_sync_at || '') : '';
+    // 决策表:
+    //   first time (no cache)            → stream 全量
+    //   cached but not fully_loaded       → stream 全量 (上次没下完)
+    //   cached and fully_loaded           → delta only (since lastSync)
+    if (!fullyLoaded) {
+      console.log('[bg-sync] 首次 / 未完成 → 后台 stream 全量');
+      streamFullBackground();
+    } else {
+      console.log('[bg-sync] 已 fully_loaded → 后台 delta since', lastSync);
+      backgroundDeltaSync();
+    }
+  }
+
+  // 后台 stream 全量 (用户首屏已看到 1000, 后台静默拉余下 108K)
+  async function streamFullBackground() {
+    try {
+      var res = await authFetch('/api/projects?stream=1');
+      if (!res.ok || !res.body) {
+        console.warn('[stream-full] 失败:', res.status);
+        return false;
+      }
+      var ct = res.headers.get('content-type') || '';
+      if (ct.indexOf('ndjson') === -1) return false;
+
+      var reader = res.body.getReader();
+      var decoder = new TextDecoder('utf-8');
+      var buffer = '';
+      var totalExpected = 0;
+      var streamItems = [];
+      var startTime = Date.now();
+
+      while (true) {
+        var result = await reader.read();
+        if (result.done) break;
+        buffer += decoder.decode(result.value, { stream: true });
+        var lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
+          if (!line) continue;
+          try {
+            var obj = JSON.parse(line);
+            if (obj._meta) {
+              if (typeof obj.total === 'number') totalExpected = obj.total;
+              if (obj.done) {
+                console.log('[stream-full] 完成', streamItems.length, '/', totalExpected, 'in', ((Date.now() - startTime) / 1000).toFixed(1), 's');
+              }
+            } else {
+              streamItems.push(obj);
+            }
+          } catch(e) { /* skip */ }
+        }
+      }
+      if (buffer.trim()) {
+        try { var tail = JSON.parse(buffer); if (!tail._meta) streamItems.push(tail); } catch(e) {}
+      }
+
+      // 去重 + 合并
+      var seen = new Set();
+      streamItems = streamItems.filter(function(p) {
+        if (!p || !p.url || seen.has(p.url)) return false;
+        seen.add(p.url);
+        return true;
+      });
+      // 合并 (latest 阶段已加 1000, 这里覆盖)
+      var map = new Map();
+      streamItems.forEach(function(p) { if (p && p.url) map.set(p.url, p); });
+      allItems = Array.from(map.values());
+      allItems.sort(function(a, b) {
+        return (b.scraped_at || '').localeCompare(a.scraped_at || '');
+      });
+
+      var topScraped = allItems.length > 0 ? allItems[0].scraped_at : '';
+      // 保存到 localStorage, 标记 fully_loaded=true
+      saveCachedData(allItems.slice(0, CACHE_MAX_ITEMS), topScraped, allItems.length, true);
+      // 更新 total
+      var stEl = document.getElementById('statTotal');
+      if (stEl) stEl.textContent = allItems.length.toLocaleString();
+      applyFilters();
+      console.log('[stream-full] allItems 已补全为', allItems.length, '条, 标 fully_loaded=true');
+      return true;
+    } catch(e) {
+      console.error('[stream-full] 失败:', e);
+      return false;
+    }
+  }
+
+  // 7-01: 旧 stream 全量逻辑保留为 fallback (latest 端点失败时用)
+  async function loadDataStreamLegacy() {
+    try {
+      var res = await authFetch('/api/projects?stream=1');
+      if (!res.ok || !res.body) {
+        // 不支持 stream → 原 JSON 路径
+        var jsonRes = await authFetch('/api/projects?page_size=5000');
+        var jsonData = await jsonRes.json();
+        allItems = jsonData.projects || jsonData.data || [];
+        return true;
+      }
+      // NDJSON stream 解析
+      var reader = res.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = '';
+      var startTime = Date.now();
+      var yielded = 0;
+      var totalExpected = 0;
+      var streamAllItems = [];
+      while (true) {
+        var r = await reader.read();
+        if (r.done) break;
+        buffer += decoder.decode(r.value, {stream: true});
+        var lines = buffer.split('\\n');
+        buffer = lines.pop();
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
+          if (!line) continue;
+          try {
+            var obj = JSON.parse(line);
+            if (obj._meta) {
+              totalExpected = obj.total || 0;
+            } else if (obj.done) {
+              console.log('[stream-legacy] 完成 ' + yielded + ' 条 in ' + ((Date.now() - startTime) / 1000).toFixed(1) + 's');
+            } else {
+              streamAllItems.push(obj);
+              yielded++;
+            }
+          } catch(e) { /* skip */ }
+        }
+      }
+      // 去重
+      var seen = new Set();
+      streamAllItems = streamAllItems.filter(function(p) { if (!p || !p.url || seen.has(p.url)) return false; seen.add(p.url); return true; });
+      allItems = streamAllItems;
+      return true;
+    } catch(e) {
+      console.error('[stream-legacy] 失败:', e);
+      return false;
+    }
+  }
+
+  // 7-01: fetch /api/stats 填 today/weekly/success_rate/last_run
+  function fetchStatsSummary() {
+    fetch('/api/stats', {headers: authHeaders()})
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(stats) {
+        if (!stats) return;
+        var sw = document.getElementById('statWeekly');
+        if (sw) sw.textContent = stats.weekly_count != null ? stats.weekly_count : '0';
+        var sf = document.getElementById('statFiltered');
+        if (sf) sf.textContent = stats.today != null ? stats.today : '0';
+        var sr = document.getElementById('statRate');
+        if (sr) sr.textContent = stats.success_rate || '—';
+        var lr = document.getElementById('statLastRun');
+        if (lr && stats.last_run) {
+          var m = String(stats.last_run).match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/);
+          lr.textContent = m ? m[1] : stats.last_run;
+        }
+      })
+      .catch(function(e) { console.warn('[stats] 拉取失败:', e); });
   }
 
   // ── 6-30 缓存优化: localStorage 持久化首屏 (200 条轻量版) + 后台 delta 增量 ──
   var CACHE_KEY = 'tender_data_v1';
+  var LATEST_LIMIT = 1000;          // 7-01: 首屏拉最新 1000 条 (服务端 L1 cache, <50ms)
+  var MAX_ALL_ITEMS = 200000;      // 7-01: allItems 上限 (防御性, 远高于当前 ~110K 全量)
   var CACHE_MAX_ITEMS = 200;        // 200 条轻量版 ~1.2MB
   var CACHE_MAX_AGE_MS = 6 * 3600 * 1000;  // 6h 过期
 
@@ -748,7 +910,7 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
     } catch(e) { return null; }
   }
 
-  function saveCachedData(items, lastSyncAt, total) {
+  function saveCachedData(items, lastSyncAt, total, fullyLoaded) {
     try {
       // 轻量版: 去掉 content_preview / full_content 节省 90% 空间
       var lite = items.slice(0, CACHE_MAX_ITEMS).map(function(p) {
@@ -810,7 +972,7 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
           // 重新渲染 (后台)
           applyFilters();
           // 保存新 cache
-          saveCachedData(merged, d.last_sync_at, cached.total + d.delta_count);
+          saveCachedData(merged, d.last_sync_at, cached.total + d.delta_count, cached.fully_loaded || false);
           // 用户提示 (不打扰, 仅 console)
           console.log('[delta] merged into', merged.length, 'items, total =', cached.total + d.delta_count);
         })
@@ -818,140 +980,6 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
     });
   }
 
-  // 2026-06-26 PR #46: NDJSON 流式加载
-  // 返回 true=成功, false=后端不支持 fallback
-  async function loadDataStream() {
-    try {
-      var res = await authFetch('/api/projects?stream=1');
-      // 检查 content-type 判断后端是否支持流式
-      var ct = res.headers.get('content-type') || '';
-      if (ct.indexOf('ndjson') === -1) {
-        console.warn('[stream] 后端未返回 NDJSON, fallback');
-        return false;
-      }
-      if (!res.body || !res.body.getReader) {
-        console.warn('[stream] 浏览器不支持 ReadableStream, fallback');
-        return false;
-      }
-
-      var reader = res.body.getReader();
-      var decoder = new TextDecoder('utf-8');
-      var buffer = '';
-      var yielded = 0;
-      var totalExpected = 0;
-      var startTime = Date.now();
-      var progressEl = document.getElementById('statTotal');
-
-      // 临时 progress 变量 (后 meta chunk 到达后覆写)
-      allItems = [];
-
-      while (true) {
-        var result = await reader.read();
-        if (result.done) break;
-        buffer += decoder.decode(result.value, { stream: true });
-
-        // 按换行拆 NDJSON
-        var lines = buffer.split('\n');
-        buffer = lines.pop();  // 保留不完整尾行
-
-        for (var i = 0; i < lines.length; i++) {
-          var line = lines[i].trim();
-          if (!line) continue;
-          var obj;
-          try { obj = JSON.parse(line); } catch(e) {
-            console.warn('[stream] JSON 解析失败, 跳过:', line.slice(0, 80));
-            continue;
-          }
-          if (obj._meta) {
-            if (typeof obj.total === 'number') {
-              totalExpected = obj.total;
-              // 立即更新全量统计 (从第一个 chunk)
-              if (progressEl) progressEl.textContent = obj.total.toLocaleString();
-            }
-            if (obj.last_run) {
-              // 2026-06-30 修复: stream _meta.last_run 不再覆盖本周采集卡片 (id 冲突)
-              // 此字段已无 UI 展示位置, 仅 console.log 便于调试
-              console.log('[stream] last_run:', obj.last_run);
-            }
-            if (obj.done) {
-              var dur = (Date.now() - startTime) / 1000;
-              console.log('[stream] 完成, yield=' + obj.yielded + '/' + totalExpected + ', 耗时=' + dur.toFixed(2) + 's');
-              // 6-30 增量: stream 完成后保存到 localStorage (下次刷新秒开)
-              if (allItems.length > 0) {
-                var latest = '';
-                for (var j = 0; j < Math.min(allItems.length, 50); j++) {
-                  if (allItems[j] && allItems[j].scraped_at) {
-                    latest = allItems[j].scraped_at;
-                    break;
-                  }
-                }
-                saveCachedData(allItems, latest, totalExpected);
-              }
-              // 6-30 Bug1: stream 完成后调 /api/stats 填 statWeekly / statFiltered / statRate
-              fetch('/api/stats', {headers: authHeaders()})
-                .then(function(r) { return r.ok ? r.json() : null; })
-                .then(function(stats) {
-                  if (!stats) return;
-                  var sw = document.getElementById('statWeekly');
-                  if (sw) sw.textContent = stats.weekly_count != null ? stats.weekly_count : '0';
-                  var sf = document.getElementById('statFiltered');
-                  if (sf) sf.textContent = stats.today != null ? stats.today : '0';
-                  var sr = document.getElementById('statRate');
-                  if (sr) sr.textContent = stats.success_rate || '—';
-                  // 6-30 Bug3: last_run 截取到分钟
-                  var lr = document.getElementById('statLastRun');
-                  if (lr && stats.last_run) {
-                    var m = String(stats.last_run).match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/);
-                    lr.textContent = m ? m[1] : stats.last_run;
-                  }
-                })
-                .catch(function(e) { console.warn('[stream] /api/stats 拉取失败:', e); });
-            }
-          } else {
-            // 数据行
-            allItems.push(obj);
-            yielded++;
-            // 进度更新: 每 500 条刷新一次 (避免 DOM 频繁重排)
-            if (yielded % 500 === 0) {
-              var statFiltered = document.getElementById('statFiltered');
-              if (statFiltered) statFiltered.textContent = yielded.toLocaleString() + ' / ' + totalExpected.toLocaleString();
-            }
-          }
-        }
-      }
-      // 处理缓冲区残留
-      if (buffer.trim()) {
-        try {
-          var tail = JSON.parse(buffer);
-          if (!tail._meta) allItems.push(tail);
-        } catch(e) { /* ignore */ }
-      }
-
-      // 去重 (与原行为一致)
-      var seenUrls = new Set();
-      allItems = allItems.filter(function(item) {
-        if (seenUrls.has(item.url)) return false;
-        seenUrls.add(item.url);
-        return true;
-      });
-      // 今日新增需要从 _meta.total - allItems.length 推算
-      // stream 不返回 today 字段, 显式请求 /api/stats 补充 (延迟一个小请求)
-      try {
-        var statsRes2 = await authFetch('/api/stats');
-        if (statsRes2.ok) {
-          var s2 = await statsRes2.json();
-          var todayEl = document.getElementById('statFiltered');
-          if (todayEl) todayEl.textContent = s2.today || '0';
-          var rateEl = document.getElementById('statRate');
-          if (rateEl) rateEl.textContent = s2.success_rate || '—';
-        }
-      } catch(_) { /* ignore */ }
-      return true;
-    } catch(e) {
-      console.error('[stream] 流式加载失败, fallback:', e);
-      return false;
-    }
-  }
 
   window.toggleFav = async function(e, url, isFav) {
     e.preventDefault();

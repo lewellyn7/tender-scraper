@@ -345,6 +345,87 @@ class Database(
             "content_preview": content_preview,
         })
 
+    
+    def get_latest_projects(self, limit: int = 1000) -> list:
+        """2026-07-01 PR: 拉取最新 N 条项目 (按 scraped_at DESC).
+
+        用于 /api/projects/latest 端点的 DB fallback.
+        L1/L2 cache 命中时跳过此方法 (走 in-memory slice).
+        """
+        conn = self._get_conn()
+        if USE_PG:
+            sql = """
+                SELECT * FROM (
+                    SELECT url, title, category, info_type, business_type, publish_date,
+                           publish_date_raw, content_preview, full_content, budget, bid_amount,
+                           deadline, region, industry, tender_type, project_overview,
+                           bidder_requirements, submission_deadline, contact_name,
+                           contact_phone, contact_email, attachments_count, attachments,
+                           keywords_matched, source_url, scraped_at, scraped_by,
+                           contract_amount, planned_publish_date, tender_content, project_no
+                    FROM projects_cqggzy
+                    UNION ALL
+                    SELECT url, title, category, info_type, business_type, publish_date,
+                           publish_date_raw, content_preview, full_content, budget, bid_amount,
+                           deadline, region, industry, tender_type, project_overview,
+                           bidder_requirements, submission_deadline, contact_name,
+                           contact_phone, contact_email, attachments_count, attachments,
+                           keywords_matched, source_url, scraped_at, scraped_by,
+                           contract_amount, planned_publish_date, tender_content, project_no
+                    FROM projects_ccgp
+                    UNION ALL
+                    SELECT url, title, category, info_type, business_type, publish_date,
+                           publish_date_raw, content_preview, full_content, budget, bid_amount,
+                           deadline, region, industry, tender_type, project_overview,
+                           bidder_requirements, submission_deadline, contact_name,
+                           contact_phone, contact_email, attachments_count, attachments,
+                           keywords_matched, source_url, scraped_at, scraped_by,
+                           contract_amount, planned_publish_date, tender_content, project_no
+                    FROM projects_fahcqmu
+                ) AS combined
+                ORDER BY scraped_at DESC NULLS LAST
+                LIMIT %s
+            """
+        else:
+            sql = """
+                SELECT * FROM (
+                    SELECT url, title, category, info_type, business_type, publish_date,
+                           publish_date_raw, content_preview, full_content, budget, bid_amount,
+                           deadline, region, industry, tender_type, project_overview,
+                           bidder_requirements, submission_deadline, contact_name,
+                           contact_phone, contact_email, attachments_count, attachments,
+                           keywords_matched, source_url, scraped_at, scraped_by,
+                           contract_amount, planned_publish_date, tender_content, project_no
+                    FROM projects_cqggzy
+                    UNION ALL
+                    SELECT url, title, category, info_type, business_type, publish_date,
+                           publish_date_raw, content_preview, full_content, budget, bid_amount,
+                           deadline, region, industry, tender_type, project_overview,
+                           bidder_requirements, submission_deadline, contact_name,
+                           contact_phone, contact_email, attachments_count, attachments,
+                           keywords_matched, source_url, scraped_at, scraped_by,
+                           contract_amount, planned_publish_date, tender_content, project_no
+                    FROM projects_ccgp
+                    UNION ALL
+                    SELECT url, title, category, info_type, business_type, publish_date,
+                           publish_date_raw, content_preview, full_content, budget, bid_amount,
+                           deadline, region, industry, tender_type, project_overview,
+                           bidder_requirements, submission_deadline, contact_name,
+                           contact_phone, contact_email, attachments_count, attachments,
+                           keywords_matched, source_url, scraped_at, scraped_by,
+                           contract_amount, planned_publish_date, tender_content, project_no
+                    FROM projects_fahcqmu
+                )
+                ORDER BY scraped_at DESC
+                LIMIT ?
+            """
+        try:
+            rows = conn.execute(sql, (limit,)).fetchall()
+            return [dict(r) if not isinstance(r, dict) else r for r in rows]
+        except Exception as e:
+            logger.error(f"[get_latest_projects] DB error limit={limit}: {e}")
+            return []
+
     def upsert_projects(self, rows: list):
         """批量 upsert 项目到 projects_cqggzy 表（URL 去重）
         
