@@ -208,7 +208,8 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 # 详情页 URL 必须含 _N 后缀, 否则网站返回空 200 响应 (无正文)
                 # curl 路径已验证：无后缀 → 空详情页 (静默数据缺失)
                 # 统一处理：保留 _N 后缀；裸数字 ID 自动补 _1
-                if infoid and '_' not in infoid:
+                # 6-30 修复: 必须加 isdigit() 检查, 否则 UUID 也会被加 _1 → URL 错
+                if infoid and '_' not in infoid and infoid.isdigit():
                     infoid = f'{infoid}_1'
                 raw_catnum = item.get('categorynum', '') or ''
                 # 2026-06-23 修复: 严格白名单 (用户 6-23 明确指令: 非以上来源不采集)
