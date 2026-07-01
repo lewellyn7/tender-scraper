@@ -52,7 +52,7 @@ IN_PROCESS_TTL_MAIN = int(os.getenv("DATA_CACHE_L1_TTL", "3600"))        # 1h
 IN_PROCESS_TTL_FILTER = int(os.getenv("DATA_CACHE_L1_FILTER_TTL", "300")) # 5min
 REDIS_TTL = int(os.getenv("DATA_CACHE_L2_TTL", "86400"))                   # 24h
 REDIS_TIMEOUT = int(os.getenv("DATA_CACHE_REDIS_TIMEOUT", "2"))            # 2s
-WARM_UP_DELAY = int(os.getenv("DATA_CACHE_WARM_UP_DELAY", "30"))            # 30s
+WARM_UP_DELAY = int(os.getenv("DATA_CACHE_WARM_UP_DELAY", "5"))            # 7-02: 30s → 5s (dashboard 首次访问就能命中 L1, 不等 30s)
 
 
 class DataCache:
