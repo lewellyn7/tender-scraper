@@ -49,7 +49,7 @@ from config.settings import settings
 
 
 # 采集源开关（2026-06-02 决策，与原 main.py 一致）
-ENABLE_CCGP = False  # 设为 True 重新启用 CCGP 采集（需先修复 XHR 端点问题）
+ENABLE_CCGP = True  # 7-2 重新启用 CCGP 采集 (info-notice/*-list URL 模式 + 4 类目)
 # 2026-06-25: 重医附一院开关 (默认开启, 如需停采置 False)
 ENABLE_FAHCQMU = True
 

@@ -24,10 +24,13 @@ class CCGPCrawlerV3(BaseCrawler):
 
     BASE_URL = "https://www.ccgp-chongqing.gov.cn"
 
+    # 7-2 用户确认: info-notice/*-list 是正确的列表页 URL 模式
+    # (ColumnName meta 标签验证: intention=采购意向, demand=需求调查)
     LIST_URLS = {
-        "采购意向": "https://www.ccgp-chongqing.gov.cn/gkw/web/portal/intention/list",
-        "采购公告": "https://www.ccgp-chongqing.gov.cn/gkw/web/portal/notice/list",
-        "结果公告": "https://www.ccgp-chongqing.gov.cn/gkw/web/portal/result/list",
+        "采购意向": "https://www.ccgp-chongqing.gov.cn/info-notice/intention-list",
+        "采购公告": "https://www.ccgp-chongqing.gov.cn/info-notice/notice-list",
+        "结果公告": "https://www.ccgp-chongqing.gov.cn/info-notice/result-list",
+        "需求调查": "https://www.ccgp-chongqing.gov.cn/info-notice/demand-list",
     }
 
     async def fetch_list(
