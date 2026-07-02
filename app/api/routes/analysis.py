@@ -99,7 +99,7 @@ async def bid_rank(
     date_end: Optional[date] = Query(None, description="period=custom 必填"),
     info_type: Optional[str] = Query(None, description="进一步过滤: 中标结果公示 (只看中标人) / 中标候选人公示 / all"),
     sort_by: str = Query("amount", description="amount / count"),
-    limit: int = Query(50, ge=1, le=500, description="默认 50, 最大 500"),
+    limit: int = Query(20, ge=1, le=500, description="默认 20, 最大 500"),  # 2026-06-22 改造: 默认 50→20
     project_type: Optional[str] = Query(None, description="项目类型过滤 — 单值 (向后兼容)"),
     project_types: Optional[str] = Query(None, description="项目类型过滤 — 多值 (逗号分隔, OR 语义)。例: 智能化,老旧小区改造"),
 ):
@@ -136,7 +136,7 @@ async def bid_rank(
 
     sql = f"""
         SELECT
-          COALESCE(cleaned_winner_name, winner_name) AS winner_name,
+          COALESCE(NULLIF(cleaned_winner_name, ''), winner_name) AS winner_name,  -- 2026-06-22: 优先用清洗后
           COUNT(DISTINCT project_id) AS project_count,
           SUM(bid_amount_num) AS total_amount,
           ROUND(AVG(bid_amount_num), 2) AS avg_amount,
@@ -149,7 +149,7 @@ async def bid_rank(
         WHERE {info_filter}
           AND publish_date BETWEEN %s AND %s
           {type_filter}
-        GROUP BY COALESCE(cleaned_winner_name, winner_name)
+        GROUP BY COALESCE(NULLIF(cleaned_winner_name, ''), winner_name)
         ORDER BY {order_col} DESC
         LIMIT %s
     """
@@ -215,6 +215,7 @@ async def bid_detail(
 
     cat_filter = ""
     type_filter = ""
+    types_list: list[str] = []  # 2026-06-22 fix: 默认空, 让 return 引用不出错
     params = [winner_name, date_start, date_end]
     if category:
         try:
@@ -222,7 +223,6 @@ async def bid_detail(
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
     if project_type or project_types:
-        types_list: list[str] = []
         if project_types:
             types_list = [t.strip() for t in project_types.split(",") if t.strip()]
         elif project_type:
@@ -240,7 +240,7 @@ async def bid_detail(
           p.title, p.publish_date AS p_date
         FROM bid_results br
         LEFT JOIN projects_cqggzy p ON p.id = br.project_id
-        WHERE COALESCE(br.cleaned_winner_name, br.winner_name) = %s
+        WHERE COALESCE(NULLIF(br.cleaned_winner_name, ''), br.winner_name) = %s  -- 2026-06-22: 匹配清洗后名称
           AND br.publish_date BETWEEN %s AND %s
           {cat_filter}
           {type_filter}

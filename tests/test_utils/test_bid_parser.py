@@ -530,8 +530,8 @@ class TestClassifyProjectType:
         """
         from app.utils.bid_parser import classify_project_type
         types = classify_project_type("老旧小区智能化改造项目", "将老旧小区进行智慧社区改造")
-        # 2026-06-20 16:55 改造后: 双向 neg 命中 → 都别剔除 → ['其他']
-        assert types == ["其他"], f"复合项目双向 neg 命中应归其他: {types}"
+        # 2026-06-22 改造后: bid_parser 不再产生 '其他' 兜底 → 返回 [] (信息类型=其他时由前端/DB 兜底)
+        assert types == [], f"复合项目双向 neg 命中应空 (信息类型其他独立处理): {types}"
 
     def test_多标签_类型无neg冲突(self):
         """无 neg 冲突时仍可多标签."""
@@ -544,15 +544,15 @@ class TestClassifyProjectType:
         assert "智能化" not in types
 
     def test_兜底_其他(self):
-        """未命中任何关键词 → ['其他']"""
+        """未命中任何关键词 → 2026-06-22 改造: 返回 [] 而非 ['其他']"""
         from app.utils.bid_parser import classify_project_type
-        assert classify_project_type("某某采购项目") == ["其他"]
+        assert classify_project_type("某某采购项目") == []
 
     def test_空标题(self):
-        """空 title 必须安全返回 ['其他']，不抛异常"""
+        """空 title 必须安全返回 [], 不抛异常 (2026-06-22 改造)"""
         from app.utils.bid_parser import classify_project_type
-        assert classify_project_type("", "") == ["其他"]
-        assert classify_project_type("", "正文") == ["其他"]
+        assert classify_project_type("", "") == []
+        assert classify_project_type("", "正文") == []
 
     def test_priority_顺序(self):
         """priority 小的在前 — 2026-06-20 16:55: 以无 neg 冲突的复合标题为例子.
@@ -619,8 +619,8 @@ class TestParseBidResultsProjectTypes:
             title="老旧小区智能化改造施工",
         )
         assert len(rows) == 1
-        # 2026-06-20 16:55: 以负向为主 → 双向 neg 命中 → ['其他']
-        assert rows[0]["project_types"] == ["其他"]
+        # 2026-06-22 改造: 返回 [] 而非 ['其他']
+        assert rows[0]["project_types"] == []
 
 
 # ─── project_types 负向关键词 (2026-06-20 16:55 新增) ────────────────────────────
@@ -671,7 +671,7 @@ class TestClassifyNegativeKeywords:
         # 智能化正='弱电/智能化' 命中, neg='改造' 命中 → 剔除
         # 老旧/零星等其他都不命中 → 空 → '其他'
         assert "智能化" not in result, f"智能化应被 neg 剔除: {result}"
-        assert result == ["其他"], f"无候选应归'其他', 实际: {result}"
+        assert result == [], f"无候选应空 (信息类型其他独立处理), 实际: {result}"
 
     def test_neg_不影响其他类型(self):
         """neg 仅作用于本类型, 不影响其他类型命中."""
@@ -722,4 +722,4 @@ class TestClassifyMultiLabelWithNeg:
         # 老旧 正='老旧小区/老旧' 命中, neg='智能化/智慧/...' 命中 → 剔除
         # 智能化 正='智能化' 命中, neg='改造' 命中 → 剔除
         # 其他类型不命中 → '其他'
-        assert result == ["其他"], f"全剔除应归其他: {result}"
+        assert result == [], f"全剔除应空 (信息类型其他独立处理): {result}"
