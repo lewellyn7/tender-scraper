@@ -113,7 +113,8 @@ def test_ccgp_base_url(crawler):
 
 
 def test_ccgp_list_urls_keys(crawler):
-    assert set(crawler.LIST_URLS.keys()) == {"采购意向", "采购公告", "结果公告"}
+    # 7-2: 加了 需求调查 (info-notice/demand-list)
+    assert set(crawler.LIST_URLS.keys()) == {"采购意向", "采购公告", "结果公告", "需求调查"}
 
 
 def test_ccgp_list_urls_values(crawler):
