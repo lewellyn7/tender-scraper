@@ -44,47 +44,149 @@ _ABORTED_PATTERNS = [
 # 公告原文里 "中标人: X 公司 资质: ..." / "供应商名称: X 业绩: ..."
 # 会把 "资质"/"业绩"/"第二中标候选人" 等附注一起抓到 winner_name 里.
 # cleaned_winner_name 用于 GROUP BY + 唯一约束, 避免附注差异导致重复入库.
+#
+# 7-01 拓展: 覆盖工程招投标中标候选人公示中常见的 10+ 未清洗模式:
+#   - "1.中标候选人的资质：..." / "1．中标候选人的资质：..." (数字+句点+中标候选人的+资质)
+#   - "公司资质：..." / "公司业绩：..." (多了"公司"前缀)
+#   - "资质等级：..." (没"企业"前缀)
+#   - "（联合体牵头人：X）" / "（联合体：X）" / "（联合体成员：X）" (联合体模式不全)
+#   - "&nbsp;" HTML 实体未清理
+#   - "无 提出异议的渠道和方式" (无 + 长描述)
+#   - "资质：xxx 第二中标候选人：xxx" (多 pass 累积)
+#   - "，企业资质：xxx" 中文逗号 (regex 只匹配空白)
+#   - "1．" 全角句点
+
+# 截断分隔符: 空白 + 中文标点 + 数字+句点 (eg "1.中标候选人的资质")
+# 用 ([0-9]+[.．]?[，；\s,;]+)? 替代纯空白, 允许 1. 2. 1． 等前缀
+_CLEAN_Winner_SEP = r'(?:[0-9]+[.．]?[，；\s,;]+)?'
 
 _CLEAN_Winner_STOP_PATTERNS = [
-    r'\s+资质[:：].*',         # " 资质:..."  / " 企业资质:..."
-    r'\s+企业资质[:：].*',
-    r'\s+业绩[:：].*',
-    r'\s+投标资格业绩[:：].*',
-    r'\s+单位名称[:：].*',
-    r'\s+第[一二三四五六七八九十]中标候选人.*',
-    r'\s+第二中标候选人.*',
-    r'\s+第三中标候选人.*',
-    r'\s+第四中标候选人.*',
-    r'（联合体.*',                # 联合体成员 — 主中标人在前
-    r'\s+\(联合体.*',
+    # ── 资质相关 (按特异性高→低排序) ──
+    _CLEAN_Winner_SEP + r'中标候选人的?资质[:：].*',     # "1.中标候选人的资质：..." / "1．中标候选人的资质：..."
+    _CLEAN_Winner_SEP + r'企业资质[:：].*',             # "企业资质：..." (含中文逗号)
+    _CLEAN_Winner_SEP + r'公司资质[:：].*',             # 7-01: "公司资质：..." (多了'公司'前缀)
+    _CLEAN_Winner_SEP + r'资质等级[:：].*',             # 7-01: "资质等级：..." (没'企业'前缀)
+    _CLEAN_Winner_SEP + r'投标资格业绩[:：].*',         # "投标资格业绩：..."
+    _CLEAN_Winner_SEP + r'资质[:：].*',                 # "资质：..." (最通用, 放在最后)
+    # ── 业绩相关 ──
+    _CLEAN_Winner_SEP + r'公司业绩[:：].*',             # 7-01: "公司业绩：..."
+    _CLEAN_Winner_SEP + r'业绩[:：].*',                 # "业绩：..."
+    # ── 单位名称 ──
+    _CLEAN_Winner_SEP + r'单位名称[:：].*',
+    # ── 中标候选人附注 ──
+    _CLEAN_Winner_SEP + r'第[一二三四五六七八九十]中标候选人.*',
+    _CLEAN_Winner_SEP + r'第[一二三四五六七八九十]+中标候选人.*',
+    # ── 7-01 v2: 段落分隔词 (公司名 + 关键词 + 详细描述) ──
+    _CLEAN_Winner_SEP + r'中标候选人(审查|资格|评审|评|详细|基本|主要|公示|初步|排序|排名|得分|一览|情况|信息|资料).*',
+    _CLEAN_Winner_SEP + r'否决投标(情况|的?|理由|原因).*',
+    _CLEAN_Winner_SEP + r'比选文件规定.*',
+    _CLEAN_Winner_SEP + r'招标文件规定.*',
+    _CLEAN_Winner_SEP + r'初步评审.*',
+    _CLEAN_Winner_SEP + r'其他详见.*',
+    _CLEAN_Winner_SEP + r'详见附表.*',
+    _CLEAN_Winner_SEP + r'其他资格能力.*',
+    # ── 7-01 v2: 中文冒号 + 资质等级附注 ──
+    r'[，；、\s,;：:]+\s*(建筑工程|市政公用|公路工程|水利水电|机电工程|装修装饰|钢结构|地基基础|施工总承包|专业承包).*',
+    # ── 联合体括号 (用 [^）]* 而非 .*? 避免匹配到内层嵌套的) ──
+    r'（联合体[^）]*）',                                  # 7-01: 联合体成员 / 牵头人 / 简写
+    r'\(联合体[^)]*\)',                                # 7-01: 半角括号版本
+    # ── "无" 开头的无效中标人 ──
+    r'^无[\s，：:].*',                                  # 7-01: "无 提出异议的渠道和方式..." / "无，xxx"
+    r'\s+无[\s，：:].*',                               # 7-01: "公司名 无 详细描述" (放后面截断, 避免切合法公司名)
 ]
 
-_CLEAN_Winner_MAX_LEN = 50  # 中文公司名实际长度 < 50 字符
+# HTML 实体清理: 公告抓取常带 &nbsp; 等
+_CLEAN_Winner_HTML_ENTITIES = {
+    '&nbsp;': ' ',
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'",
+}
+
+_CLEAN_Winner_MAX_LEN = 80  # 7-01 v2: 50→80, 给长公司名 + 联合体名留余量, 避免提前截断
+
+# 已知非公司名 (清洗后判定为无效)
+_CLEAN_Winner_INVALID_NAMES = frozenset([
+    '无', '无。', '无,', '无;', '无；',
+    '详见', '见附', '见上', '见下',
+    '/', '-', '—',
+])
 
 
-def clean_winner_name(raw: Optional[str]) -> Optional[str]:
-    """清洗 winner_name: 截断附注 + 联合体括号.
+def clean_winner_name(raw, max_passes=5):
+    r"""清洗 winner_name: 截断附注 + 联合体括号 + 多 pass + HTML 实体.
 
     入参: 公告原文抓到的 winner_name (可能含 资质/业绩/第二中标候选人 附注)
-    返回: 干净的中标人公司名; 若入参为空则返回 None
+    返回: 干净的中标人公司名; 若入参为空或无效则返回 None
+
+    7-01 拓展:
+      - 多 pass 清理 (max_passes=5): 应对 '资质:xxx 第二中标候选人:xxx' 多次截断
+      - HTML 实体清理: &nbsp; → 空格
+      - 中文标点支持: [，；\s,;]+ 替代 \s+ (中文逗号/分号)
+      - 联合体模式扩展: （联合体成员/牵头人/简写）
+      - 无效名判定: '无' / '详见' / 纯符号 → None
 
     示例:
       "重庆佰晟捷建筑工程有限公司 业绩：城口县2022年森林抚育项目"
         → "重庆佰晟捷建筑工程有限公司"
       "信息产业电子第十一设计研究院科技工程股份有限公司（联合体成员：中贝天丰）"
         → "信息产业电子第十一设计研究院科技工程股份有限公司"
+      "某公司&nbsp; 资质：xxx 第二中标候选人：另一公司"
+        → "某公司"
     """
     if not raw:
         return None
-    s = str(raw).strip()
-    if not s:
+    s = str(raw)
+    if not s.strip():
         return None
-    for pat in _CLEAN_Winner_STOP_PATTERNS:
-        s = re.sub(pat, '', s, count=1)
+
+    # Step 1: HTML 实体清理
+    for ent, rep in _CLEAN_Winner_HTML_ENTITIES.items():
+        s = s.replace(ent, rep)
+
+    # Step 2: 截断附注 (多 pass 直到稳定)
     s = s.strip()
+    for _ in range(max_passes):
+        prev = s
+        for pat in _CLEAN_Winner_STOP_PATTERNS:
+            s = re.sub(pat, '', s, count=1)
+        s = s.strip()
+        if s == prev:
+            break
+
+    # Step 3: 长度截断
     if len(s) > _CLEAN_Winner_MAX_LEN:
         s = s[:_CLEAN_Winner_MAX_LEN].rstrip()
-    return s or None
+
+    # Step 4: 无效名判定
+    s = s.strip()
+    if not s or s in _CLEAN_Winner_INVALID_NAMES:
+        return None
+    # 纯附注无公司名 (eg "资质:xxx"): 不含中文公司常见后缀
+    if len(s) < 5 and not any(kw in s for kw in ['公司', '有限', '集团', '厂', '院', '所', '中心', '校', '店']):
+        return None
+    # 纯附注 (只有"资质:xxx"但截断后无主中标人): 检测常见附注前缀词
+    if any(s.startswith(kw) for kw in ['资质：', '资质:', '业绩：', '业绩:', '项目名称：', '项目名称:']):
+        return None
+
+    # Step 4.5: 清理末尾孤立的标点/数字/右括号
+    # (多 pass 截断 + 嵌套联合体会留下 1. / ， / ） 等残留)
+    s = re.sub(r'[，；、,;\s]+$', '', s)
+    s = re.sub(r'[\s,;，；]*\d+[.．]?$', '', s)
+    s = re.sub(r'[)）]+$', '', s)
+    # 7-01 v2: 清理末尾孤立修饰词 (regex 截断后留下的 ' 企业' / ' 联合体' 等)
+    s = re.sub(r'\s+(企业|联合体|中标人|负责人|电话|地址)\s*$', '', s)
+    s = s.strip()
+
+    # Step 5: 最终检查
+    if not s or s in _CLEAN_Winner_INVALID_NAMES:
+        return None
+    if len(s) < 5 and not any(kw in s for kw in ['公司', '有限', '集团', '厂', '院', '所', '中心', '校', '店']):
+        return None
+
+    return s
 
 
 def is_aborted(content: str) -> bool:
