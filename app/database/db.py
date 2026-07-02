@@ -574,6 +574,94 @@ class Database(
 
 
     # ============================================================================
+    # 2026-07-02: CCGP 采购意向 / 需求调查 (cherry-pick from feat/ccgp-intention-demand-2026-07-01)
+    # 表: projects_ccgp_intention_demand (migration 004)
+    # 采集器: app.crawlers.ccgp_intent_demand.CcgpIntentDemandCrawler
+    # 触发: /api/internal/ccgp-collect (admin)
+    # ============================================================================
+    def upsert_projects_ccgp_intention_demand(self, rows: list):
+        """批量 upsert 项目到 projects_ccgp_intention_demand 表 (URL 去重)
+
+        字段: url / title / category / info_type / business_type / publish_date /
+              content_preview / full_content / tender_content / budget / attachments /
+              keywords_matched / source_url / scraped_at / source_id / source_type 等
+        保护字段: full_content / content_preview / tender_content (CASE WHEN 空字符串保护)
+        """
+        if not rows:
+            return
+        conn = self._get_conn().conn
+        rows_original = [r for r in rows if isinstance(r, dict)]
+        try:
+            cols = [
+                "url", "title", "category", "info_type", "business_type",
+                "publish_date", "publish_date_raw", "content_preview", "full_content",
+                "budget", "bid_amount", "region", "industry", "tender_type",
+                "project_overview", "bidder_requirements",
+                "submission_deadline", "submission_location",
+                "contact_name", "contact_phone", "contact_email",
+                "attachments_count", "attachments", "keywords_matched",
+                "source_url", "scraped_at", "scraped_by",
+                "contract_amount", "planned_publish_date", "tender_content", "project_no",
+                "source_id", "source_type",
+            ]
+            placeholders = ",".join(["%s"] * len(cols))
+            text_protected_cols = {"full_content", "content_preview", "tender_content"}
+            timestamp_protected_cols = {"scraped_at"}
+            set_parts = []
+            for c in cols[1:]:
+                if c in text_protected_cols:
+                    set_parts.append(
+                        f"{c}=CASE WHEN EXCLUDED.{c} IS NOT NULL AND EXCLUDED.{c} <> '' "
+                        f"THEN EXCLUDED.{c} ELSE projects_ccgp_intention_demand.{c} END"
+                    )
+                elif c in timestamp_protected_cols:
+                    set_parts.append(
+                        f"{c}=CASE WHEN EXCLUDED.{c} IS NOT NULL "
+                        f"THEN EXCLUDED.{c} ELSE projects_ccgp_intention_demand.{c} END"
+                    )
+                else:
+                    set_parts.append(f"{c}=EXCLUDED.{c}")
+            set_clause = ", ".join(set_parts)
+            insert_sql = f"""
+                INSERT INTO projects_ccgp_intention_demand ({','.join(cols)})
+                VALUES ({placeholders})
+                ON CONFLICT (url) DO UPDATE SET
+                    {set_clause}
+            """
+            from psycopg2.extras import execute_batch
+
+            if rows and isinstance(rows[0], dict):
+                null_cols = {'deadline', 'publish_date', 'attachments_count',
+                             'opening_date', 'scraped_at', 'source_type'}
+                jsonb_cols = {'attachments'}
+                def _to_val(r, c):
+                    v = r.get(c)
+                    if v is None or v == "":
+                        return None
+                    if c in jsonb_cols:
+                        if isinstance(v, (list, dict)) and len(v) == 0:
+                            return None
+                        import json
+                        return json.dumps(v, ensure_ascii=False) if isinstance(v, (list, dict)) else v
+                    return v if c in null_cols else (v or "")
+                rows = [[_to_val(r, c) for c in cols] for r in rows]
+
+            execute_batch(conn.cursor(), insert_sql, rows, page_size=500)
+            conn.commit()
+            logger.debug(f"upsert_projects_ccgp_intention_demand: {len(rows)} rows")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"upsert_projects_ccgp_intention_demand: {e}")
+            raise
+
+        # 联动写入 projects + project_records 关联表
+        try:
+            self._sync_projects_link(rows_original, source_table="projects_ccgp_intention_demand")
+        except Exception as e:
+            logger.warning(f"_sync_projects_link (ccgp_intention_demand) failed: {e}")
+
+
+    # ============================================================================
     # 2026-06-25: 重医附一院采集 (fahcqmu)
     # PR #39: feat/fahcqmu-crawler
     # ============================================================================
@@ -704,7 +792,7 @@ class Database(
             limit_clause = ""
 
         results: Dict[str, dict] = {}  # url -> dict (去重)
-        tables = ("projects_cqggzy", "projects_ccgp", "projects_fahcqmu")
+        tables = ("projects_cqggzy", "projects_ccgp", "projects_ccgp_intention_demand", "projects_fahcqmu")
 
         try:
             conn = self._get_conn()

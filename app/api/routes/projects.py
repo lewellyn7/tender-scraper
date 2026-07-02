@@ -22,6 +22,7 @@ from app.api.dependencies import get_current_user
 from app.utils.tfidf_matcher import TFIDFMatcher
 from app.utils.session import get_user_from_session
 from app.utils.search_parser import parse_keyword, match_item
+from app.utils.log_sanitizer import sanitize_error_message
 
 
 def get_current_user_id_optional(request) -> str:
@@ -298,7 +299,7 @@ def _load_projects():
                 "tender_content": d.get("tender_content", "") or "",
             }
         
-        for table in ("projects_cqggzy", "projects_ccgp", "projects_fahcqmu"):
+        for table in ("projects_cqggzy", "projects_ccgp", "projects_ccgp_intention_demand", "projects_fahcqmu"):
             try:
                 rows = conn.execute(f'SELECT * FROM {table}').fetchall()
                 cols = [d[0] for d in conn.execute(f'SELECT * FROM {table} LIMIT 0').description]
@@ -1049,3 +1050,59 @@ async def clear_cache_endpoint(request: Request, user: dict = Depends(get_curren
 async def cache_stats_endpoint(user: dict = Depends(get_current_user)):
     """查看 DataCache 状态 (任意登录用户)."""
     return data_cache.stats()
+
+
+# ============================================================================
+# 2026-07-02: CCGP 采购意向 / 需求调查 采集触发 (cherry-pick)
+# ============================================================================
+@router.post("/internal/ccgp-collect")
+async def trigger_ccgp_collect(
+    days: int = 30,
+    user: dict = Depends(get_current_user),
+):
+    """手动触发 CCGP 采购意向 / 需求调查 采集. Admin only.
+
+    Returns: 采集统计 (total / matched / by_type) 或 错误.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="需要 admin 权限")
+    from app.core.harvest.pipeline import run_ccgp_intent_demand_collection
+    try:
+        result = await run_ccgp_intent_demand_collection(days=days)
+        return {"status": "ok", "result": result}
+    except (OSError, IOError, RuntimeError) as e:
+        logger.error(f"CCGP collect failed: {sanitize_error_message(str(e))}")
+        return {"status": "error", "error": str(e)}
+
+
+@router.get("/internal/ccgp-collect/stats")
+async def ccgp_collect_stats_endpoint(user: dict = Depends(get_current_user)):
+    """查看 CCGP 采购意向 / 需求调查 采集状态 (任意登录用户)."""
+    from app.database.db import get_db
+    db = get_db()
+    try:
+        with db._get_conn().conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    info_type,
+                    COUNT(*) as total,
+                    COUNT(*) FILTER (WHERE scraped_at > NOW() - INTERVAL '1 day') as today,
+                    COUNT(*) FILTER (WHERE scraped_at > NOW() - INTERVAL '30 days') as last_30d,
+                    MAX(publish_date) as latest_publish
+                FROM projects_ccgp_intention_demand
+                GROUP BY info_type
+                ORDER BY info_type
+            """)
+            rows = cur.fetchall()
+        stats = []
+        for r in rows:
+            stats.append({
+                "info_type": r[0],
+                "total": r[1],
+                "today": r[2],
+                "last_30d": r[3],
+                "latest_publish": r[4].isoformat() if r[4] else None,
+            })
+        return {"status": "ok", "stats": stats}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}

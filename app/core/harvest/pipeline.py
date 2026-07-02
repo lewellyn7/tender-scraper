@@ -728,3 +728,106 @@ async def run_fahcqmu_collection(detail_limit: int = 300):
         logger.error(f"❌ fahcqmu 采集任务失败: {e}")
         import traceback; traceback.print_exc()
         return None
+
+
+
+# ============================================================================
+# 2026-07-02: CCGP 采购意向 / 需求调查 采集 (cherry-pick from feat/ccgp-intention-demand-2026-07-01)
+# 公共 JSON API (/yw-gateway/demand/demand/front?type=1|2) + aiohttp 异步
+# 30 天增量 (createTimeStart=now-30d)
+# 独立函数, 不影响 CQGGZY/fahcqmu pipeline. 触发方式:
+#   - 环境变量: CCGP_ID_RUN=1 python -m main
+#   - API: POST /api/internal/ccgp-collect
+#   - 或: python -c "import asyncio; from app.core.harvest.pipeline import run_ccgp_intent_demand_collection; asyncio.run(run_ccgp_intent_demand_collection())"
+# ============================================================================
+
+async def run_ccgp_intent_demand_collection(days: int = 30):
+    """执行 CCGP 采购意向 / 需求调查 采集任务.
+
+    流程:
+    1. 创建 aiohttp session + CcgpIntentDemandCrawler
+    2. fetch_all_lists(days=30) — 2 类并行翻页 (30 天增量, 默认)
+    3. 关键词过滤 (复用 TenderFilter)
+    4. upsert_projects_ccgp_intention_demand() — 批量写库
+    5. 输出独立文件: ccgp_intent_demand_latest.json
+
+    Returns: dict with stats (total, matched, by_type) 或 None on failure
+    """
+    logger.info("=" * 60)
+    logger.info("🚀 开始执行 CCGP 采购意向 / 需求调查 采集任务")
+    logger.info("=" * 60)
+
+    try:
+        from app.crawlers.ccgp_intent_demand import CcgpIntentDemandCrawler, CATEGORIES as CCGP_ID_CATEGORIES
+        from app.database.db import get_db
+        from app.utils.filter import TenderFilter
+    except Exception as e:
+        logger.error(f"❌ 导入失败: {e}")
+        return None
+
+    db = get_db()
+    filter_engine = TenderFilter(
+        keywords=settings.KEYWORDS,
+        exclude_keywords=settings.EXCLUDE_KEYWORDS
+    )
+
+    all_items: list = []
+    by_type: dict = {}
+    async with CcgpIntentDemandCrawler() as crawler:
+        for cfg in CCGP_ID_CATEGORIES:
+            info_type = cfg.info_type
+            logger.info(f"📋 采集 {info_type} (type={cfg.type_id}, {days}天增量)...")
+            try:
+                items = await crawler.fetch_all_lists(
+                    categories=[cfg], days=days
+                )
+                logger.info(f"  {info_type}: {len(items)} 条")
+                by_type[info_type] = len(items)
+                all_items.extend(items)
+            except Exception as e:
+                logger.error(f"  {info_type} 采集失败: {e}")
+                by_type[info_type] = 0
+
+    if not all_items:
+        logger.warning("⚠️ CCGP 未采集到任何数据")
+        return {"total": 0, "matched": 0, "by_type": by_type}
+
+    # 关键词过滤
+    matched_items = []
+    for item in all_items:
+        if filter_engine._contains_exclude(item.title):
+            continue
+        matched_keywords = filter_engine.check_keywords(item.title)
+        if matched_keywords:
+            item.keywords_matched = matched_keywords
+            matched_items.append(item)
+
+    logger.info(f"✅ 匹配关键词的项目：{len(matched_items)}/{len(all_items)} 条")
+
+    # 转 DB rows
+    from app.crawlers.ccgp_intent_demand import tender_to_db_row
+    rows = [tender_to_db_row(t) for t in all_items]
+    try:
+        db.upsert_projects_ccgp_intention_demand(rows)
+        logger.info(f"💾 写入数据库: {len(rows)} 条 (projects_ccgp_intention_demand)")
+    except Exception as e:
+        logger.error(f"❌ 写库失败: {e}")
+        return None
+
+    # 输出 JSON
+    import json
+    from pathlib import Path
+    # 容器无 data/ 写权限, 改用 /tmp (生产环境)
+    output_dir = Path(os.environ.get("CCGP_ID_OUTPUT_DIR", "/tmp/ccgp_intent_demand"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "ccgp_intent_demand_latest.json"
+    with output_path.open("w", encoding="utf-8") as f:
+        json.dump([r for r in rows], f, ensure_ascii=False, indent=2, default=str)
+    logger.info(f"📊 数据文件: {output_path}")
+
+    return {
+        "total": len(all_items),
+        "matched": len(matched_items),
+        "by_type": by_type,
+        "data_path": str(output_path),
+    }
