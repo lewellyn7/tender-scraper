@@ -76,7 +76,7 @@ async def _warmup_embedding_model():
     try:
         from app.core.harvest.data_cache import data_cache
         await data_cache.start_pubsub_listener()
-        # 30s 后异步预热 (不等预热完成, 启动不阻塞)
+        # 7-02 优化: 启动后立即预热 (不延迟 30s), 让用户重启后首次访问 dashboard 就走 L1 cache
         asyncio.create_task(data_cache.warm_up())
         logger.info("[startup] DataCache Pub/Sub 订阅 + 预热已调度")
     except Exception as e:

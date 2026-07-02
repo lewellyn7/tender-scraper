@@ -122,27 +122,26 @@
     // ── Init ──────────────────────────────────────────────────────────
     function initData() {
         document.getElementById('skeletonLoader').style.display = 'grid';
-        // 6-17 修复: 并行拉取 favorites 总数（与 projects 同步）
+        // 7-02 优化: stats 优先 render (不等 projects), projects 用 /api/projects/latest?limit=500
+        // (L1 cache 0.1ms) 替代 /api/projects?page_size=500 (0.4s)
         var favPromise = fetch('/api/favorites?limit=1', {headers: authHeaders()})
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(d) { return d && typeof d.total === 'number' ? d.total : null; })
             .catch(function() { return null; });
-        // 6-30 Bug2: 改用 /api/stats 拿轻量统计 + 单独拉 source 维度
-        // 避免 page_size=1000 全量拉取 + 走 page cache
-        Promise.all([
-            fetch('/api/stats', {headers: authHeaders()}).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
-            fetch('/api/projects?page_size=500', {headers: authHeaders()}).then(function(r) { return r.json(); }).catch(function() { return null; })
-        ]).then(function(results) {
-            var stats = results[0] || {};
-            var data = results[1] || {projects: [], data: [], total: 0};
-            projects = data.data || data.projects || [];
-            document.getElementById('skeletonLoader').style.display = 'none';
+        // 阶段 1: stats 先回, 立即填充统计卡片 (不等 projects)
+        fetch('/api/stats', {headers: authHeaders()}).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }).then(function(stats) {
+            if (!stats) return;
             updateStats({
-                total: stats.total || data.total || 0,
-                filtered: stats.weekly_count || data.total || 0,
+                total: stats.total || 0,
+                filtered: stats.weekly_count || 0,
                 last_run: stats.last_run || '-',
-                source_count: stats.source_count  // 6-30 修复: 用后端 109K 全表统计, 不依赖 page_size
+                source_count: stats.source_count
             });
+        });
+        // 阶段 2: latest 500 (L1 缓存 0.1ms) — 用于 source 维度分析 + 筛选计数
+        fetch('/api/projects/latest?limit=500', {headers: authHeaders()}).then(function(r) { return r.json(); }).catch(function() { return null; }).then(function(data) {
+            projects = (data && (data.data || data.projects)) || [];
+            document.getElementById('skeletonLoader').style.display = 'none';
             processBySource();
             bindFilterCounts();
         });
