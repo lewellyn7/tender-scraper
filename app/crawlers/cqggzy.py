@@ -490,7 +490,9 @@ class CQGGZYCrawlerV2(BaseCrawler):
 
             # 提取正文
             content = None
+            # 2026-06-13 lesson: div.app-detail 放最前面避免 fallback 到 footer
             selectors = [
+                'div.app-detail',
                 '.epoint-article-content', '#mainContent', '.epoint-article',
                 '.content', '.article', '.detail-content', '#content',
                 '.main-content', '.text-content', '.zw_c', '.con_r',
@@ -617,7 +619,10 @@ class CQGGZYCrawlerV2(BaseCrawler):
         except Exception:
             pass
 
+        # 2026-06-13 lesson: selector 优先级陷阱 — query_selector 取首个匹配.
+        # div.app-detail 是 Nuxt SPA 官方主容器, 必须放最前面避免 fallback 到 footer.
         selectors = [
+            "div.app-detail",
             ".epoint-article-content", "#mainContent", ".epoint-article",
             ".content", ".article", ".detail-content", "#content",
             ".main-content", ".text-content", ".news-content",
