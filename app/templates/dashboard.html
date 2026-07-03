@@ -122,8 +122,9 @@
     // ── Init ──────────────────────────────────────────────────────────
     function initData() {
         document.getElementById('skeletonLoader').style.display = 'grid';
-        // 7-02 优化: stats 优先 render (不等 projects), projects 用 /api/projects/latest?limit=500
-        // (L1 cache 0.1ms) 替代 /api/projects?page_size=500 (0.4s)
+        // 7-02 优化: stats 优先 render (不等 projects), projects 用 /api/projects/latest?limit=1000
+        // (L1 cache 0.1ms) 替代 /api/projects?page_size=1000
+        // 7-03 调优: 500 → 1000 让 dashboard 多展示一倍,提高子分类覆盖率 (1% → ~5%)
         var favPromise = fetch('/api/favorites?limit=1', {headers: authHeaders()})
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(d) { return d && typeof d.total === 'number' ? d.total : null; })
@@ -139,7 +140,7 @@
             });
         });
         // 阶段 2: latest 500 (L1 缓存 0.1ms) — 用于 source 维度分析 + 筛选计数
-        fetch('/api/projects/latest?limit=500', {headers: authHeaders()}).then(function(r) { return r.json(); }).catch(function() { return null; }).then(function(data) {
+        fetch('/api/projects/latest?limit=1000', {headers: authHeaders()}).then(function(r) { return r.json(); }).catch(function() { return null; }).then(function(data) {
             projects = (data && (data.data || data.projects)) || [];
             document.getElementById('skeletonLoader').style.display = 'none';
             processBySource();
