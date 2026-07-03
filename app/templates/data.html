@@ -721,9 +721,12 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
     allItems = Array.from(map.values());
     // 截断上限 (防御性, 正常 stream 全量 ~110K 不会触发)
     if (allItems.length > MAX_ALL_ITEMS) allItems = allItems.slice(0, MAX_ALL_ITEMS);
-    // 按 scraped_at DESC 排序
+    // 7-03 修复: 按 publish_date DESC 排序 (用户要求按"业务发布日期"排, 不是采集时间)
+    // tiebreaker: id DESC (同日数据按主键倒序稳定)
     allItems.sort(function(a, b) {
-      return (b.scraped_at || '').localeCompare(a.scraped_at || '');
+      var dp = (b.publish_date || '').localeCompare(a.publish_date || '');
+      if (dp !== 0) return dp;
+      return (b.id || 0) - (a.id || 0);
     });
   }
 
@@ -800,8 +803,11 @@ DB 暂无采集成功率数据（crawl_executions/task_executions 0 行）
       var map = new Map();
       streamItems.forEach(function(p) { if (p && p.url) map.set(p.url, p); });
       allItems = Array.from(map.values());
+      // 7-03 修复: 按 publish_date DESC 排序
       allItems.sort(function(a, b) {
-        return (b.scraped_at || '').localeCompare(a.scraped_at || '');
+        var dp = (b.publish_date || '').localeCompare(a.publish_date || '');
+        if (dp !== 0) return dp;
+        return (b.id || 0) - (a.id || 0);
       });
 
       var topScraped = allItems.length > 0 ? allItems[0].scraped_at : '';
