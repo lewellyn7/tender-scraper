@@ -216,8 +216,11 @@
             : projects.filter(function(p) { return p.business_type === filterType; });
 
         // 默认子分类白名单 (始终生效)
+        // 7-03 修复: 字段语义修正 — p.tender_type 是"业务大类"(政府采购/工程建设),
+        //                  p.info_type 才是"子分类"(招标公告/采购公告/...).
+        // ALLOWED_SUB_TYPES 值不变 (['招标公告','采购公告']),仅改匹配字段.
         if (ALLOWED_SUB_TYPES && ALLOWED_SUB_TYPES.length > 0) {
-            filtered = filtered.filter(function(p) { return ALLOWED_SUB_TYPES.indexOf(p.tender_type) >= 0; });
+            filtered = filtered.filter(function(p) { return ALLOWED_SUB_TYPES.indexOf(p.info_type) >= 0; });
         }
 
         // Date filter
