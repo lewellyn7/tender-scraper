@@ -178,6 +178,18 @@ def backfill_one(row: dict, dry_run: bool = True) -> dict:
     if dry_run:
         return {"id": row["id"], "ok": True, "dry_run": True, "new_url": new_url}
 
+    # 7-03: 预防 url 冲突 (同一 url 可能被其他 id 占用 — 新一轮采集提前填了详情页)
+    existing = db_query(
+        "SELECT id FROM projects_cqggzy WHERE url = %s AND id != %s",
+        (new_url, row["id"]),
+    )
+    if existing:
+        return {
+            "id": row["id"],
+            "ok": False,
+            "error": f"新 URL 已被 id={existing[0]['id']} 占用 (新一轮采集已写), 跳过回填避免破坏",
+        }
+
     affected = db_execute(
         "UPDATE projects_cqggzy SET url = %s WHERE id = %s AND url ~ '^https://www\\.cqggzy\\.com/trade/0\\d+\\?title='",
         (new_url, row["id"]),

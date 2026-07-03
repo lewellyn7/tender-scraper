@@ -90,7 +90,10 @@ async def run_collection():
         # 2026-06-18 修复：URL date=today + 列表 start_date=today（之前 date=3m URL 与 7d POST API 范围不一致）
         # 2026-06-05 修复：CQGGZY API 的 edt 是排他的（不含当天），end_date 需 +1 天才能采集当天数据
         today = datetime.now()
-        start_date = today  # 今日模式：仅采集今天发布/更新的项目
+        # 7-03 修复: start_date 应是今天 0:00:00, 之前用 now() (采集启动的秒)
+        # 导致: cron 18:00 触发后, start=18:00:00, 今天 0-17 点发布的全被过滤
+        # 注释说"今日模式：仅采集今天发布/更新的项目" — 应当是"今天 0 点起"
+        start_date = today.replace(hour=0, minute=0, second=0, microsecond=0)
         end_date = today + timedelta(days=1)
         all_items = []
         categories = [
