@@ -206,9 +206,11 @@
     }
 
     // ── Process & render by source ───────────────────────────────────
-    // 2026-06-12 默认只显示的子分类 (招标公告 + 采购公告)
-    // 避免 dashboard 出现 中标结果公示/答疑补造 等重复信息淹没主表
-    // 用户可改 ALLOWED_SUB_TYPES 或在 console 调 setAllowedSubTypes(arr)
+    // 2026-06-12 默认只显示的子分类 (招标公告 + 采购公告) — 7-03 取消白名单
+    // 原因: limit=500/1000 最新样本里 "采购结果公告" 为主体 (470+/1000),
+    //       招标/采购公告占比小(~5%); 白名单造成 0~5 条展示
+    // 决定: 不再应用默认白名单,dashboard 显示全部子分类,让用户自己定
+    // 注: 原 ALLOWED_SUB_TYPES 变量保留 (其它代码可能仍引用),但 processBySource 跳过默认过滤
     var ALLOWED_SUB_TYPES = ['招标公告', '采购公告'];
 
     function processBySource() {
@@ -216,13 +218,8 @@
             ? projects
             : projects.filter(function(p) { return p.business_type === filterType; });
 
-        // 默认子分类白名单 (始终生效)
-        // 7-03 修复: 字段语义修正 — p.tender_type 是"业务大类"(政府采购/工程建设),
-        //                  p.info_type 才是"子分类"(招标公告/采购公告/...).
-        // ALLOWED_SUB_TYPES 值不变 (['招标公告','采购公告']),仅改匹配字段.
-        if (ALLOWED_SUB_TYPES && ALLOWED_SUB_TYPES.length > 0) {
-            filtered = filtered.filter(function(p) { return ALLOWED_SUB_TYPES.indexOf(p.info_type) >= 0; });
-        }
+        // 7-03 取消默认子分类白名单 — dashboard 直接展示所有最新项目
+        // (用户原意: 显示 1000 条,不是 1000 条内筛选)
 
         // Date filter
         if (dateStart || dateEnd) {
