@@ -784,7 +784,17 @@ async def get_projects_latest(request: Request,
         source = "db"
     else:
         # L1/L2 hit → 客户端按 scraped_at 倒序取前 N
-        # 注: main cache 默认已是按 scraped_at 倒序 (set_main 路径保证, db.py:load_projects 已排序)
+        # 7-03 二次保险:就算 main cache 顺序有偏 (例如 delta 合并时未严格排序),
+        # 端点层也保证最后返回按 scraped_at DESC.
+        # 性能:1000 条 sort <1ms;5000 条 ~5ms,可忽略
+        try:
+            projects = sorted(
+                projects,
+                key=lambda p: p.get("scraped_at") or "",
+                reverse=True,
+            )
+        except Exception as e:
+            logger.warning(f"[latest] L1 sort 失败 (降级返原顺序): {e}")
         latest = projects[:limit]
         projects = latest
         source = f"{source}_slice"
