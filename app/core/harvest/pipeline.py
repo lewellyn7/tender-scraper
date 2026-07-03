@@ -266,12 +266,23 @@ async def run_collection():
             except Exception as e:
                 logger.warning(f"  ⚠️ 24h 漏采回放查询失败: {e}")
             # DEBUG: 看预排序后前 5 个 task 的 publish_date + 后 5 个的 publish_date
-            for i in [0, 1, 2, 3, 4, -5, -4, -3, -2, -1]:
-                it = detail_items[i]
-                pd = getattr(it, "publish_date", None)
-                logger.info(
-                    f"    [DEBUG] detail_items[{i}] publish_date={pd} title={it.title[:30]}"
-                )
+            # 7-03 修复: 原代码用 [0,1,2,3,4,-5,-4,-3,-2,-1] 越界 IndexError
+            # 当 matched_items=3 时, detail_items 可能只 3 条, -5/-4/-3 不存在
+            # 改用越界安全的取样模式: head(5) + tail(5) 拼起来, 边界检查
+            n = len(detail_items)
+            if n == 0:
+                logger.info("    [DEBUG] detail_items 为空, 跳过采样")
+            else:
+                sample_idx = list(range(min(5, n))) + [i for i in range(max(0, n - 5), n)]
+                # 去重并保顺序
+                seen = set()
+                sample_idx = [i for i in sample_idx if i not in seen and not seen.add(i)]
+                for i in sample_idx:
+                    it = detail_items[i]
+                    pd = getattr(it, "publish_date", None)
+                    logger.info(
+                        f"    [DEBUG] detail_items[{i}] publish_date={pd} title={it.title[:30]}"
+                    )
 
             # 构建 CrawlTask 列表
             crawl_tasks = [_build_crawl_task(item, i) for i, item in enumerate(detail_items)]
