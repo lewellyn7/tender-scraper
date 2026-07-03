@@ -41,6 +41,72 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://:infini_rag_flow@localhost:6379/0")
 TRIGGER_CHANNEL = os.getenv("COLLECT_CHANNEL", "tender:collect:trigger")
 RESULT_CHANNEL = os.getenv("RESULT_CHANNEL", "tender:collect:result")
 
+# 7-03 失败重试策略 (用户拍板):
+# - 最多 3 次尝试 (1 立即 + 2 延时)
+# - 延时重试间隔: 60s, 180s (递增)
+# - 3 次仍失败 → 主动告警 (TG + audit)
+CRAWL_RETRY_MAX = int(os.getenv("CRAWL_RETRY_MAX", "3"))
+CRAWL_RETRY_DELAYS = [0, 60, 180]  # 第 1 次立即, 第 2/3 次延时
+
+
+def _run_collection_sync_with_retry(source: str = "cqggzy") -> dict:
+    """7-03 重试包装: 包裹 _run_collection_sync 加重试 + 告警.
+
+    重试策略 (用户拍板 2026-07-03 16:49):
+    - 第 1 次: 立即执行
+    - 第 2 次: 失败后 60s 重试
+    - 第 3 次: 失败后 180s 重试 (递递增 2x backoff)
+    - 3 次仍失败: 告警 (Telegram 主, audit 兜底)
+    """
+    last_error = None
+    for attempt in range(1, CRAWL_RETRY_MAX + 1):
+        if attempt > 1:
+            delay = CRAWL_RETRY_DELAYS[attempt - 1]
+            logger.info(
+                f"[Collector] 第 {attempt}/{CRAWL_RETRY_MAX} 次重试 "
+                f"({source}), 等待 {delay}s..."
+            )
+            time.sleep(delay)
+        else:
+            logger.info(f"[Collector] 开始第 {attempt}/{CRAWL_RETRY_MAX} 次尝试 ({source})")
+
+        result = _run_collection_sync(source=source)
+        if result.get("ok"):
+            if attempt > 1:
+                logger.info(
+                    f"[Collector] ✅ 重试成功 ({source}) 第 {attempt} 次"
+                )
+            return result
+        last_error = result.get("error", "unknown")
+
+    # 3 次全失败 → 告警
+    logger.error(
+        f"[Collector] ❌ {CRAWL_RETRY_MAX} 次重试全部失败 ({source}): {last_error}"
+    )
+    try:
+        from app.utils.alerts import send_alert
+        send_alert(
+            level="critical",
+            title=f"采集连续 {CRAWL_RETRY_MAX} 次失败",
+            body=(
+                f"来源: {source}\n"
+                f"最后错误: {last_error}\n"
+                f"下次预计重试: 由 scheduler 下一周期 (2h) 触发\n\n"
+                f"查日志: docker logs --tail 100 tender-scraper-collector"
+            ),
+            source=f"collector.{source}",
+        )
+    except Exception as e:
+        logger.error(f"[Collector] 告警发送失败: {e}")
+    # 返回带 "exhausted" 标记, 供上层逻辑识别
+    return {
+        "ok": False,
+        "error": last_error,
+        "attempts": CRAWL_RETRY_MAX,
+        "exhausted": True,
+        "source": source,
+    }
+
 
 def _run_collection_sync(source: str = "cqggzy"):
     """同步调用 async run_collection() 或 run_fahcqmu_collection()
@@ -48,6 +114,11 @@ def _run_collection_sync(source: str = "cqggzy"):
     F4 (2026-06-26): 根据 source 路由到不同 pipeline
     - 'cqggzy' / 'scheduler' (默认) → main.run_collection
     - 'fahcqmu'                      → pipeline.run_fahcqmu_collection
+
+    7-03 状态语义修复:
+    - ok=True  且 count > 0  → status='ok'
+    - ok=True  且 count = 0  → status='degraded' (完成但 0 条, 不算完全 ok)
+    - ok=False                → status='failed'
     """
     import asyncio
     try:
@@ -64,14 +135,26 @@ def _run_collection_sync(source: str = "cqggzy"):
             result = asyncio.run(run_collection())
         elapsed = time.time() - t0
         if result:
+            count = result.get("filtered", 0)
             logger.info(
-                f"[Collector] 采集完成 ({source}): {result.get('filtered', 0)}/{result.get('total', 0)} "
+                f"[Collector] 采集完成 ({source}): {count}/{result.get('total', 0)} "
                 f"匹配，耗时 {elapsed:.1f}s"
             )
-            return {"ok": True, "elapsed": round(elapsed, 1), "result": result, "source": source}
+            return {
+                "ok": True,
+                "elapsed": round(elapsed, 1),
+                "result": result,
+                "source": source,
+                "count": count,
+            }
         else:
             logger.warning(f"[Collector] 采集未返回结果 ({source})")
-            return {"ok": False, "error": "no result", "elapsed": round(elapsed, 1), "source": source}
+            return {
+                "ok": False,
+                "error": "no result (pipeline returned None)",
+                "elapsed": round(elapsed, 1),
+                "source": source,
+            }
     except Exception as e:
         logger.error(f"[Collector] 采集异常 ({source}): {e}")
         logger.exception("[Collector] traceback:")
@@ -175,16 +258,37 @@ class CollectorWorker:
                     payload = json.loads(message["data"])
                     source = payload.get("source", "cqggzy")
                     logger.info(f"[Collector] 收到触发: source={source}, payload={payload}")
-                    result = await loop.run_in_executor(None, lambda: _run_collection_sync(source=source))
+                    # 7-03: 加重试包装 (1 立即 + 2 延时, 3 次都败 → 告警)
+                    result = await loop.run_in_executor(
+                        None, lambda: _run_collection_sync_with_retry(source=source)
+                    )
                     _publish_result(result)
                     # 2026-06-26: PR feat/data-cache-v2 - 通知 web 容器 DataCache 失效
-                    # Opt-4: 智能失效 (按 catnum 桶), 兑底走 main 全清
-                    _publish_invalidate_smart()
-                    # P1-2: 更新 health state
+                    # 7-03 调整: 只有成功 (count > 0) 才发 invalidate, 避免 0 采集 们错估缓存
+                    if result.get("ok") and result.get("count", 0) > 0:
+                        _publish_invalidate_smart()
+                    # P1-2: 更新 health state (7-03 状态机 ok/failed/degraded)
                     from app.workers.collector_health import CollectorState
-                    status = result.get("status", "ok") if isinstance(result, dict) else "ok"
-                    count = result.get("total", 0) if isinstance(result, dict) else 0
-                    CollectorState.record_crawl(status, count=count)
+                    if isinstance(result, dict):
+                        if not result.get("ok"):
+                            status = "failed"
+                            count = 0
+                            error = result.get("error", "unknown")
+                        elif result.get("count", 0) == 0:
+                            status = "degraded"  # 完成但 0 条
+                            count = 0
+                            error = "0 projects collected"
+                        else:
+                            status = "ok"
+                            count = result.get("count", 0)
+                            error = None
+                        CollectorState.record_crawl(
+                            status=status,
+                            count=count,
+                            error=error,
+                            source=source,
+                            duration_s=result.get("elapsed"),
+                        )
                 except json.JSONDecodeError:
                     logger.warning(f"[Collector] 非 JSON 消息: {message['data']}")
         except Exception as e:
