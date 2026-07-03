@@ -62,6 +62,9 @@ _DAILY_STATS = {
     "started_at": None,  # 今日首次启动时间
 }
 
+# 7-03: scheduler 进程启动时间 (用于 startup self-check grace period)
+_SCHEDULER_STARTED_AT = time.time()
+
 
 class _HealthHandler(BaseHTTPRequestHandler):
     """HTTP health endpoint handler."""
@@ -379,10 +382,26 @@ def job_daily_report():
 def job_startup_self_check():
     """启动自检: scheduler 启动时, 拉 collector 上次结果.
 
+    - 7-03 grace period: scheduler 启动后 60s 内跳过 self-check
+      避免 docker-compose depends_on 后 collector 仍在启动中 误报
     - 如果上次失败 → 立即补发 1 次 (用户拍板: 立即重试)
     - 如果 collector 死了 → 告警
     - 如果上次 stale > 2.5h → 告警
     """
+    # 7-03 grace period: 启动后 60s 内跳过 (collector 冷启动)
+    GRACE_PERIOD_S = 60
+    elapsed_since_startup = time.time() - _SCHEDULER_STARTED_AT
+    if elapsed_since_startup < GRACE_PERIOD_S:
+        logger.info(
+            f"[Scheduler] 启动自检跳过: grace period ({elapsed_since_startup:.0f}s < {GRACE_PERIOD_S}s)"
+        )
+        # 60s 后重跑 1 次
+        threading.Timer(
+            GRACE_PERIOD_S - elapsed_since_startup + 1,
+            job_startup_self_check,
+        ).start()
+        return
+
     logger.info("[Scheduler] 启动自检中...")
     state = _fetch_collector_state()
     if state is None:

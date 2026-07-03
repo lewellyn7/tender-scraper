@@ -224,6 +224,9 @@ def test_watchdog_healthy_no_alert():
 def test_startup_self_check_no_collector_alerts():
     """启动时 collector 失联 → critical 告警"""
     import app.scheduler as s
+    import time as _t
+    # 跳过 grace period: 把启动时间调早 120s
+    s._SCHEDULER_STARTED_AT = _t.time() - 120
 
     with patch.object(s, "_fetch_collector_state", return_value=None):
         with patch("app.utils.alerts.send_alert") as mock_alert:
@@ -236,6 +239,8 @@ def test_startup_self_check_no_collector_alerts():
 def test_startup_self_check_retry_on_failure():
     """上次失败 → 启动时补发 1 次"""
     import app.scheduler as s
+    import time as _t
+    s._SCHEDULER_STARTED_AT = _t.time() - 120
 
     with patch.object(s, "_fetch_collector_state", return_value={
         "status": "ok",
@@ -254,6 +259,8 @@ def test_startup_self_check_retry_on_failure():
 def test_startup_self_check_healthy_no_action():
     """正常 → 不告警, 不补发"""
     import app.scheduler as s
+    import time as _t
+    s._SCHEDULER_STARTED_AT = _t.time() - 120
 
     with patch.object(s, "_fetch_collector_state", return_value={
         "status": "ok",
@@ -264,5 +271,19 @@ def test_startup_self_check_healthy_no_action():
         with patch("app.utils.alerts.send_alert") as mock_alert:
             with patch.object(s, "_publish_trigger") as mock_trigger:
                 s.job_startup_self_check()
+                assert not mock_alert.called
+                assert not mock_trigger.called
+
+def test_startup_self_check_grace_period_skips():
+    """scheduler 启动 60s 内跳过 self-check"""
+    import app.scheduler as s
+    s._SCHEDULER_STARTED_AT = __import__("time").time()  # 刚刚
+
+    with patch.object(s, "_fetch_collector_state") as mock_fetch:
+        with patch("app.utils.alerts.send_alert") as mock_alert:
+            with patch.object(s, "_publish_trigger") as mock_trigger:
+                s.job_startup_self_check()
+                # grace period: 不应拉 collector, 不应告警
+                assert not mock_fetch.called
                 assert not mock_alert.called
                 assert not mock_trigger.called
