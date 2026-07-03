@@ -122,9 +122,10 @@
     // ── Init ──────────────────────────────────────────────────────────
     function initData() {
         document.getElementById('skeletonLoader').style.display = 'grid';
-        // 7-02 优化: stats 优先 render (不等 projects), projects 用 /api/projects/latest?limit=1000
-        // (L1 cache 0.1ms) 替代 /api/projects?page_size=1000
-        // 7-03 调优: 500 → 1000 让 dashboard 多展示一倍,提高子分类覆盖率 (1% → ~5%)
+        // 7-02 优化: stats 优先 render (不等 projects), projects 用 /api/projects/latest?limit=5000
+        // (API 上限 = 5000) 换更多原始数据供白名单过滤
+        // 7-03 最终: limit=5000 + 白名单(info_type in ['招标公告','采购公告']) 过滤后,取最近 500 展示
+        //   L1 cache 0.1ms → 服务端已按 scraped_at DESC 序 (Commit 1+2)
         var favPromise = fetch('/api/favorites?limit=1', {headers: authHeaders()})
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(d) { return d && typeof d.total === 'number' ? d.total : null; })
@@ -139,9 +140,17 @@
                 source_count: stats.source_count
             });
         });
-        // 阶段 2: latest 500 (L1 缓存 0.1ms) — 用于 source 维度分析 + 筛选计数
-        fetch('/api/projects/latest?limit=1000', {headers: authHeaders()}).then(function(r) { return r.json(); }).catch(function() { return null; }).then(function(data) {
-            projects = (data && (data.data || data.projects)) || [];
+        // 阶段 2: latest 5000 (L1 缓存 0.1ms) — 用于白名单过滤后展示最近 500
+        fetch('/api/projects/latest?limit=5000', {headers: authHeaders()}).then(function(r) { return r.json(); }).catch(function() { return null; }).then(function(data) {
+            var rawProjects = (data && (data.data || data.projects)) || [];
+            // 7-03 业务逻辑: 按 info_type 应用白名单 (['招标公告','采购公告']) 过滤后,
+            //                       取最近 500 条 (服务器已按 scraped_at DESC 排序 → 前 500 = 最新 500)
+            if (ALLOWED_SUB_TYPES && ALLOWED_SUB_TYPES.length > 0) {
+                rawProjects = rawProjects.filter(function(p) {
+                    return ALLOWED_SUB_TYPES.indexOf(p.info_type) >= 0;
+                });
+            }
+            projects = rawProjects.slice(0, 500);
             document.getElementById('skeletonLoader').style.display = 'none';
             processBySource();
             bindFilterCounts();
@@ -206,11 +215,10 @@
     }
 
     // ── Process & render by source ───────────────────────────────────
-    // 2026-06-12 默认只显示的子分类 (招标公告 + 采购公告) — 7-03 取消白名单
-    // 原因: limit=500/1000 最新样本里 "采购结果公告" 为主体 (470+/1000),
-    //       招标/采购公告占比小(~5%); 白名单造成 0~5 条展示
-    // 决定: 不再应用默认白名单,dashboard 显示全部子分类,让用户自己定
-    // 注: 原 ALLOWED_SUB_TYPES 变量保留 (其它代码可能仍引用),但 processBySource 跳过默认过滤
+    // 2026-06-12 默认只显示的子分类 (招标公告 + 采购公告)
+    // 7-03 最终版:白名单逻辑在 fetch 回调里应用 (filter info_type in ALLOWED_SUB_TYPES),
+    //            然后取前 500 (按 scraped_at DESC,服务器端已保证)
+    // 用户可改 ALLOWED_SUB_TYPES 或在 console 调 setAllowedSubTypes(arr)
     var ALLOWED_SUB_TYPES = ['招标公告', '采购公告'];
 
     function processBySource() {
@@ -218,8 +226,10 @@
             ? projects
             : projects.filter(function(p) { return p.business_type === filterType; });
 
-        // 7-03 取消默认子分类白名单 — dashboard 直接展示所有最新项目
-        // (用户原意: 显示 1000 条,不是 1000 条内筛选)
+        // 注: 此处不再重复白名单过滤 (白名单已在 fetch 回调中应用一次,
+        //     避免业务大类过滤后再次运行时白名单产生影响)
+        // 7-03 变更: filterType=政府采购/工程招投标 仍按业务大类过滤,
+        //           子分类白名单已在前置阶段生效
 
         // Date filter
         if (dateStart || dateEnd) {
