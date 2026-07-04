@@ -22,7 +22,13 @@ cd "$(dirname "$0")/.."  # 项目根
 
 ENV_FILE=".env"
 STATE_FILE="/tmp/.env-watcher-state"
+
+# Log 路径探测: /var/log 可写 → 用; 否则 fallback /tmp
 LOG_FILE="/var/log/env-watcher.log"
+if ! ( : >> "$LOG_FILE" ) 2>/dev/null; then
+  LOG_FILE="/tmp/env-watcher.log"
+fi
+
 SERVICES="web scheduler collector"
 
 # 1) 文件存在性检查
