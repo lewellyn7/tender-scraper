@@ -61,6 +61,8 @@ services:
     restart: unless-stopped
     ports:
     - 8889:8000
+    env_file:
+    - .env
     environment:
     - TZ=Asia/Shanghai
     - HOST=0.0.0.0
@@ -175,6 +177,8 @@ services:
     - python
     - -m
     - app.scheduler
+    env_file:
+    - .env
     environment:
     - TZ=Asia/Shanghai
     - HOST=0.0.0.0
@@ -247,6 +251,8 @@ services:
     container_name: tender-scraper-collector
     restart: unless-stopped
     command: ["python", "-m", "app.workers.collector"]
+    env_file:
+    - .env
     environment:
     - TZ=Asia/Shanghai
     - LOG_LEVEL=${LOG_LEVEL:-INFO}
