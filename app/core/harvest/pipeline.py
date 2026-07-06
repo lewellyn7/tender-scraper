@@ -40,6 +40,7 @@ from app.crawlers.fahcqmu import (
     tender_to_db_row as fahc_tender_to_db_row,
     collect_org_unit as fahc_collect_org_unit,
 )
+from app.crawlers.cqyc import CqycCrawler, classify_by_title as cqyc_classify
 from app.database.db import get_db
 from app.services.vector_store import get_vector_store_indexed
 from app.utils.filter import TenderFilter
@@ -52,6 +53,8 @@ from config.settings import settings
 ENABLE_CCGP = True  # 7-2 重新启用 CCGP 采集 (info-notice/*-list URL 模式 + 4 类目)
 # 2026-06-25: 重医附一院开关 (默认开启, 如需停采置 False)
 ENABLE_FAHCQMU = True
+# 2026-07-06: 重庆烟草开关 (默认开启)
+ENABLE_CQYC = True
 
 
 # ── 以下代码 100% 等价于 main.py:119-569，仅 imports 调整 ──────────────
@@ -743,6 +746,210 @@ async def run_fahcqmu_collection(detail_limit: int = 300):
         import traceback; traceback.print_exc()
         return None
 
+
+
+# ============================================================================
+# 2026-07-06: 重庆烟草采集 (PR feat/cqyc-crawler-page-2026-07-06)
+# ============================================================================
+# 独立函数, 不影响 CQGGZY/fahcqmu pipeline. 触发方式:
+#   - 环境变量: CQYC_RUN=1 python -m main
+#   - 或: python -c "import asyncio; from app.core.harvest.pipeline import run_cqyc_collection; asyncio.run(run_cqyc_collection())"
+# 数据源: https://www.966599.com/c/4/ (重庆烟草网)
+# 分类: result_notice / purchase_notice / change_notice / failed_notice / rental_notice
+# ============================================================================
+
+async def run_cqyc_collection(detail_limit: int = 300):
+    """执行重庆烟草采集任务.
+
+    流程:
+    1. 创建 CqycCrawler (aiohttp, 不需 Playwright)
+    2. fetch_all_lists() — 210 页翻页 (15 条/页)
+    3. 关键词过滤 (复用 TenderFilter)
+    4. fetch_details_parallel() — 并发详情
+    5. upsert_projects_cqyc() — 批量写库
+    6. 写 latest.json (独立 cqyc_latest.json)
+
+    Args:
+        detail_limit: 详情采集上限 (默认 300)
+
+    Returns:
+        dict: {total, filtered, data_path, summary, projects, matched_projects}
+        或 None (失败)
+    """
+    if not ENABLE_CQYC:
+        logger.warning("⚠️ ENABLE_CQYC=False, 跳过 cqyc 采集")
+        return None
+
+    logger.info("=" * 60)
+    logger.info("🚬 重庆烟草采集 (feat/cqyc-crawler-page-2026-07-06)")
+    logger.info("   5 个分类: 结果公示 / 采购公告 / 变更公告 / 流标 / 招租公告")
+    logger.info("   来源: https://www.966599.com/c/4/")
+    logger.info("=" * 60)
+
+    try:
+        async with CqycCrawler(delay=0.3, max_pages=210) as crawler:
+            # 1. 列表阶段
+            logger.info("📋 阶段 1/4: 列表采集 (/c/4/N 翻页)")
+            all_items = await crawler.fetch_all_lists()
+            logger.info(f"📥 列表合计 (去重后): {len(all_items)} 条")
+
+            if not all_items:
+                logger.warning("⚠️ 未采集到任何数据, 跳过详情阶段")
+                return {
+                    'total': 0, 'filtered': 0,
+                    'data_path': '',
+                    'summary': '本次未采集到任何数据',
+                    'projects': [], 'matched_projects': []
+                }
+
+            # 2. 关键词过滤 (复用 TenderFilter)
+            filter_engine = TenderFilter(
+                keywords=settings.KEYWORDS,
+                exclude_keywords=settings.EXCLUDE_KEYWORDS
+            )
+            matched_items = []
+            for item in all_items:
+                if filter_engine._contains_exclude(item.title):
+                    item.keywords_matched = []
+                    continue
+                matched_keywords = filter_engine.check_keywords(item.title)
+                item.keywords_matched = matched_keywords
+                if matched_keywords:
+                    matched_items.append(item)
+            logger.info(f"✅ 关键词匹配: {len(matched_items)}/{len(all_items)} 条")
+
+            # 3. 详情阶段
+            actual_detail_limit = min(detail_limit, len(matched_items) if matched_items else len(all_items))
+            if matched_items:
+                detail_targets = matched_items[:actual_detail_limit]
+            else:
+                detail_targets = all_items[:actual_detail_limit]
+
+            if detail_targets:
+                logger.info(f"📄 阶段 2/4: 详情采集 ({len(detail_targets)} 条, 并发 5)")
+
+                def _sort_key(item):
+                    pd = getattr(item, "publish_date", None)
+                    if pd is None:
+                        return (1, 0)
+                    try:
+                        ts = pd.timestamp() if hasattr(pd, "timestamp") else 0
+                    except Exception:
+                        ts = 0
+                    return (0, -ts)
+
+                detail_targets = sorted(detail_targets, key=_sort_key)
+                detailed = await crawler.fetch_details_parallel(detail_targets, concurrency=5)
+                ok = sum(1 for it in detailed if it.full_content)
+                logger.info(f"  ✅ 详情完成: {ok}/{len(detailed)} 有正文")
+
+                # 写回 (by URL)
+                url_to_detailed = {it.url: it for it in detailed}
+                for lst in (all_items, matched_items):
+                    for it in lst:
+                        if it.url in url_to_detailed:
+                            d = url_to_detailed[it.url]
+                            it.full_content = d.full_content
+                            it.content_preview = d.content_preview
+                            it.publish_date = d.publish_date or it.publish_date
+                            it.publish_date_raw = d.publish_date_raw or it.publish_date_raw
+                            it.budget = d.budget or it.budget
+                            it.project_no = d.project_no or it.project_no
+                            # 7-06 修复: TenderInfo.contact_info 是 ContactInfo 子对象
+                            if d.contact_info and (d.contact_info.name or d.contact_info.phone or d.contact_info.email):
+                                if d.contact_info.name and not it.contact_info.name:
+                                    it.contact_info.name = d.contact_info.name
+                                if d.contact_info.phone and not it.contact_info.phone:
+                                    it.contact_info.phone = d.contact_info.phone
+                                if d.contact_info.email and not it.contact_info.email:
+                                    it.contact_info.email = d.contact_info.email
+
+            # 4. 持久化到 PostgreSQL
+            logger.info("📦 阶段 3/4: PostgreSQL upsert (projects_cqyc)")
+            try:
+                db = get_db()
+                rows = []
+                for item in all_items:
+                    row = {
+                        "url": item.url,
+                        "title": item.title,
+                        "category": item.category or "烟草采购",
+                        "info_type": item.info_type or "",
+                        "business_type": item.business_type or "烟草采购",
+                        "publish_date": item.publish_date.date().isoformat() if item.publish_date else None,
+                        "publish_date_raw": item.publish_date_raw or "",
+                        "content_preview": item.content_preview or "",
+                        "full_content": item.full_content or "",
+                        "budget": item.budget or "",
+                        "region": item.region or "重庆",
+                        "industry": item.industry or "烟草",
+                        "tender_type": item.tender_type or "",
+                        "contact_name": item.contact_info.name or "",
+                        "contact_phone": item.contact_info.phone or "",
+                        "contact_email": item.contact_info.email or "",
+                        "project_no": item.project_no or "",
+                        "scraped_at": datetime.now().isoformat(),
+                        "source_url": item.source_url or "",
+                    }
+                    rows.append(row)
+                if rows:
+                    db.upsert_projects_cqyc(rows)
+                    logger.info(f"  ✅ upsert: {len(rows)} 条")
+            except Exception as e:
+                logger.error(f"  ❌ PostgreSQL 写入失败: {e}")
+                import traceback; traceback.print_exc()
+
+            # 5. JSON 持久化
+            logger.info("📊 阶段 4/4: JSON 持久化")
+            standardized_all = []
+            standardized_matched = []
+            for item in all_items:
+                std = filter_engine.extract_project_info(item)
+                std["info_type"] = item.info_type
+                std["business_type"] = item.business_type or "烟草采购"
+                std["category"] = item.category or "烟草采购"
+                standardized_all.append(std)
+                if item.keywords_matched:
+                    standardized_matched.append(std)
+
+            data_path = os.path.join(settings.OUTPUT_DIR, "cqyc_latest.json")
+            output_data = {
+                "total": len(all_items),
+                "filtered": len(matched_items),
+                "last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "source": "cqyc",
+                "projects": standardized_all,
+                "matched_projects": standardized_matched,
+                "info_types": {
+                    "result_notice":   sum(1 for it in all_items if it.info_type == "result_notice"),
+                    "purchase_notice": sum(1 for it in all_items if it.info_type == "purchase_notice"),
+                    "change_notice":   sum(1 for it in all_items if it.info_type == "change_notice"),
+                    "failed_notice":   sum(1 for it in all_items if it.info_type == "failed_notice"),
+                    "rental_notice":   sum(1 for it in all_items if it.info_type == "rental_notice"),
+                    "other":           sum(1 for it in all_items if it.info_type == "other"),
+                },
+            }
+            with open(data_path, "w", encoding="utf-8") as f:
+                json.dump(output_data, f, ensure_ascii=False, indent=2)
+            logger.info(f"✅ 数据已持久化: {data_path}")
+
+            logger.info("=" * 60)
+            logger.info("✅ cqyc 采集任务完成")
+            logger.info(f"📊 数据文件: {data_path}")
+            logger.info("=" * 60)
+
+            return {
+                'total': len(all_items),
+                'filtered': len(matched_items),
+                'data_path': data_path,
+                'projects': standardized_all,
+                'matched_projects': standardized_matched,
+            }
+
+    except Exception as e:
+        logger.error(f"❌ cqyc 采集任务失败: {e}")
+        import traceback; traceback.print_exc()
+        return None
 
 
 # ============================================================================

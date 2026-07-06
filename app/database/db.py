@@ -759,6 +759,80 @@ class Database(
         except Exception as e:
             logger.warning(f"_sync_projects_link (fahcqmu) failed: {e}")
 
+    def upsert_projects_cqyc(self, rows: list):
+        """批量 upsert 项目到 projects_cqyc 表（URL 去重）
+
+        rows: list of dict, 字段映射到 projects_cqyc 列:
+            url, title, category, info_type, business_type, publish_date,
+            content_preview, full_content, budget, region, industry,
+            tender_type, contact_name, contact_phone, contact_email,
+            project_no, scraped_at, source_url
+
+        幂等写入: ON CONFLICT (url) DO UPDATE (不覆盖非空字段)
+        """
+        if not rows:
+            logger.debug("upsert_projects_cqyc: 空 rows, 跳过")
+            return 0
+
+        cols = [
+            "url", "title", "category", "info_type", "business_type",
+            "publish_date", "content_preview", "full_content", "budget",
+            "region", "industry", "tender_type", "contact_name",
+            "contact_phone", "contact_email", "project_no",
+            "scraped_at", "source_url"
+        ]
+
+        placeholders = ",".join(["%s"] * len(cols))
+        update_cols = ", ".join([f"{c} = EXCLUDED.{c}" for c in cols if c not in ("url", "scraped_at")])
+
+        # 保护已填的详情字段：如果旧值非空且新值空，保留旧值
+        # 注意: DATE 类型 (publish_date) 不能用 <> '' 检查 (会报 InvalidDatetimeFormat)
+        protect_fields_text = ["full_content", "content_preview", "info_type", "project_no"]
+        protect_fields_date = ["publish_date"]
+        for f in protect_fields_text:
+            update_cols = update_cols.replace(
+                f"{f} = EXCLUDED.{f}",
+                f"{f} = CASE WHEN projects_cqyc.{f} IS NOT NULL AND projects_cqyc.{f} <> '' THEN projects_cqyc.{f} ELSE EXCLUDED.{f} END"
+            )
+        for f in protect_fields_date:
+            update_cols = update_cols.replace(
+                f"{f} = EXCLUDED.{f}",
+                f"{f} = CASE WHEN projects_cqyc.{f} IS NOT NULL THEN projects_cqyc.{f} ELSE EXCLUDED.{f} END"
+            )
+
+        conn = self._get_conn()
+        cur = conn.cursor()
+        # DATE 类型字段: 空字符串 → None (否则 PG 报 InvalidDatetimeFormat)
+        date_cols = {"publish_date"}
+        try:
+            values = []
+            for row in rows:
+                val_tuple = tuple(
+                    (None if c in date_cols and (row.get(c, "") == "" or row.get(c) is None) else row.get(c, ""))
+                    for c in cols
+                )
+                values.append(val_tuple)
+
+            insert_sql = f"""
+                INSERT INTO projects_cqyc ({','.join(cols)})
+                VALUES ({placeholders})
+                ON CONFLICT (url) DO UPDATE SET {update_cols}
+            """
+            from psycopg2.extras import execute_batch
+            execute_batch(cur, insert_sql, values, page_size=100)
+            conn.commit()
+            logger.debug(f"upsert_projects_cqyc: {len(rows)} rows")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"upsert_projects_cqyc: {e}")
+            raise
+
+        # 联动写入 projects + project_records 关联表
+        try:
+            self._sync_projects_link(rows, source_table="projects_cqyc")
+        except Exception as e:
+            logger.warning(f"_sync_projects_link (cqyc) failed: {e}")
+
     # ━━━ Delta Sync (DataCache v4 增量加载) ━━━
     def delta_load_since(self, since_ts: Optional[str] = None, limit_per_table: int = 5000) -> List[dict]:
         """DataCache v4 增量加载: 读取 updated_at > since_ts 的所有项目 (跨 3 表).
@@ -792,7 +866,7 @@ class Database(
             limit_clause = ""
 
         results: Dict[str, dict] = {}  # url -> dict (去重)
-        tables = ("projects_cqggzy", "projects_ccgp", "projects_ccgp_intention_demand", "projects_fahcqmu")
+        tables = ("projects_cqggzy", "projects_ccgp", "projects_ccgp_intention_demand", "projects_fahcqmu", "projects_cqyc")
 
         try:
             conn = self._get_conn()
