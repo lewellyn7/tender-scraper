@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% block title %}CCGP 采购意向 / 需求调查 · 采集系统{% endblock %}
+{% block content %}
+
+<!-- 头部 + 健康检查 -->
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">📑 CCGP 采购意向 / 需求调查</h1>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            来源: <a href="https://www.ccgp-chongqing.gov.cn" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline">ccgp-chongqing.gov.cn</a>
+            · 2 分类 · 默认每日 21:00 自动采集
+        </p>
+    </div>
+    <div class="flex items-center gap-2">
+        <div id="health-dot" class="w-2 h-2 rounded-full bg-gray-300"></div>
+        <span class="text-xs text-gray-500 dark:text-gray-400" id="health-label">检测中…</span>
+    </div>
+</div>
+
+<!-- 统计卡片 (4 张) -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
+        <p class="text-xs text-gray-500 dark:text-gray-400">总项目数</p>
+        <p class="text-2xl font-semibold text-gray-900 dark:text-white mt-1" id="stat-total">—</p>
+    </div>
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
+        <p class="text-xs text-gray-500 dark:text-gray-400">采购意向</p>
+        <p class="text-2xl font-semibold text-blue-600 dark:text-blue-400 mt-1" id="stat-intent">—</p>
+    </div>
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
+        <p class="text-xs text-gray-500 dark:text-gray-400">需求调查</p>
+        <p class="text-2xl font-semibold text-emerald-600 dark:text-emerald-400 mt-1" id="stat-demand">—</p>
+    </div>
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
+        <p class="text-xs text-gray-500 dark:text-gray-400">近 30 天</p>
+        <p class="text-2xl font-semibold text-gray-600 dark:text-gray-400 mt-1" id="stat-recent">—</p>
+    </div>
+</div>
+
+<!-- 筛选栏 -->
+<div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 mb-6">
+    <div class="flex flex-wrap items-center gap-3">
+        <input id="kw" type="text" placeholder="关键词 (title / content_preview)" class="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm" />
+
+        <select id="infoType" class="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm">
+            <option value="">全部类型</option>
+            <option value="采购意向">采购意向</option>
+            <option value="需求调查">需求调查</option>
+        </select>
+
+        <input type="date" id="dateStart" class="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm" title="起始日期" />
+        <span class="text-gray-500">→</span>
+        <input type="date" id="dateEnd" class="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm" title="结束日期" />
+
+        <button id="btnSearch" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium">搜索</button>
+        <button id="btnClear" class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm">清除</button>
+    </div>
+</div>
+
+<!-- 项目列表 -->
+<div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <div class="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-gray-900 dark:text-white">项目列表 <span class="text-gray-400 ml-1" id="list-count">(—)</span></h2>
+        <div class="flex items-center gap-2">
+            <button id="btnPrev" class="px-2 py-1 text-xs rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30" disabled>← 上一页</button>
+            <span class="text-xs text-gray-500" id="page-info">第 1 页</span>
+            <button id="btnNext" class="px-2 py-1 text-xs rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30" disabled>下一页 →</button>
+        </div>
+    </div>
+
+    <div id="project-list" class="divide-y divide-gray-100 dark:divide-gray-700">
+        <div class="px-4 py-12 text-center text-gray-400 text-sm">加载中…</div>
+    </div>
+</div>
+
+<!-- 详情模态框 -->
+<div id="detail-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeDetail()">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] overflow-y-auto">
+        <div class="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white" id="detail-title">详情</h3>
+            <button onclick="closeDetail()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl leading-none">&times;</button>
+        </div>
+        <div class="px-6 py-4" id="detail-body">
+            <p class="text-gray-400 text-sm">加载中…</p>
+        </div>
+        <div class="px-6 py-3 border-t border-gray-100 dark:border-gray-700 flex justify-end">
+            <a id="detail-link" href="#" target="_blank" rel="noopener" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium">打开原文 ↗</a>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    // 重命名防止与 fahcqmu.html 等页面冲突
+    var ccgpIntentState = {
+        page: 1,
+        pageSize: 20,
+        keyword: '',
+        infoType: '',
+        dateStart: '',
+        dateEnd: '',
+        total: 0,
+    };
+
+    function getAuthHeaders() {
+        var t = (document.cookie.match(/(?:^|; )session_token=([^;]+)/) || [])[1] || '';
+        return t ? {'X-Session-Token': t} : {};
+    }
+
+    function formatDate(s) {
+        if (!s) return '—';
+        return s.substring(0, 10);
+    }
+
+    function infoTypeColor(t) {
+        if (t === '采购意向') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300';
+        if (t === '需求调查') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300';
+        return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
+    }
+
+    // ── Health ──────────────────────────────────────────────────
+    function loadHealth() {
+        fetch('/api/ccgp_intent/health', {headers: getAuthHeaders()})
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.status === 'ok') {
+                    document.getElementById('health-dot').className = 'w-2 h-2 rounded-full bg-emerald-500';
+                    var lastStr = d.last_publish_date || '—';
+                    var byType = d.by_info_type || {};
+                    var typeHint = Object.keys(byType).map(function(k){return k+':'+byType[k];}).join(' / ');
+                    document.getElementById('health-label').textContent = '共 ' + d.total_rows + ' 条 · ' + typeHint + ' · 最近 ' + lastStr;
+                } else {
+                    document.getElementById('health-dot').className = 'w-2 h-2 rounded-full bg-red-500';
+                    document.getElementById('health-label').textContent = '异常: ' + (d.error || 'unknown');
+                }
+            })
+            .catch(function() {
+                document.getElementById('health-dot').className = 'w-2 h-2 rounded-full bg-red-500';
+                document.getElementById('health-label').textContent = '请求失败';
+            });
+    }
+
+    // ── Stats ───────────────────────────────────────────────────
+    function loadStats() {
+        fetch('/api/ccgp_intent/stats', {headers: getAuthHeaders()})
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                document.getElementById('stat-total').textContent = d.total || 0;
+                var byInfo = d.by_info_type || {};
+                document.getElementById('stat-intent').textContent = byInfo['采购意向'] || 0;
+                document.getElementById('stat-demand').textContent = byInfo['需求调查'] || 0;
+                // 近 30 天: by_date 数组前 30 个求和
+                var recent = (d.by_date || []).reduce(function(s, x) { return s + (x.count || 0); }, 0);
+                document.getElementById('stat-recent').textContent = recent;
+            })
+            .catch(function() {});
+    }
+
+    // ── List ────────────────────────────────────────────────────
+    function loadList() {
+        var params = new URLSearchParams();
+        params.set('page', ccgpIntentState.page);
+        params.set('page_size', ccgpIntentState.pageSize);
+        if (ccgpIntentState.keyword) params.set('keyword', ccgpIntentState.keyword);
+        if (ccgpIntentState.infoType) params.set('info_type', ccgpIntentState.infoType);
+        if (ccgpIntentState.dateStart) params.set('date_start', ccgpIntentState.dateStart);
+        if (ccgpIntentState.dateEnd) params.set('date_end', ccgpIntentState.dateEnd);
+
+        var listEl = document.getElementById('project-list');
+        listEl.innerHTML = '<div class="px-4 py-12 text-center text-gray-400 text-sm">加载中…</div>';
+
+        fetch('/api/ccgp_intent/projects?' + params.toString(), {headers: getAuthHeaders()})
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                ccgpIntentState.total = d.total || 0;
+                document.getElementById('list-count').textContent = '(共 ' + ccgpIntentState.total + ' 条)';
+                document.getElementById('page-info').textContent = '第 ' + ccgpIntentState.page + ' 页';
+                document.getElementById('btnPrev').disabled = ccgpIntentState.page <= 1;
+                document.getElementById('btnNext').disabled = !d.has_more;
+
+                var items = d.items || [];
+                if (items.length === 0) {
+                    listEl.innerHTML = '<div class="px-4 py-12 text-center text-gray-400 text-sm">无数据</div>';
+                    return;
+                }
+
+                var html = '';
+                items.forEach(function(p) {
+                    var safeUrl = (p.url || '').replace(/'/g, "\\'");
+                    html += '<div class="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer" onclick="openCcIntentDetail(\'' + safeUrl + '\')">'
+                        + '<div class="flex items-start justify-between gap-3">'
+                        + '<div class="flex-1 min-w-0">'
+                        + '<div class="flex items-center gap-2 mb-1">'
+                        + '<span class="inline-block px-1.5 py-0.5 rounded text-xs ' + infoTypeColor(p.info_type) + '">' + (p.info_type || '—') + '</span>'
+                        + (p.budget ? '<span class="text-xs text-orange-600 dark:text-orange-400">💰 ' + p.budget + '</span>' : '')
+                        + '</div>'
+                        + '<h3 class="text-sm font-medium text-gray-900 dark:text-white truncate">' + (p.title || '(无标题)') + '</h3>'
+                        + (p.content_preview ? '<p class="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">' + p.content_preview.substring(0, 200) + '</p>' : '')
+                        + '</div>'
+                        + '<div class="text-right text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">'
+                        + '<div>' + formatDate(p.publish_date) + '</div>'
+                        + '<div class="text-gray-400 mt-1">' + formatDate(p.scraped_at) + '</div>'
+                        + '</div>'
+                        + '</div>'
+                        + '</div>';
+                });
+                listEl.innerHTML = html;
+            })
+            .catch(function(e) {
+                listEl.innerHTML = '<div class="px-4 py-12 text-center text-red-400 text-sm">加载失败: ' + e.message + '</div>';
+            });
+    }
+
+    // ── Detail modal ────────────────────────────────────────────
+    window.openCcIntentDetail = function(url) {
+        if (!url) return;
+        document.getElementById('detail-modal').classList.remove('hidden');
+        document.getElementById('detail-link').href = url;
+        document.getElementById('detail-body').innerHTML = '<p class="text-gray-400 text-sm">加载中…</p>';
+        document.getElementById('detail-title').textContent = '详情';
+
+        fetch('/api/ccgp_intent/project/' + encodeURIComponent(url), {headers: getAuthHeaders()})
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.error) {
+                    document.getElementById('detail-body').innerHTML = '<p class="text-red-500 text-sm">' + d.error + '</p>';
+                    return;
+                }
+                document.getElementById('detail-title').textContent = d.title || '(无标题)';
+                var body = ''
+                    + '<div class="grid grid-cols-2 gap-3 text-sm mb-4">'
+                    + '<div><span class="text-gray-500">类型:</span> <span class="inline-block px-1.5 py-0.5 rounded text-xs ' + infoTypeColor(d.info_type) + '">' + (d.info_type || '—') + '</span></div>'
+                    + '<div><span class="text-gray-500">发布日期:</span> <span class="text-gray-900 dark:text-white">' + formatDate(d.publish_date) + '</span></div>'
+                    + '<div><span class="text-gray-500">预算:</span> <span class="text-gray-900 dark:text-white">' + (d.budget || '—') + '</span></div>'
+                    + '<div><span class="text-gray-500">联系人:</span> <span class="text-gray-900 dark:text-white">' + (d.contact_name || '—') + ' ' + (d.contact_phone || '') + '</span></div>'
+                    + '<div><span class="text-gray-500">采集时间:</span> <span class="text-gray-900 dark:text-white">' + formatDate(d.scraped_at) + '</span></div>'
+                    + '<div><span class="text-gray-500">来源:</span> <span class="text-gray-900 dark:text-white">' + (d.category || '—') + '</span></div>'
+                    + '</div>'
+                    + (d.project_overview ? '<div class="mb-3"><h4 class="text-xs font-semibold text-gray-500 mb-1">项目概况</h4><div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg">' + d.project_overview + '</div></div>' : '')
+                    + (d.bidder_requirements ? '<div class="mb-3"><h4 class="text-xs font-semibold text-gray-500 mb-1">投标人资质要求</h4><div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg">' + d.bidder_requirements + '</div></div>' : '')
+                    + (d.content_preview ? '<div class="mb-3"><h4 class="text-xs font-semibold text-gray-500 mb-1">摘要</h4><div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg">' + d.content_preview + '</div></div>' : '')
+                    + (d.full_content ? '<div><h4 class="text-xs font-semibold text-gray-500 mb-1">完整内容</h4><div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg max-h-96 overflow-y-auto">' + d.full_content + '</div></div>' : '');
+                document.getElementById('detail-body').innerHTML = body;
+            })
+            .catch(function(e) {
+                document.getElementById('detail-body').innerHTML = '<p class="text-red-500 text-sm">加载失败: ' + e.message + '</p>';
+            });
+    };
+
+    window.closeDetail = function() {
+        document.getElementById('detail-modal').classList.add('hidden');
+    };
+
+    // ── Event bindings ──────────────────────────────────────────
+    document.getElementById('btnSearch').onclick = function() {
+        ccgpIntentState.keyword = document.getElementById('kw').value.trim();
+        ccgpIntentState.infoType = document.getElementById('infoType').value;
+        ccgpIntentState.dateStart = document.getElementById('dateStart').value;
+        ccgpIntentState.dateEnd = document.getElementById('dateEnd').value;
+        ccgpIntentState.page = 1;
+        loadList();
+    };
+
+    document.getElementById('btnClear').onclick = function() {
+        document.getElementById('kw').value = '';
+        document.getElementById('infoType').value = '';
+        document.getElementById('dateStart').value = '';
+        document.getElementById('dateEnd').value = '';
+        ccgpIntentState.keyword = '';
+        ccgpIntentState.infoType = '';
+        ccgpIntentState.dateStart = '';
+        ccgpIntentState.dateEnd = '';
+        ccgpIntentState.page = 1;
+        loadList();
+    };
+
+    document.getElementById('btnPrev').onclick = function() {
+        if (ccgpIntentState.page > 1) {
+            ccgpIntentState.page--;
+            loadList();
+        }
+    };
+
+    document.getElementById('btnNext').onclick = function() {
+        ccgpIntentState.page++;
+        loadList();
+    };
+
+    document.getElementById('kw').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') document.getElementById('btnSearch').click();
+    });
+
+    // ── Init ─────────────────────────────────────────────────────
+    loadHealth();
+    loadStats();
+    loadList();
+})();
+</script>
+
+{% endblock %}
