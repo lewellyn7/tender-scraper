@@ -379,6 +379,28 @@ def job_daily_report():
         logger.error(f"[Scheduler] 日报发送失败: {e}")
 
 
+def job_daily_favorite_digest():
+    """21:30 收藏项目日报 (用户拍板 2026-07-06)
+
+    需求: "收藏项目有新动态" 每日只汇报1次, 当收藏的项目更新为归档后, 不再汇报新进展
+    设计:
+      - 聚合过去 24h notifications (LEFT JOIN projects + favorites)
+      - 排除 status='archived' 的项目
+      - 按 project_id 分组, 列出每个项目的类型分布 + 最新一条
+      - 发 1 条 TG 消息 (HTML 格式)
+
+    错开时间: 20:00 采集日报 + 21:00 fahcqmu + 21:30 收藏日报
+    """
+    logger.info("[Scheduler] 发送收藏项目日报 (daily digest)")
+    try:
+        from app.services.favorite_notifier import send_daily_favorite_digest
+
+        count = send_daily_favorite_digest()
+        logger.info(f"[Scheduler] 收藏日报完成: {count} 个项目")
+    except Exception as e:
+        logger.error(f"[Scheduler] 收藏日报失败: {e}")
+
+
 def job_startup_self_check():
     """启动自检: scheduler 启动时, 拉 collector 上次结果.
 
@@ -522,11 +544,21 @@ def main():
         misfire_grace_time=3600,
     )
 
+    # 7-06: 收藏项目日报 (21:30, 错开 20:00 采集日报 + 21:00 fahcqmu)
+    scheduler.add_job(
+        job_daily_favorite_digest,
+        CronTrigger(minute="30", hour="21", timezone="Asia/Shanghai"),
+        id="daily_favorite_digest",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
     logger.info("[Scheduler] 定时采集调度器已启动")
     logger.info("  - CQGGZY  每 2 小时一次: 08/10/12/14/16/18/20:00")
     logger.info("  - fahcqmu 每日 21:00")
     logger.info(f"  - watchdog  每 {WATCHDOG_CHECK_INTERVAL}s (stale={WATCHDOG_STALE_SECONDS}s)")
     logger.info("  - 日报   每日 20:00")
+    logger.info("  - 收藏日报 每日 21:30")
 
     job = scheduler.get_job("daily_collection")
     if job:
