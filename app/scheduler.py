@@ -49,6 +49,11 @@ RESULT_CHANNEL = os.getenv("RESULT_CHANNEL", "tender:collect:result")
 # 7-03 watchdog 配置
 WATCHDOG_STALE_SECONDS = int(os.getenv("WATCHDOG_STALE_SECONDS", "9000"))  # 2.5h 默认
 WATCHDOG_CHECK_INTERVAL = int(os.getenv("WATCHDOG_CHECK_INTERVAL", "300"))  # 5min 默认
+# 7-07 quiet hours: 静默期内主采集不运行, watchdog 不应误报 (用户拍板 2026-07-07 01:11)
+#   默认 20:00 - 次日 08:00 (Asia/Shanghai), 通过 env 可调
+WATCHDOG_QUIET_HOUR_START = int(os.getenv("WATCHDOG_QUIET_HOUR_START", "20"))  # 20:00
+WATCHDOG_QUIET_HOUR_END = int(os.getenv("WATCHDOG_QUIET_HOUR_END", "8"))     # 08:00
+WATCHDOG_QUIET_ENABLED = os.getenv("WATCHDOG_QUIET_ENABLED", "true").lower() in ("1", "true", "yes")
 COLLECTOR_HEALTH_URL = os.getenv(
     "COLLECTOR_HEALTH_URL",
     "http://tender-scraper-collector:8001/health/collector-state",
@@ -203,6 +208,31 @@ _last_watchdog_alert_at: float = 0
 WATCHDOG_ALERT_COOLDOWN = 1800  # 同一类告警 30min 冷却 (避免刷屏)
 
 
+def _is_quiet_hour(now: "datetime | None" = None) -> bool:
+    """判断当前是否在 watchdog 静默期 (主采集不运行时段).
+
+    用途: 避免 20:00-08:00 等静默时段触发采集停滞误报 (用户拍板 2026-07-07 01:11).
+    Args:
+        now: 传入 datetime 用于测试; 默认 datetime.now() (本地时区).
+    Returns:
+        bool: True = 静默期内 (不发告警), False = 活跃期.
+    Edge cases:
+        - start < end (e.g. 8-20): 在 [start, end) 区间为静默
+        - start > end (e.g. 20-8, 跨午夜): 在 [start, 24) ∪ [0, end) 为静默
+    """
+    if not WATCHDOG_QUIET_ENABLED:
+        return False
+    now = now or datetime.now()
+    h = now.hour
+    s, e = WATCHDOG_QUIET_HOUR_START, WATCHDOG_QUIET_HOUR_END
+    if s == e:
+        return False  # 0 小时窗口 = 不静默
+    if s < e:
+        return s <= h < e
+    # 跨午夜 (20:00-08:00): [20, 24) ∪ [0, 8)
+    return h >= s or h < e
+
+
 def _fetch_collector_state() -> dict | None:
     """拉取 collector 容器 health 状态 (urllib 同步, 3s 超时).
 
@@ -252,6 +282,11 @@ def job_watchdog_check():
             _last_watchdog_alert_at = time.time()
         except Exception as e:
             logger.warning(f"[Watchdog] 告警发送失败: {e}")
+        return
+
+    # 7-07 quiet-hours: 静默期内主采集不运行, 不告警 (用户拍板 2026-07-07 01:11)
+    if _is_quiet_hour():
+        logger.debug(f"[Watchdog] quiet hours ({WATCHDOG_QUIET_HOUR_START}:00-{WATCHDOG_QUIET_HOUR_END}:00), skip stale alert age={state.get('last_crawl_age_s')}s")
         return
 
     # 检查 stale
