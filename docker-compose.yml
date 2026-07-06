@@ -61,6 +61,8 @@ services:
     restart: unless-stopped
     ports:
     - 8889:8000
+    env_file:
+    - .env
     environment:
     - TZ=Asia/Shanghai
     - HOST=0.0.0.0
@@ -175,6 +177,8 @@ services:
     - python
     - -m
     - app.scheduler
+    env_file:
+    - .env
     environment:
     - TZ=Asia/Shanghai
     - HOST=0.0.0.0
@@ -195,6 +199,13 @@ services:
     - MINIMAX_API_KEY=${MINIMAX_API_KEY:-tp-c3haossx7ac16crmb0s9uql5otylg3kxlz2tsnmrmlajjbfz}
     - MINIMAX_BASE_URL=https://api.minimax.chat/v1
     - VECTOR_STORE_BACKEND=pgvector
+    # 7-03 调度告警: watchdog 通道 (Telegram 主, audit 兜底)
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    # watchdog 调优: 2.5h 未成功 → 告警 (cron 2h 一次, 容许 1 次失败)
+    - WATCHDOG_STALE_SECONDS=${WATCHDOG_STALE_SECONDS:-9000}
+    - WATCHDOG_CHECK_INTERVAL=${WATCHDOG_CHECK_INTERVAL:-300}
+    - COLLECTOR_HEALTH_URL=http://tender-scraper-collector:8001/health
     extra_hosts:
     - host.docker.internal:host-gateway
     volumes:
@@ -214,6 +225,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      collector:
+        condition: service_started
     deploy:
       resources:
         limits:
@@ -238,6 +251,8 @@ services:
     container_name: tender-scraper-collector
     restart: unless-stopped
     command: ["python", "-m", "app.workers.collector"]
+    env_file:
+    - .env
     environment:
     - TZ=Asia/Shanghai
     - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -258,6 +273,10 @@ services:
     - VECTOR_STORE_BACKEND=pgvector
     - COLLECT_CHANNEL=tender:collect:trigger
     - RESULT_CHANNEL=tender:collect:result
+    # 7-03 告警通道: collector 失败重试 3 次后主动告警
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - CRAWL_RETRY_MAX=${CRAWL_RETRY_MAX:-3}
     extra_hosts:
     - host.docker.internal:host-gateway
     volumes:

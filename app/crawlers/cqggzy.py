@@ -35,6 +35,56 @@ _CATEGORY_INFO_TYPE = {
 }
 
 
+def _parse_nuxt_projects(nuxt_text: str) -> List[dict]:
+    """7-03 修复: 解析 Nuxt 3 push-encoded __NUXT_DATA__, 提取项目对象列表.
+
+    Returns: list of {infoid, title, infodate, categorynum, linkurl, syscollectguid}
+             每个字段已解引用 (deref int index → 实际值)
+    """
+    try:
+        data = json.loads(nuxt_text)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("[NUXT] json.loads 失败,跳过该页")
+        return []
+
+    def _deref(v):
+        """解引用 int index → data[index] (限制在数组范围内)"""
+        if isinstance(v, int) and 0 <= v < len(data):
+            return data[v]
+        return v
+
+    projects = []
+    seen_infuids = set()
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        # 项目对象需同时有 infoId + categorynum + title (NUXT 中项目表示)
+        # 通过 categorytype (类别) 区分于菜单项 (infoId 存在 但缺 title)
+        if 'infoId' in item and 'categorynum' in item and 'title' in item:
+            resolved = {k: _deref(v) for k, v in item.items()}
+            infoid = resolved.get('infoId') or resolved.get('infoid')
+            if not infoid or infoid in seen_infuids:
+                continue
+            seen_infuids.add(infoid)
+            projects.append({
+                'infoid': infoid,
+                'title': str(resolved.get('title') or '').strip(),
+                'infodate': str(resolved.get('infodate') or resolved.get('startdate') or ''),
+                'categorynum': str(resolved.get('categorynum') or ''),
+                'linkurl': str(resolved.get('linkurl') or ''),
+                'syscollectguid': str(resolved.get('syscollectguid') or ''),
+            })
+    return projects
+
+
+def _infer_info_type_from_catnum(catnum: str) -> str:
+    """根据 categoryNum 前9位查表映射 info_type (清空默认''→返回'招标公告'旁路)."""
+    if not catnum:
+        return ''
+    # 查询精确匹配前9位
+    return _CATEGORY_INFO_TYPE.get(catnum[:9], '')
+
+
 class CQGGZYCrawlerV2(BaseCrawler):
     """重庆市公共资源交易网采集器 — 继承 BaseCrawler"""
 
@@ -378,25 +428,23 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 results.extend(api_items)
                 return results
 
-            # 回退：解析 NUXT_DATA
+            # 回退：解析 NUXT_DATA (7-03 修复: 抽取完整项目对象,包含 infoid+categorynum)
             nuxt_data = await page.evaluate('document.querySelector("#__NUXT_DATA__")?.textContent || ""')
             if not nuxt_data:
                 logger.warning("⚠️ 未找到 NUXT_DATA")
                 return results
-            # NUXT 数据格式：日期字符串后紧跟标题，如 },"2026-05-29 23:56:23","标题",...
-            # 使用正则直接匹配日期和标题对
-            date_title_pattern = re.compile(r'\},"((?:2026|2025|2024)-\d{2}-\d{2} \d{2}:\d{2}:\d{2})","([^"]{10,100})"')
-            
+
+            nuxt_projects = _parse_nuxt_projects(nuxt_data)
+            logger.debug(f"  NUXT 解出项目数: {len(nuxt_projects)}")
+
             seen_titles = set()
-            for match in date_title_pattern.finditer(nuxt_data):
-                date_str = match.group(1)
-                title = match.group(2).strip()
-                
+            for p in nuxt_projects:
+                title = p.get('title', '')
                 if len(title) < 10 or title in seen_titles:
                     continue
                 seen_titles.add(title)
 
-                # 解析日期
+                date_str = p.get('infodate') or ''
                 try:
                     pub_date = datetime.strptime(date_str[:19], '%Y-%m-%d %H:%M:%S')
                 except ValueError:
@@ -408,8 +456,28 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 if end_date and pub_date and pub_date > end_date:
                     continue
 
-                # infoId 暂未提取，暂用占位 URL（详情页通过点击触发 NUXT 加载）
-                full_url = f"{self.BASE_URL}/trade/014005?title={title[:20]}" if category.startswith("gov_purchase") else f"{self.BASE_URL}/trade/014001?title={title[:20]}"
+                # 7-03 修复: 用 NUXT 提供的完整项目字段 (infoid + categorynum) 拼接 URL
+                # 以前是占位 `?title=...` (搜索页),现在生成详情页 URL.
+                infoid = p.get('infoid') or ''
+                catnum = p.get('categorynum') or ''
+                linkurl = p.get('linkurl') or ''
+                if not infoid:
+                    # 拿不到 infoid 则跳过 — 不写垃圾 URL
+                    logger.debug(f"  NUXT 项目缺 infoid, skip: {title[:30]}")
+                    continue
+                # trade_id 严格依据 catnum 前 6 位 (避免 9 大类循环同 infoid+catnum 被拼错)
+                if catnum.startswith('014001'):
+                    trade_id = '014001'
+                elif catnum.startswith('014005'):
+                    trade_id = '014005'
+                else:
+                    logger.debug(f"  NUXT catnum 既不属 014001 也不属 014005: catnum={catnum}")
+                    continue
+                # 拼接详情页 URL (linkurl 优先 如 NUXT 提供路径)
+                if linkurl.startswith('/'):
+                    full_url = f"{self.BASE_URL}{linkurl}"
+                else:
+                    full_url = f"{self.BASE_URL}/trade/{trade_id}/{infoid}?categoryNum={catnum}"
 
                 tender = TenderInfo(
                     title=title,
@@ -423,9 +491,10 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 if pub_date:
                     tender.publish_date = pub_date
 
-                # NUXT fallback URL 无 categoryNum，只设 trade 级默认
-                # 2026-06-02 用户分类：014001=招标公告（最常见），014005=采购公告
-                tender.info_type = "招标公告" if tender_type == "工程建设" else "采购公告"
+                # 7-03 修复: 从 catnum 准确推 info_type (之前是粗糙的两元推断)
+                # 退化: 未匹配上时 回退用 tender_type 默认
+                info_type = _infer_info_type_from_catnum(catnum) or ("招标公告" if tender_type == "工程建设" else "采购公告")
+                tender.info_type = info_type
 
                 results.append(tender)
 

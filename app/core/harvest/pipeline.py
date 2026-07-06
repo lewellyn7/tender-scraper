@@ -90,7 +90,10 @@ async def run_collection():
         # 2026-06-18 修复：URL date=today + 列表 start_date=today（之前 date=3m URL 与 7d POST API 范围不一致）
         # 2026-06-05 修复：CQGGZY API 的 edt 是排他的（不含当天），end_date 需 +1 天才能采集当天数据
         today = datetime.now()
-        start_date = today  # 今日模式：仅采集今天发布/更新的项目
+        # 7-03 修复: start_date 应是今天 0:00:00, 之前用 now() (采集启动的秒)
+        # 导致: cron 18:00 触发后, start=18:00:00, 今天 0-17 点发布的全被过滤
+        # 注释说"今日模式：仅采集今天发布/更新的项目" — 应当是"今天 0 点起"
+        start_date = today.replace(hour=0, minute=0, second=0, microsecond=0)
         end_date = today + timedelta(days=1)
         all_items = []
         categories = [
@@ -266,12 +269,23 @@ async def run_collection():
             except Exception as e:
                 logger.warning(f"  ⚠️ 24h 漏采回放查询失败: {e}")
             # DEBUG: 看预排序后前 5 个 task 的 publish_date + 后 5 个的 publish_date
-            for i in [0, 1, 2, 3, 4, -5, -4, -3, -2, -1]:
-                it = detail_items[i]
-                pd = getattr(it, "publish_date", None)
-                logger.info(
-                    f"    [DEBUG] detail_items[{i}] publish_date={pd} title={it.title[:30]}"
-                )
+            # 7-03 修复: 原代码用 [0,1,2,3,4,-5,-4,-3,-2,-1] 越界 IndexError
+            # 当 matched_items=3 时, detail_items 可能只 3 条, -5/-4/-3 不存在
+            # 改用越界安全的取样模式: head(5) + tail(5) 拼起来, 边界检查
+            n = len(detail_items)
+            if n == 0:
+                logger.info("    [DEBUG] detail_items 为空, 跳过采样")
+            else:
+                sample_idx = list(range(min(5, n))) + [i for i in range(max(0, n - 5), n)]
+                # 去重并保顺序
+                seen = set()
+                sample_idx = [i for i in sample_idx if i not in seen and not seen.add(i)]
+                for i in sample_idx:
+                    it = detail_items[i]
+                    pd = getattr(it, "publish_date", None)
+                    logger.info(
+                        f"    [DEBUG] detail_items[{i}] publish_date={pd} title={it.title[:30]}"
+                    )
 
             # 构建 CrawlTask 列表
             crawl_tasks = [_build_crawl_task(item, i) for i, item in enumerate(detail_items)]

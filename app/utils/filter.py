@@ -130,6 +130,23 @@ class TenderFilter:
                 pass
         return str(dt)[:10]
 
+    def _fmt_datetime(self, dt) -> str:
+        """7-03 修复: 格式化日期时间对象 (有时分秒) — 用于 scraped_at.
+
+        之前 scraped_at 也用 _fmt_date 截到 %Y-%m-%d, DB 写入后变 00:00:00,
+        导致 dashboard / 按 scraped_at 排的查询错位.
+        """
+        if dt is None:
+            return ""
+        if hasattr(dt, "strftime"):
+            try:
+                return dt.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                pass
+        s = str(dt)
+        # 截到秒精度 (TenderInfo 默认 now() = 2026-07-03 18:06:48.123456)
+        return s[:19]
+
     def _fmt_kw(self, kw: Any) -> str:
         """格式化关键词列表"""
         if isinstance(kw, list):
@@ -162,7 +179,7 @@ class TenderFilter:
         region = self._get_field(item, "region", "")
         tender_type = self._get_field(item, "tender_type", "")
         keywords_matched = self._fmt_kw(self._get_field(item, "keywords_matched", []))
-        scraped_at = self._fmt_date(self._get_field(item, "scraped_at"))
+        scraped_at = self._fmt_datetime(self._get_field(item, "scraped_at"))
         scraped_by = self._get_field(item, "scraped_by", "tender-scraper v3.2")
         business_type = self._get_field(item, "business_type", "")
         info_type = self._get_field(item, "info_type", "")
@@ -181,6 +198,9 @@ class TenderFilter:
 
         return {
             "title": title,
+            # 7-03 修复: 用 DB 列名 'category' (之前 'type' 是孤儿, 永远不写 DB, 导致 100K+ 行 category 字段空)
+            "category": category,
+            # 7-03 保留 'type' alias 兼容 ReportGenerator 生成 Excel / JSON 的旧 consumer
             "type": category,
             "publish_date": publish_date,
             "publish_date_raw": publish_date_raw,

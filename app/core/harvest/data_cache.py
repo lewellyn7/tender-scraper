@@ -298,13 +298,22 @@ class DataCache:
 
         v4: 接受 list (兼容旧 caller), 转 dict 存储 便于 delta merge.
         6-30 poison 防护: 拒绝空 cache 写入 (空 list/dict/None 都不写, 防止毒 cache 永远命中).
+        7-03 修复: 按 scraped_at DESC 排序后写入,保证 [/projects/latest?limit=N] 切片
+        总是返回最新 N 条 (避免 dict 插入顺序不可预期,导致 dashboard 显示老数据).
         """
         if not projects:  # 空 list/dict/None 都不写
             logger.warning(f"[DataCache] set_main refused: empty projects list (poison cache 防护)")
             return
         now = time.time()
+        # 7-03 排序:按 scraped_at DESC (Python sorted 是稳定排序 → 同 scraped_at 保留原序)
+        # key 用 scraped_at 字段 (字符串 "YYYY-MM-DD HH:MM:SS"),None/空排最后 → reverse=True
+        sorted_projects = sorted(
+            projects,
+            key=lambda p: p.get("scraped_at") or "",
+            reverse=True,
+        )
         with self._lock:
-            self._main = {p.get("url"): p for p in projects if p.get("url")}
+            self._main = {p.get("url"): p for p in sorted_projects if p.get("url")}
             self._main_loaded_at = now
             self._last_main_sync_at = now  # v4: 调用者刚同步过, 记录时间
             self._pending_delta = False
