@@ -14,6 +14,7 @@ from .document_upload import router as document_upload_router
 from .duplicates import router as duplicates_router
 from .exports import router as exports_router
 from .fahcqmu import router as fahcqmu_router
+from .cqyc import router as cqyc_router
 from .ccgp_intent import router as ccgp_intent_router
 from .health import router as health_router
 from .favorites import router as favorites_router
@@ -46,6 +47,7 @@ api_router.include_router(document_upload_router)
 api_router.include_router(duplicates_router)
 api_router.include_router(exports_router)
 api_router.include_router(fahcqmu_router)
+api_router.include_router(cqyc_router)
 api_router.include_router(ccgp_intent_router)
 api_router.include_router(health_router)
 api_router.include_router(presets_router)

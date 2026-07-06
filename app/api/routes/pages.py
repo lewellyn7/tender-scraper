@@ -182,6 +182,21 @@ async def get_ccgp_intent_page(request: Request):
     return _render(request, "ccgp_intent.html")
 
 
+@router.get("/cqyc", response_class=HTMLResponse)
+async def get_cqyc_page(request: Request):
+    """重庆烟草 (cqyc) 采购公告页 — PR #75 (2026-07-06)
+
+    数据来源: projects_cqyc 表 (migration 006)
+    采集源: https://www.966599.com/c/4/
+    分类: 结果公示 / 采购公告 / 变更公告 / 流标 / 招租
+    模板: cqyc.html (仿 fahcqmu 格式, nav 在重医附一院之后)
+    """
+    user = _get_user_info(request)
+    if user.get("role") == "guest":
+        return RedirectResponse(url="/login?redirect=/cqyc", status_code=302)
+    return _render(request, "cqyc.html")
+
+
 @router.get("/documents/upload", response_class=HTMLResponse)
 async def get_document_upload_page(request: Request):
     """文档上传已合并到资质管理 — 重定向"""
