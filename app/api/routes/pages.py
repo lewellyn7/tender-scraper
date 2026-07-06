@@ -169,6 +169,19 @@ async def get_fahcqmu_page(request: Request):
     return _render(request, "fahcqmu.html")
 
 
+@router.get("/ccgp-intent", response_class=HTMLResponse)
+async def get_ccgp_intent_page(request: Request):
+    """CCGP 采购意向 / 需求调查 独立筛选页 (2026-07-06)
+
+    数据来源: projects_ccgp_intention_demand 表 (采集器 run_ccgp_intent_demand_collection)
+    模板: ccgp_intent.html (仿 fahcqmu 格式, nav 在重医附一院之后)
+    """
+    user = _get_user_info(request)
+    if user.get("role") == "guest":
+        return RedirectResponse(url="/login?redirect=/ccgp-intent", status_code=302)
+    return _render(request, "ccgp_intent.html")
+
+
 @router.get("/documents/upload", response_class=HTMLResponse)
 async def get_document_upload_page(request: Request):
     """文档上传已合并到资质管理 — 重定向"""
