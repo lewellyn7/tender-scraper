@@ -429,7 +429,7 @@ class Database(
 
     def upsert_projects(self, rows: list):
         """批量 upsert 项目到 projects_cqggzy 表（URL 去重）
-        
+
         rows: list of dict or list of tuple. dicts are converted to tuples using col order.
         """
         if not rows:
@@ -437,6 +437,8 @@ class Database(
         conn = self._get_conn().conn
         # 保留原始 dict rows 用于关联表同步（在 convert tuple 后会丢失字段名）
         rows_original = [r for r in rows if isinstance(r, dict)]
+        # 2026-07-07 fix: 用 try/finally 确保 conn 放回 pool, 避免 idle in transaction 堆积
+        # 历史 bug: conn._get_conn() 拿了没 putconn, 池 min=5 max=50, 全泄漏后阻塞 DDL
         try:
             cols = [
                 "url", "title", "category", "info_type", "business_type",
@@ -495,6 +497,12 @@ class Database(
         except Exception as e:
             conn.rollback()
             logger.error(f"upsert_projects: {e}")
+        finally:
+            # 关键: 始终把 conn 放回 pool, 无论成功失败
+            try:
+                _pg_close_conn(conn)
+            except Exception:
+                pass
 
         # 联动写入 projects + project_records 关联表
         try:
