@@ -15,6 +15,7 @@ from loguru import logger
 
 from app.crawlers.base import BaseCrawler
 from app.models.tender import TenderInfo
+from app.services.keywords_service import KeywordsService
 from app.utils.project_linker import extract_project_no
 
 # ─── 模块级常量 (从循环内上提, P3.2) ────────────────────────────────────
