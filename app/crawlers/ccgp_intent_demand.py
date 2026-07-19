@@ -50,6 +50,11 @@ LIST_BASE = f"{BASE_URL}/yw-gateway/demand/demand/front"
 DETAIL_TPL = f"{BASE_URL}/yw-gateway/demand/demand/{{id}}/front"
 FILES_BASE = f"{BASE_URL}/gwebsite/files"
 
+# lesson 22+ (A2 方案): 详情 API 实际可用 (正确调用: ?type={1|2})
+# 之前误判为不可用 (错用 DB 自增 ID 8407 + 没加 type 参数)
+DETAIL_API_BASE = f"{BASE_URL}/yw-gateway/demand/demand"
+DETAIL_API_TPL = f"{DETAIL_API_BASE}/{{id}}/front"
+
 DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=30, connect=10)
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -148,7 +153,78 @@ def dt_to_ms(dt: datetime) -> int:
     return int(dt.timestamp() * 1000)
 
 
-def parse_intent_demand_json(data: Dict, cat: IntentDemandConfig) -> TenderInfo:
+def format_detail_list(detail_list: List[Dict]) -> str:
+    """把 intentionDetaileList[] 拼成结构化文本 (lesson 22+ A2 方案).
+
+    详情 API 返回的明细含: title / depict / money / catalogName / target / requirement / quantity
+    按层级拼: ▸ 标题 → 品类/预算/数量/目标/要求/明细
+    """
+    parts: List[str] = []
+    for d in detail_list:
+        t = (d.get("title") or "").strip()
+        c = (d.get("depict") or d.get("content") or "").strip()
+        cat_name = (d.get("catalogName") or "").strip()
+        d_money = (d.get("money") or "").strip()
+        target = (d.get("target") or "").strip()
+        requirement = (d.get("requirement") or "").strip()
+        quantity = (d.get("quantity") or "").strip()
+
+        item_parts: List[str] = []
+        if t:
+            item_parts.append(f"▸ {t}")
+        if cat_name:
+            item_parts.append(f"  品类：{cat_name}")
+        if d_money:
+            item_parts.append(f"  预算：{d_money}万元")
+        if quantity:
+            item_parts.append(f"  数量：{quantity}")
+        if target:
+            item_parts.append(f"  目标：{target}")
+        if requirement:
+            item_parts.append(f"  要求：{requirement}")
+        if c:
+            item_parts.append(f"  明细：{c}")
+        if item_parts:
+            parts.append("\n".join(item_parts))
+    return "\n\n".join(parts)
+
+
+async def _fetch_detail_json(
+    session: aiohttp.ClientSession,
+    item_id: str,
+    type_id: int,
+    retries: int = 3,
+) -> Optional[Dict]:
+    """调详情 API 拿 intentionDetaileList[] (含真全文).
+
+    lesson 22+ (A2 方案):
+    - 正确调用方式: GET /yw-gateway/demand/demand/{18位id}/front?type={1|2}
+    - 之前误判: 用 DB 自增 ID + 没加 type 参数 → {"code":-1,"message":"异常，业务不存在"}
+    - list API 返回 intentionDetaileList=null; 必须调详情 API 拿明细
+    - 命中率 100% (10/10 测试 ID), 平均 depict 225 chars (vs list 仅 36 chars)
+    """
+    url = f"{DETAIL_API_TPL.format(id=item_id)}?type={type_id}"
+    last_err = None
+    for attempt in range(retries):
+        try:
+            async with session.get(url) as resp:
+                resp.raise_for_status()
+                data = await resp.json(content_type=None)
+                return data.get("data") or {}
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+            last_err = e
+            if attempt < retries - 1:
+                await asyncio.sleep(0.5 * (attempt + 1))
+                continue
+    logger.warning(f"详情 API 失败 (id={item_id}, type={type_id}): {last_err}")
+    return None
+
+
+def parse_intent_demand_json(
+    data: Dict,
+    cat: IntentDemandConfig,
+    detail_data: Optional[Dict] = None,
+) -> TenderInfo:
     """将 API 返回的单条 JSON 转换为 TenderInfo.
 
     关键字段映射:
@@ -156,12 +232,18 @@ def parse_intent_demand_json(data: Dict, cat: IntentDemandConfig) -> TenderInfo:
     - title → title
     - createTime (ms) → publish_date / publish_date_raw
     - money → budget
-    - depict → full_content / content_preview
-    - intentionDetaileList[].title+content → tender_content
+    - depict → full_content / content_preview (项目简介部分)
+    - intentionDetaileList[] → full_content (采购明细部分, lesson 22+ A2 优先用详情 API)
     - createRegionName → region
     - budgetOrgName → project_overview (首行, 兜底)
     - annex[] → attachments (仅存路径)
     - type=2/1 → info_type (硬映射到分类)
+
+    Args:
+        data: list API 返回的单条 JSON
+        cat: 分类配置
+        detail_data: 详情 API 返回的 data dict (含 intentionDetaileList)，可选
+            优先级: detail_api.intentionDetaileList > list.intentionDetaileList
     """
     item_id = str(data.get("id") or "")
     if not item_id:
@@ -175,22 +257,24 @@ def parse_intent_demand_json(data: Dict, cat: IntentDemandConfig) -> TenderInfo:
         if create_time_ms else ""
     )
 
-    # 正文 + 明细
+    # 正文 + 明细 (lesson 22+: 详情 API 优先)
     depict = (data.get("depict") or "").strip()
-    detail_list = data.get("intentionDetaileList") or []
-    detail_text = ""
-    if detail_list:
-        parts = []
-        for d in detail_list:
-            t = (d.get("title") or "").strip()
-            c = (d.get("content") or "").strip()
-            if t or c:
-                parts.append(f"【{t}】\n{c}" if t else c)
-        detail_text = "\n\n".join(parts)
-    full_content = depict
-    if detail_text and detail_text != depict:
-        full_content = f"{depict}\n\n--- 意向明细 ---\n{detail_text}" if depict else detail_text
-    content_preview = full_content[:300] if full_content else ""
+    detail_list: List[Dict] = []
+    if detail_data:
+        detail_list = detail_data.get("intentionDetaileList") or []
+    if not detail_list:
+        # fallback: list API 字段 (通常为 null)
+        detail_list = data.get("intentionDetaileList") or []
+    detail_text = format_detail_list(detail_list)
+
+    # 拼装 full_content (项目简介 + 采购明细)
+    full_content_parts: List[str] = []
+    if depict:
+        full_content_parts.append(f"【项目简介】\n{depict}")
+    if detail_text:
+        full_content_parts.append(f"【采购明细】\n{detail_text}")
+    full_content = "\n\n".join(full_content_parts)
+    content_preview = full_content[:300] if full_content else depict[:300]
 
     # 附件 (1c 模式: 只存路径)
     annex_raw = data.get("annex") or []
@@ -396,17 +480,52 @@ class CcgpIntentDemandCrawler:
         logger.info(
             f"全部分类合计: {len(all_items)} 条 → 去重后 {len(unique)} 条"
         )
+
+        # lesson 22+ (A2): 详情 API 抓 intentionDetaileList[] 真全文
+        # list API 返回 intentionDetaileList=null, 必须调详情 API 拿明细
+        if unique:
+            await self.fetch_details_parallel(unique, concurrency=DEFAULT_CONCURRENCY)
+
         return unique
 
     # ─── 详情 ──────────────────────────────────────────────────────
 
     async def fetch_detail(self, item: TenderInfo) -> TenderInfo:
-        """采集单个详情. 复用列表解析, 因为 API 详情结构和列表每条相同.
+        """采集单个详情.
 
-        列表 API 已返回完整 depict/intentionDetaileList/annex 等, 不需要再发详情请求.
-        本方法保留以兼容统一 pipeline 接口.
+        lesson 22+ (A2): 详情 API 拿 intentionDetaileList[] 真全文.
+        之前误判: 列表 API 已含完整字段 (实际 intentionDetaileList=null)
         """
-        # API 列表已返回完整数据, 无需额外详情请求
+        if self._session is None:
+            raise RuntimeError("Use 'async with' or pass session")
+        item_id = getattr(item, "_source_id", None)
+        type_id = getattr(item, "_source_type", None)
+        if not item_id or type_id is None:
+            return item
+
+        if self.delay > 0:
+            await asyncio.sleep(self.delay)
+        detail_data = await _fetch_detail_json(self._session, item_id, type_id, retries=3)
+        if detail_data is None:
+            return item
+        # 重新 parse (用 detail_data 补 intentionDetaileList)
+        # 但保留 list API 已拿到的字段: title/depict/createTime/money...
+        # 简化: 用 detail_data + item 原数据重 build full_content
+        detail_list = detail_data.get("intentionDetaileList") or []
+        if detail_list:
+            detail_text = format_detail_list(detail_list)
+            existing_overview = item.project_overview or ""
+            full_content_parts: List[str] = []
+            if existing_overview:
+                full_content_parts.append(f"【项目简介】\n{existing_overview}")
+            if detail_text:
+                full_content_parts.append(f"【采购明细】\n{detail_text}")
+            new_full = "\n\n".join(full_content_parts)
+            item.full_content = new_full
+            item.content_preview = new_full[:300] if new_full else ""
+            item._tender_content = "\n\n".join(  # type: ignore[attr-defined]
+                (d.get("depict") or d.get("content") or "").strip() for d in detail_list
+            )
         return item
 
     async def fetch_details_parallel(
@@ -416,11 +535,59 @@ class CcgpIntentDemandCrawler:
     ) -> List[TenderInfo]:
         """详情采集 (并发).
 
-        由于列表 API 已返回完整数据, 本方法主要是占位, 直接返回原 items.
-        保留接口与 fahcqmu 一致, 方便 pipeline 复用.
+        lesson 22+ (A2): 调详情 API 拿 intentionDetaileList[] 真全文.
+        - list API 永远 null, 必须详情 API (命中率 100%, avg depict 225 chars)
+        - concurrency 限速 + retry 3 + delay 0.5s
         """
-        # 列表 API 已含完整字段, 无需额外请求
-        return list(items)
+        if not items or self._session is None:
+            return items
+
+        sem = asyncio.Semaphore(concurrency)
+        success_count = 0
+        fail_count = 0
+
+        async def fetch_one(item: TenderInfo):
+            nonlocal success_count, fail_count
+            async with sem:
+                item_id = getattr(item, "_source_id", None)
+                type_id = getattr(item, "_source_type", None)
+                if not item_id or type_id is None:
+                    fail_count += 1
+                    return
+                if self.delay > 0:
+                    await asyncio.sleep(self.delay)
+                detail_data = await _fetch_detail_json(self._session, item_id, type_id, retries=3)
+                if detail_data is None:
+                    fail_count += 1
+                    return
+                detail_list = detail_data.get("intentionDetaileList") or []
+                if not detail_list:
+                    # 详情 API 成功但 intentionDetaileList 为空 (不应发生)
+                    fail_count += 1
+                    return
+                # 重 build full_content
+                detail_text = format_detail_list(detail_list)
+                existing_overview = item.project_overview or ""
+                full_content_parts: List[str] = []
+                if existing_overview:
+                    full_content_parts.append(f"【项目简介】\n{existing_overview}")
+                if detail_text:
+                    full_content_parts.append(f"【采购明细】\n{detail_text}")
+                new_full = "\n\n".join(full_content_parts)
+                item.full_content = new_full
+                item.content_preview = new_full[:300] if new_full else ""
+                item._tender_content = "\n\n".join(  # type: ignore[attr-defined]
+                    (d.get("depict") or d.get("content") or "").strip() for d in detail_list
+                )
+                success_count += 1
+
+        tasks = [fetch_one(item) for item in items]
+        await asyncio.gather(*tasks, return_exceptions=True)
+        logger.info(
+            f"详情 API 完成: {success_count}/{len(items)} 条拿到 intentionDetaileList "
+            f"({fail_count} 失败/无明细)"
+        )
+        return items
 
 
 # ============================================================================

@@ -14,15 +14,17 @@ from typing import Any, Dict, List, Optional
 
 import asyncpg
 
+# ── Logger ─────────────────────────────────────────────
 logger = logging.getLogger(__name__)
+
 
 # ── 配置 ────────────────────────────────────────────────
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://lewellyn:lewellyn@localhost:5432/procurement"
 )
-POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "5"))
-POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "50"))
+POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
+POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
 
 
 # ── 连接池 ──────────────────────────────────────────────
@@ -355,104 +357,6 @@ class HarvestRecord:
             return cls.from_row(row), True
 
     @classmethod
-    async def upsert_batch(
-        cls,
-        conn: asyncpg.Connection,
-        records: List[Dict[str, Any]],
-        source_name: str,
-    ) -> tuple[int, int]:
-        """
-        批量 upsert（单次 round-trip，N 条记录只需 1 次 DB 交互）。
-
-        使用 PostgreSQL INSERT ... ON CONFLICT DO UPDATE
-        比逐条 upsert_by_url 快 50~100 倍。
-
-        返回 (插入数, 更新数)。
-        """
-        if not records:
-            return 0, 0
-
-        now = datetime.utcnow()
-        pending_status = RecordStatus.PENDING.value
-        n_cols = 10  # title, source_url, source_name, publish_date, matched_keywords, raw_data, status, retry_count, created_at, updated_at
-
-        # 构建批量 VALUES 子句：每行 $1..$10 参数，重用编号
-        rows: list[tuple] = []
-        for r in records:
-            rows.append(
-                (
-                    r.get("title", ""),
-                    r.get("url", ""),
-                    source_name,
-                    r.get("date"),
-                    json.dumps(r.get("matched_keywords") or []),
-                    json.dumps(r.get("raw_data") or {}),
-                    pending_status,
-                    0,
-                    now,
-                    now,
-                )
-            )
-
-        BATCH_SIZE = 100
-        total_inserted = total_updated = 0
-
-        for chunk_start in range(0, len(rows), BATCH_SIZE):
-            chunk = rows[chunk_start : chunk_start + BATCH_SIZE]
-            n_rows = len(chunk)
-
-            # 构建 VALUES ($1,..,$10), ($11,..,$20), ...
-            values_parts = []
-            param_list: list = []
-            for i in range(n_rows):
-                base = i * n_cols + 1
-                values_parts.append(f"(${base}, ${base+1}, ${base+2}, ${base+3}, ${base+4}, ${base+5}, ${base+6}, ${base+7}, ${base+8}, ${base+9})")
-            values_clause = ", ".join(values_parts)
-
-            # 扁平化参数（每行10个，按行顺序）
-            for row in chunk:
-                param_list.extend(row)
-
-            sql = f"""
-                INSERT INTO {cls.table_name}
-                    (title, source_url, source_name, publish_date,
-                     matched_keywords, raw_data, status, retry_count,
-                     created_at, updated_at)
-                VALUES {values_clause}
-                ON CONFLICT (source_url) DO UPDATE SET
-                    title = EXCLUDED.title,
-                    publish_date = EXCLUDED.publish_date,
-                    matched_keywords = EXCLUDED.matched_keywords,
-                    raw_data = EXCLUDED.raw_data,
-                    updated_at = EXCLUDED.updated_at,
-                    status = EXCLUDED.status
-            """
-
-            try:
-                affected = await conn.execute(sql, *param_list)
-                # affected: "INSERT 0 N" / "UPDATE N" / "INSERT 0 M UPDATE N" (upsert)
-                import re
-                m = re.search(r"^INSERT 0 (\d+)$", affected)
-                if m:
-                    total_inserted += int(m.group(1))
-                else:
-                    m = re.search(r"^UPDATE (\d+)$", affected)
-                    if m:
-                        total_updated += int(m.group(1))
-                    else:
-                        m = re.search(r"^INSERT 0 (\d+) UPDATE (\d+)$", affected)
-                        if m:
-                            # ON CONFLICT DO UPDATE: PG doesn't split insert/update counts
-                            # — count all as updated for accurate monitoring
-                            total_updated += int(m.group(1)) + int(m.group(2))
-                        else:
-                            logger.warning(f"upsert_batch: unexpected PG result format: {affected!r}")
-            except Exception as e:
-                logger.error(f"upsert_batch chunk error: {e}", exc_info=True)
-
-        return total_inserted, total_updated
-
-    @classmethod
     async def delete_old(cls, conn: asyncpg.Connection, days: int = 90) -> int:
         """删除 N 天前的记录，返回删除数量"""
         result = await conn.execute(
@@ -729,14 +633,39 @@ async def save_harvest_records(
     source_name: str,
 ) -> tuple[int, int]:
     """
-    批量保存采集记录（单次 round-trip 自动去重）。
-    使用 upsert_batch，N 条记录只需 1 次 DB 交互（原来需 2N 次）。
+    批量保存采集记录（自动去重）。
     返回 (插入数, 更新数)。
+
+    Bug 1 修复 (lesson 19/20 silent-killer, 2026-07-17):
+    - 之前: 整个 loop 一个 tx, 单条失败 → 整个 tx abort → 静默丢全部数据
+    - 现在: 每条独立 tx + try/except, 单条失败只影响自己, 其他正常入库
     """
-    if not records:
-        return 0, 0
-    async with DatabaseManager.acquire() as conn:
-        return await HarvestRecord.upsert_batch(conn, records, source_name)
+    inserted = updated = 0
+    for r in records:
+        try:
+            async with DatabaseManager.transaction() as conn:
+                _, is_new = await HarvestRecord.upsert_by_url(
+                    conn,
+                    title=r.get("title", ""),
+                    source_url=r.get("url", ""),
+                    source_name=source_name,
+                    publish_date=r.get("date"),
+                    matched_keywords=r.get("matched_keywords"),
+                    raw_data=r.get("raw_data"),
+                )
+                if is_new:
+                    inserted += 1
+                else:
+                    updated += 1
+        except Exception as e:
+            # lesson 19: 静默 tx aborted silent-killer → 单条失败不影响其他记录
+            logger.warning(
+                f"⚠️ save_harvest_records 单条失败 "
+                f"(source={source_name}, url={r.get('url', '?')[:100]}): "
+                f"{type(e).__name__}: {e}"
+            )
+            continue
+    return inserted, updated
 
 
 # ── 健康检查 ─────────────────────────────────────────────
