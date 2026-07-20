@@ -22,12 +22,19 @@ import threading
 import time
 import urllib.request
 import urllib.error
+import asyncio
 from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.utils.redis_url import parse_redis_url as _parse_redis_url
+
+# 7-15: 重庆烟草 + 政府采购(意向/调查) 独立定时采集
+from app.core.harvest.pipeline import (
+    run_cqyc_collection,
+    run_ccgp_intent_demand_collection,
+)
 
 
 # ── 配置 ──────────────────────────────────────────────────
@@ -561,6 +568,26 @@ def main():
         misfire_grace_time=3600,
     )
 
+    # 7-15: 重庆烟草采集 (4×/day, 错开主采集 + 错开 fahcqmu 21:00)
+    # 02:30 / 08:30 / 14:30 / 20:30 (Asia/Shanghai)
+    scheduler.add_job(
+        lambda: asyncio.run(run_cqyc_collection(detail_limit=300)),
+        CronTrigger(minute="30", hour="2,8,14,20", timezone="Asia/Shanghai"),
+        id="cqyc_collect",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+    # 7-15: 政府采购(采购意向/需求调查)采集 (4×/day, 与 cqyc 错开 30 分钟)
+    # 03:00 / 09:00 / 15:00 / 21:00 (Asia/Shanghai)
+    scheduler.add_job(
+        lambda: asyncio.run(run_ccgp_intent_demand_collection(days=30)),
+        CronTrigger(minute="0", hour="3,9,15,21", timezone="Asia/Shanghai"),
+        id="ccgp_intent_demand_collect",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
     # 7-03: watchdog 巡检 (每 5min)
     scheduler.add_job(
         job_watchdog_check,
@@ -591,6 +618,8 @@ def main():
     logger.info("[Scheduler] 定时采集调度器已启动")
     logger.info("  - CQGGZY  每 2 小时一次: 08/10/12/14/16/18/20:00")
     logger.info("  - fahcqmu 每日 21:00")
+    logger.info("  - cqyc  每 6h: 02:30 / 08:30 / 14:30 / 20:30")
+    logger.info("  - ccgp_intent_demand 每 6h: 03:00 / 09:00 / 15:00 / 21:00")
     logger.info(f"  - watchdog  每 {WATCHDOG_CHECK_INTERVAL}s (stale={WATCHDOG_STALE_SECONDS}s)")
     logger.info("  - 日报   每日 20:00")
     logger.info("  - 收藏日报 每日 21:30")
@@ -606,6 +635,16 @@ def main():
     if fahc_job:
         next_time = getattr(fahc_job, "next_run_time", None)
         logger.info(f"[Scheduler] 下次 fahcqmu 执行: {next_time}")
+
+    cqyc_job = scheduler.get_job("cqyc_collect")
+    if cqyc_job:
+        next_time = getattr(cqyc_job, "next_run_time", None)
+        logger.info(f"[Scheduler] 下次 cqyc 执行: {next_time}")
+
+    ccgp_job = scheduler.get_job("ccgp_intent_demand_collect")
+    if ccgp_job:
+        next_time = getattr(ccgp_job, "next_run_time", None)
+        logger.info(f"[Scheduler] 下次 ccgp_intent_demand 执行: {next_time}")
 
     # 7-03: 启动自检 (同步执行, 不阻塞 scheduler.start())
     threading.Thread(target=job_startup_self_check, daemon=True).start()
