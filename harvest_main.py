@@ -111,7 +111,14 @@ async def run_fahcqmu(keywords, exclude_kw):
     """
     from app.core.harvest.pipeline import run_fahcqmu_collection
     # 直接调用独立函数, 复用 TenderFilter (settings.KEYWORDS)
-    return await run_fahcqmu_collection(detail_limit=300)
+    result = await run_fahcqmu_collection(detail_limit=300)
+    # 2026-07-21 修: run_fahcqmu_collection 不返回 source 字段, 而 cqggzy/ccgp 的
+    # _process_results 都会返回 {"source": ...}, exit handler (line 225) 统一依赖
+    # result["source"]. 补齐 shape, 避免 KeyError (非致命但污染 exit log).
+    if result is None:
+        return None
+    result.setdefault("source", "fahcqmu")
+    return result
 
 
 async def _process_results(browser, crawler, all_items, keywords, exclude_kw, source):
