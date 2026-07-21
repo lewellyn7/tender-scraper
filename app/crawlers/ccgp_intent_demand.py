@@ -656,6 +656,11 @@ def tender_to_db_row(item: TenderInfo) -> Dict:
         # 覆盖 DEFAULT CURRENT_TIMESTAMP, 且 ON CONFLICT DO UPDATE CASE WHEN
         # IS NOT NULL 也会保持原 NULL. 与 fahcqmu fix (commit 6551e3e) 同类问题.
         "scraped_at": datetime.now().isoformat(),
+        # 7-21 (第二轮): PR #82 漏补 — parse_intent_demand_json() 加了
+        # deadline=deadline_dt (从 endTime) 但 tender_to_db_row() 没传这字段,
+        # 加上 upsert cols 也没 deadline, 导致 deadline 列全 NULL.
+        # 现补: 格式化为 ISO 让 psycopg2 直接传 datetime.
+        "deadline": item.deadline.isoformat() if item.deadline else None,
     }
 
 
