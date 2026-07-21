@@ -255,14 +255,18 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 # 详情页 URL（2026-06 新版）：infoid 为真正的项目 UUID，syscollectguid 是分类级 ID（多项目共用）
                 # 优先使用 infoid，若无则降级到 syscollectguid
                 infoid = item.get('infoid', '') or item.get('syscollectguid', '')
-                # CQGGZY API infoid 格式: "1645485773757394944_1" (数字 ID + 版本后缀)
-                # 详情页 URL 必须含 _N 后缀, 否则网站返回空 200 响应 (无正文)
-                # curl 路径已验证：无后缀 → 空详情页 (静默数据缺失)
-                # 统一处理：保留 _N 后缀；裸数字 ID 自动补 _1
-                # 6-30 修复: 必须加 isdigit() 检查, 否则 UUID 也会被加 _1 → URL 错
-                if infoid and '_' not in infoid and infoid.isdigit():
-                    infoid = f'{infoid}_1'
                 raw_catnum = item.get('categorynum', '') or ''
+                # CQGGZY infoid _N 后缀规则 (2026-07-21 修复):
+                #   - 采购结果公告 014005004: API 真实返回 _N 后缀 (多次修订版本), 必须保留
+                #   - 采购公告 014005001 / 变更公告 014005002: API 只返裸数字, 加 _1 → URL 错 (指向空壳)
+                # 实测: YCQ26B00018 (变更公告) 加 _1 后页面无内容, 剥掉后正确
+                if (
+                    infoid
+                    and '_' not in infoid
+                    and infoid.isdigit()
+                    and raw_catnum.startswith('014005004')
+                ):
+                    infoid = f'{infoid}_1'
                 # 2026-06-23 修复: 严格白名单 (用户 6-23 明确指令: 非以上来源不采集)
                 # 使用类级 _ALLOWED_CATNUM_PREFIXES (从 LIST_URLS.values() 生成)
                 # 标题关键词兜底: 拦截资产招租 (CQGGZY 偶发把房产招租挂载到 014001xxx 工程分类)
