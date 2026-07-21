@@ -237,12 +237,17 @@ class CqggzyCurlCrawler(CQGGZYCrawlerV2):
                     pass
 
             infoid = item.get('infoid', '') or item.get('syscollectguid', '')
-            # CQGGZY API infoid 格式: "1645485773757394944_1" (数字 ID + 版本后缀)
-            # 详情页 URL 必须含 _N 后缀, 否则网站返回空 200 响应 (无正文)
-            # Fallback: 兼容旧格式裸数字 ID (无下划线) → 自动补 _1
-            if infoid and '_' not in infoid and infoid.isdigit():
-                infoid = f'{infoid}_1'
             raw_catnum = item['categorynum']
+            # CQGGZY infoid _N 后缀规则 (2026-07-21 修复):
+            #   - 采购结果公告 014005004: API 真实返回 _N 后缀 (多次修订版本), 必须保留
+            #   - 采购公告 014005001 / 变更公告 014005002: API 只返裸数字, 加 _1 → URL 错 (指向空壳)
+            if (
+                infoid
+                and '_' not in infoid
+                and infoid.isdigit()
+                and raw_catnum.startswith('014005004')
+            ):
+                infoid = f'{infoid}_1'
 
             if raw_catnum.startswith('014001'):
                 trade_id_use = '014001'
