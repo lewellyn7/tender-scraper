@@ -252,11 +252,11 @@
                     + (d.publish_date ? '<span class="inline-flex items-center px-2 py-1 rounded bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">🗓 发布 ' + formatDate(d.publish_date) + '</span>' : '')
                     + (d.contact_name ? '<span class="inline-flex items-center px-2 py-1 rounded bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">👤 ' + d.contact_name + (d.contact_phone ? ' · ' + d.contact_phone : '') + '</span>' : '')
                     + '</div>';
-                // 完整内容 — 纯文本流，不再用 bg color 框 + 滚动条 (#28357)
+                // 完整内容 — 纯文本流 + 滚动条 (#28357 去表格 / #28443 加滚动)
                 var content = d.full_content || d.content_preview || '';
                 var body = meta
                     + (content
-                        ? '<div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">' + content + '</div>'
+                        ? '<div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed max-h-[60vh] overflow-y-auto pr-2">' + content + '</div>'
                         : '<p class="text-gray-400 text-sm">无内容</p>');
                 document.getElementById('detail-body').innerHTML = body;
             })
