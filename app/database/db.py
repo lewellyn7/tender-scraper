@@ -600,8 +600,11 @@ class Database(
 
         字段: url / title / category / info_type / business_type / publish_date /
               content_preview / full_content / tender_content / budget / attachments /
-              keywords_matched / source_url / scraped_at / source_id / source_type 等
+              keywords_matched / source_url / scraped_at / source_id / source_type /
+              deadline 等
         保护字段: full_content / content_preview / tender_content (CASE WHEN 空字符串保护)
+                  scraped_at / deadline (CASE WHEN NULL 保护 — API 偶尔不返 endTime)
+                  budget (7-22 CASE WHEN 空保护 — API 偶尔不返 money, 不覆盖老值)
         """
         if not rows:
             return
@@ -619,10 +622,13 @@ class Database(
                 "source_url", "scraped_at", "scraped_by",
                 "contract_amount", "planned_publish_date", "tender_content", "project_no",
                 "source_id", "source_type",
+                # 7-22: PR #82 漏补 — parse_intent_demand_json() 加了 deadline=deadline_dt
+                # 但 cols 没加, 加上 tender_to_db_row() 也没传, 导致 deadline 列一直 NULL.
+                "deadline",
             ]
             placeholders = ",".join(["%s"] * len(cols))
-            text_protected_cols = {"full_content", "content_preview", "tender_content"}
-            timestamp_protected_cols = {"scraped_at"}
+            text_protected_cols = {"full_content", "content_preview", "tender_content", "budget"}
+            timestamp_protected_cols = {"scraped_at", "deadline"}
             set_parts = []
             for c in cols[1:]:
                 if c in text_protected_cols:
