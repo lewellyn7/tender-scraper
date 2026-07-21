@@ -25,7 +25,6 @@ import aiohttp
 
 from app.crawlers.base import TenderInfo
 from app.services.keywords_service import KeywordsService
-from app.utils.clean_noise import make_content_preview
 from app.crawlers.cqggzy import CQGGZYCrawlerV2  # 复用 LIST_URLS / 字段映射
 
 logger = logging.getLogger(__name__)
@@ -283,12 +282,17 @@ class CqggzyCurlCrawler(CQGGZYCrawlerV2):
                 tender.info_type = _CATEGORY_INFO_TYPE.get(prefix9, '')
 
             # content 提取
+            # 2026-07-21 修复: 用 extract_cqggzy_detail 优先抽 <div class="app-detail"> (避开 nav)
+            # fallback 到 detail-wrapper 容器 + clean_cqggzy_text 裁 nav
             raw_content = item.get('content', '') or ''
             if raw_content:
-                clean = re.sub(r'<[^>]+>', '', raw_content)
-                clean = re.sub(r'\s+', ' ', clean).strip()
-                tender.full_content = clean
-                tender.content_preview = make_content_preview(clean, tender.title)
+                from app.utils.cqggzy_text import extract_cqggzy_detail
+                text = extract_cqggzy_detail(raw_content)
+                if text:
+                    # 2026-07-21 fix: cp derived from fc via clean_cqggzy_text (单一来源)
+                    from app.utils.cqggzy_text import clean_cqggzy_text
+                    tender.full_content = text[:50000]
+                    tender.content_preview = clean_cqggzy_text(text, hard_truncate_to=500)
 
             # keywords matched (3.1 fix: KeywordsService 已在循环外实例化)
             try:
@@ -332,16 +336,19 @@ class CqggzyCurlCrawler(CQGGZYCrawlerV2):
                 if div:
                     text = div.get_text(separator='\n', strip=True)
                     if len(text) > 200:
+                        # 2026-07-21 fix: cp derived from fc via clean_cqggzy_text
+                        from app.utils.cqggzy_text import clean_cqggzy_text
                         tender.full_content = text
-                        tender.content_preview = make_content_preview(text, tender.title)
+                        tender.content_preview = clean_cqggzy_text(text, hard_truncate_to=500)
                         return tender
             # 2. 兜底: body 全文本
             body = soup.find('body')
             if body:
                 text = body.get_text(separator='\n', strip=True)
                 if len(text) > 200:
+                    from app.utils.cqggzy_text import clean_cqggzy_text
                     tender.full_content = text
-                    tender.content_preview = make_content_preview(text, tender.title)
+                    tender.content_preview = clean_cqggzy_text(text, hard_truncate_to=500)
         except ImportError:
             # 无 BS4, regex 兑底
             text_match = re.search(r'<div[^>]*class="[^"]*article[^"]*"[^>]*>([\s\S]+?)</div>', html)
@@ -349,8 +356,9 @@ class CqggzyCurlCrawler(CQGGZYCrawlerV2):
                 clean = re.sub(r'<[^>]+>', '', text_match.group(1))
                 clean = re.sub(r'\s+', ' ', clean).strip()
                 if len(clean) > 200:
+                    from app.utils.cqggzy_text import clean_cqggzy_text
                     tender.full_content = clean
-                    tender.content_preview = make_content_preview(clean, tender.title)
+                    tender.content_preview = clean_cqggzy_text(clean, hard_truncate_to=500)
 
         return tender
 
