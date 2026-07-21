@@ -229,19 +229,21 @@
                     return;
                 }
                 document.getElementById('detail-title').textContent = d.title || '(无标题)';
-                var body = ''
-                    + '<div class="grid grid-cols-2 gap-3 text-sm mb-4">'
-                    + '<div><span class="text-gray-500">类型:</span> <span class="inline-block px-1.5 py-0.5 rounded text-xs ' + infoTypeColor(d.info_type) + '">' + (d.info_type || '—') + '</span></div>'
-                    + '<div><span class="text-gray-500">发布日期:</span> <span class="text-gray-900 dark:text-white">' + formatDate(d.publish_date) + '</span></div>'
-                    + '<div><span class="text-gray-500">预算:</span> <span class="text-gray-900 dark:text-white">' + (d.budget || '—') + '</span></div>'
-                    + '<div><span class="text-gray-500">联系人:</span> <span class="text-gray-900 dark:text-white">' + (d.contact_name || '—') + ' ' + (d.contact_phone || '') + '</span></div>'
-                    + '<div><span class="text-gray-500">采集时间:</span> <span class="text-gray-900 dark:text-white">' + formatDate(d.scraped_at) + '</span></div>'
-                    + '<div><span class="text-gray-500">来源:</span> <span class="text-gray-900 dark:text-white">' + (d.category || '—') + '</span></div>'
-                    + '</div>'
-                    + (d.project_overview ? '<div class="mb-3"><h4 class="text-xs font-semibold text-gray-500 mb-1">项目概况</h4><div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg">' + d.project_overview + '</div></div>' : '')
-                    + (d.bidder_requirements ? '<div class="mb-3"><h4 class="text-xs font-semibold text-gray-500 mb-1">投标人资质要求</h4><div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg">' + d.bidder_requirements + '</div></div>' : '')
-                    + (d.content_preview ? '<div class="mb-3"><h4 class="text-xs font-semibold text-gray-500 mb-1">摘要</h4><div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg">' + d.content_preview + '</div></div>' : '')
-                    + (d.full_content ? '<div><h4 class="text-xs font-semibold text-gray-500 mb-1">完整内容</h4><div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg max-h-96 overflow-y-auto">' + d.full_content + '</div></div>' : '');
+                // 关键 metadata 顶部行内徽章 — 不再用 2-col 表格 (#28357)
+                var meta = ''
+                    + '<div class="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-gray-100 dark:border-gray-700 text-xs">'
+                    + '<span class="inline-flex items-center px-2 py-1 rounded ' + infoTypeColor(d.info_type) + '">' + (d.info_type || '—') + '</span>'
+                    + (d.budget ? '<span class="inline-flex items-center px-2 py-1 rounded bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">💰 ' + d.budget + '</span>' : '')
+                    + (d.deadline ? '<span class="inline-flex items-center px-2 py-1 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">📅 截止 ' + formatDate(d.deadline) + '</span>' : '')
+                    + (d.publish_date ? '<span class="inline-flex items-center px-2 py-1 rounded bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">🗓 发布 ' + formatDate(d.publish_date) + '</span>' : '')
+                    + (d.contact_name ? '<span class="inline-flex items-center px-2 py-1 rounded bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">👤 ' + d.contact_name + (d.contact_phone ? ' · ' + d.contact_phone : '') + '</span>' : '')
+                    + '</div>';
+                // 完整内容 — 纯文本流，不再用 bg color 框 + 滚动条 (#28357)
+                var content = d.full_content || d.content_preview || '';
+                var body = meta
+                    + (content
+                        ? '<div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">' + content + '</div>'
+                        : '<p class="text-gray-400 text-sm">无内容</p>');
                 document.getElementById('detail-body').innerHTML = body;
             })
             .catch(function(e) {
