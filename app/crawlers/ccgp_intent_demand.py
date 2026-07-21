@@ -118,12 +118,16 @@ def build_url(type_id: int, page: int, page_size: int,
 
 
 def build_doc_url(type_id: int, item_id: str) -> str:
-    """构造详情页 URL. type=2 → intention-view, type=1 → demand-view.
+    """构造详情页 URL. type=2 → 采购意向, type=1 → 需求调查.
 
-    实测: 这是合成 URL, 真实详情 API 走 /{id}/front
+    7-21: 实测前端页面 URL 格式 = /stock-resources-front/{intentionView|demandView}?id={id}
+    (旧路径 /intention-view/{id} / /demand-view/{id} 现在 404)
+    API 端点仍走 yw-gateway (DETAIL_TPL), 这个 URL 仅用于:
+      1. DB url 字段 (前端跳转链接)
+      2. _tender_content 引用
     """
-    path = "intention-view" if type_id == 2 else "demand-view"
-    return f"{BASE_URL}/{path}/{item_id}"
+    view = "intentionView" if type_id == 2 else "demandView"
+    return f"{BASE_URL}/stock-resources-front/{view}?id={item_id}"
 
 
 def build_annex_url(file_path: str, file_name: str) -> str:
@@ -295,8 +299,29 @@ def parse_intent_demand_json(
             })
 
     # 金额
-    money = data.get("money") or ""
-    budget = f"{money}万元" if money and "万" not in str(money) else str(money)
+    # 7-21: type=2 (采购意向) API money 已为万元单位 (如 "9.00" = 9万元);
+    #       type=1 (需求调查) API money 为元 (如 "1320000.00" = 132万元).
+    #       启发式: money > 10000 视为元, 除以 10000 转万元.
+    money_raw = data.get("money") or ""
+    money_num: Optional[float] = None
+    try:
+        money_num = float(money_raw) if money_raw else None
+    except (ValueError, TypeError):
+        money_num = None
+
+    if money_num is not None and money_num > 0:
+        if money_num > 10000:  # 元 → 转万元
+            budget = f"{money_num / 10000:.2f}万元"
+        elif "万" in str(money_raw):
+            budget = str(money_raw)
+        else:
+            budget = f"{money_num:.2f}万元"
+    else:
+        budget = ""
+
+    # 预计采购时间 (endTime, ms timestamp → datetime)
+    end_time_ms = data.get("endTime")
+    deadline_dt: Optional[datetime] = ms_to_dt(end_time_ms)
 
     item = TenderInfo(
         title=(data.get("title") or "").strip(),
@@ -308,6 +333,7 @@ def parse_intent_demand_json(
         category="政府采购",
         source_url=cat.source_url,
         budget=budget,
+        deadline=deadline_dt,
         region=(data.get("createRegionName") or "").strip(),
         project_overview=depict[:500] if depict else "",
         full_content=full_content,
