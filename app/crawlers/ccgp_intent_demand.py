@@ -626,6 +626,10 @@ def tender_to_db_row(item: TenderInfo) -> Dict:
         "scraped_by": _s(item.scraped_by) or "tender-scraper v3.2 ccgp_intent_demand",
         "source_id": _s(getattr(item, "_source_id", "")),
         "source_type": getattr(item, "_source_type", 0) or 0,
+        # 7-21: 修复 scraped_at NULL bug — 不带这个 key 会被 upsert 显式写 NULL,
+        # 覆盖 DEFAULT CURRENT_TIMESTAMP, 且 ON CONFLICT DO UPDATE CASE WHEN
+        # IS NOT NULL 也会保持原 NULL. 与 fahcqmu fix (commit 6551e3e) 同类问题.
+        "scraped_at": datetime.now().isoformat(),
     }
 
 
