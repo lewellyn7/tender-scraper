@@ -588,6 +588,11 @@ class CQGGZYCrawlerV2(BaseCrawler):
                 body = re.sub(r'国家部委网站.*$', '', body, flags=re.DOTALL)
                 content = body.strip()
 
+            # 2026-07-21 修复: 用统一的 nav 裁剪 (优于旧的 regex, 处理多种 nav 关键词 + CSS 噪音 + 多个 marker)
+            from app.utils.cqggzy_text import clean_cqggzy_text
+            if content:
+                content = clean_cqggzy_text(content)
+
             # 2026-06-10 修复: 抓所有 <h1> 标签内容（项目编号常在 title 下一行的 h1 里）
             # CQGGZY 详情页结构: <h1>title</h1><h1>项目编号：XXX</h1>
             # selectors 列表抓的是正文区, 不含 H1 块, 会丢失项目编号
@@ -605,15 +610,16 @@ class CQGGZYCrawlerV2(BaseCrawler):
 
             if content and len(content) > 50 and '暂无内容' not in content:
                 # 2026-06-05: 使用 clean_noise 进一步去噪 + 识别空详情页
-                from app.utils.clean_noise import clean_text, is_empty_page, make_content_preview
+                from app.utils.clean_noise import clean_text, is_empty_page
                 cleaned = clean_text(content)
                 if is_empty_page(content) or len(cleaned) < 30:
                     # 整页只有 chrome 或空详情页 — 不入库
                     logger.debug(f"  详情页空(仅chrome): {tender.url}")
                 else:
                     tender.full_content = cleaned
-                    # 2026-06-08 修复: 同步生成 content_preview, 不依赖后续 fallback
-                    tender.content_preview = make_content_preview(cleaned, tender.title)
+                    # 2026-07-21 fix: cp 改为基于 fc 计算 (单一来源, 避免路径分歧)
+                    from app.utils.cqggzy_text import clean_cqggzy_text
+                    tender.content_preview = clean_cqggzy_text(cleaned, hard_truncate_to=500)
                     # 2026-06-09 修复: CQGGZY 详情页同步提取项目编号（CCGP 已在 ccgp.py:311 调用，CQGGZY 漏了）
                     tender.project_no = extract_project_no(tender.title, cleaned) or ""
                     # 2026-06-12 P2 新增 : 从正文提取发布日期 (兜底 , 列表阶段 URL 没提时会用 )
@@ -717,9 +723,10 @@ class CQGGZYCrawlerV2(BaseCrawler):
                         pass
                     full = await elem.inner_text()
                     if len(full) > 20:
-                        from app.utils.clean_noise import make_content_preview
+                        # 2026-07-21 fix: cp derived from fc via clean_cqggzy_text (单一来源)
+                        from app.utils.cqggzy_text import clean_cqggzy_text
                         tender.full_content = full
-                        tender.content_preview = make_content_preview(full, tender.title)
+                        tender.content_preview = clean_cqggzy_text(full, hard_truncate_to=500)
                         logger.info(f"  ✅ 正文提取成功 ({len(full)} 字)")
                         return
             except Exception:
@@ -741,9 +748,10 @@ class CQGGZYCrawlerV2(BaseCrawler):
                     lines.append(line)
             full = "\n".join(lines)
             if len(full) > 20:
-                from app.utils.clean_noise import make_content_preview
+                # 2026-07-21 fix: cp derived from fc via clean_cqggzy_text
+                from app.utils.cqggzy_text import clean_cqggzy_text
                 tender.full_content = full
-                tender.content_preview = make_content_preview(full, tender.title)
+                tender.content_preview = clean_cqggzy_text(full, hard_truncate_to=500)
         except Exception:
             pass
 
