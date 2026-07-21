@@ -467,6 +467,7 @@ def tender_to_db_row(item: TenderInfo, org_unit: str) -> Dict:
         "content_preview": _s(item.content_preview),
         "full_content": _s(item.full_content),
         "source_url": _s(item.source_url),
+        "scraped_at": datetime.now().isoformat(),
         "scraped_by": "tender-scraper v3.2 fahcqmu",
         # 其他字段保持空 (ccgp/cqggzy 表也有大量空字段, 这是常态)
     }

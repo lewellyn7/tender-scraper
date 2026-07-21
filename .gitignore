@@ -40,6 +40,7 @@ backup_*.tsv
 backup_*.csv
 backup_*.sql
 *.dump
+backup/         # 本地手动备份目录 (含 222MB+ 的 pg_dump 输出)
 .pre-qual-feature/
 .wip/
 

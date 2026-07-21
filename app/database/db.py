@@ -682,92 +682,117 @@ class Database(
     # PR #39: feat/fahcqmu-crawler
     # ============================================================================
     def upsert_projects_fahcqmu(self, rows: list):
-        """批量 upsert 项目到 projects_fahcqmu 表（URL 去重）
+        """两阶段 upsert (Phase 1 dry-run INSERT + Phase 2 UPDATE)
 
-        rows: list of dict, 字段映射到 projects_fahcqmu 列:
-            - url (unique, required)
-            - title, category, info_type, business_type
-            - publish_date (date or str), publish_date_raw
-            - content_preview, full_content
-            - budget, bid_amount, deadline, opening_date
-            - region, industry, tender_type, project_overview
-            - bidder_requirements, submission_deadline, submission_location
-            - contact_name, contact_phone, contact_email
-            - attachments_count (int), attachments (list/dict)
-            - keywords_matched, source_url, scraped_at, scraped_by
-            - org_unit (新字段: 信息数据处 / 总务处 / 其他)
-            - contract_amount, planned_publish_date, tender_content, project_no
+        修复 execute_batch 单事务失败级联 → 全部 batch abort
+        Phase 1: INSERT ... ON CONFLICT (url) DO NOTHING (新行写入, 已存在跳过)
+        Phase 2: UPDATE 全字段 (CASE WHEN 保护 full_content/content_preview)
+        每行 SAVEPOINT, 单行失败不波及其他行
+        2026-07-20 修: attachments (jsonb) 空 dict/list/str → None (避免 `{} or ""` 给 JSONB 喂 '')
 
-        行为:
-        - URL 冲突 → UPDATE 非保护字段
-        - 保护字段 full_content/content_preview: 用 COALESCE(NULLIF(EXCLUDED.col,''), 原值)
-        - 联动同步 projects + project_records 关联表
+        rows: list of dict, 字段映射到 projects_fahcqmu 列 (35 cols)
         """
         if not rows:
             return
         conn = self._get_conn().conn
-        # 保留原始 dict rows 用于关联表同步（在 convert tuple 后会丢失字段名）
-        rows_original = [r for r in rows if isinstance(r, dict)]
+        # 2026-07-21 修: 连接池返还的 connection 可能残留 aborted 状态
+        # (上一轮 cron 失败后 _pg_pool.putconn 未 rollback, 下次再取到同样的 conn
+        # 第一个 execute 就被 "current transaction is aborted" 拒掉)
+        # 先 rollback 清干净再开 cursor
         try:
-            cols = [
-                "url", "title", "category", "info_type", "business_type", "org_unit",
-                "publish_date", "publish_date_raw", "content_preview", "full_content",
-                "budget", "bid_amount", "deadline", "opening_date",
-                "region", "industry", "tender_type", "project_overview",
-                "bidder_requirements", "submission_deadline", "submission_location",
-                "contact_name", "contact_phone", "contact_email",
-                "attachments_count", "attachments", "keywords_matched",
-                "source_url", "scraped_at", "scraped_by",
-                "contract_amount", "planned_publish_date", "tender_content",
-                "project_no",
-            ]
-            placeholders = ",".join(["%s"] * len(cols))
-            # 保护详情字段 + 时间戳不被空值覆盖
-            # 2026-06-25 修正: 用 CASE WHEN 替代 NULLIF (NULLIF 在 TIMESTAMP 报错)
-            # TIMESTAMP 字段 (scraped_at) 只能用 IS NOT NULL 判断
-            # TEXT 字段 (full_content / content_preview) 同时检查 IS NOT NULL 和 <> ''
-            text_protected_cols = {"full_content", "content_preview"}
-            timestamp_protected_cols = {"scraped_at"}
-            set_parts = []
-            for c in cols[1:]:
-                if c in text_protected_cols:
-                    set_parts.append(
-                        f"{c}=CASE WHEN EXCLUDED.{c} IS NOT NULL AND EXCLUDED.{c} <> '' "
-                        f"THEN EXCLUDED.{c} ELSE projects_fahcqmu.{c} END"
-                    )
-                elif c in timestamp_protected_cols:
-                    set_parts.append(
-                        f"{c}=CASE WHEN EXCLUDED.{c} IS NOT NULL "
-                        f"THEN EXCLUDED.{c} ELSE projects_fahcqmu.{c} END"
-                    )
-                else:
-                    set_parts.append(f"{c}=EXCLUDED.{c}")
-            set_clause = ", ".join(set_parts)
-            insert_sql = f"""
-                INSERT INTO projects_fahcqmu ({','.join(cols)})
-                VALUES ({placeholders})
-                ON CONFLICT (url) DO UPDATE SET
-                    {set_clause}
-            """
-            from psycopg2.extras import execute_batch
-
-            # Convert dict rows to tuples, preserving None for NULL columns
-            if rows and isinstance(rows[0], dict):
-                null_cols = {'deadline', 'publish_date', 'attachments_count', 'opening_date', 'scraped_at'}
-                def _to_val(r, c):
-                    v = r.get(c)
-                    if v is None or v == "":
-                        return None
-                    return v if c in null_cols else (v or "")
-                rows = [[_to_val(r, c) for c in cols] for r in rows]
-
-            execute_batch(conn.cursor(), insert_sql, rows, page_size=500)
-            conn.commit()
-            logger.debug(f"upsert_projects_fahcqmu: {len(rows)} rows")
-        except Exception as e:
             conn.rollback()
-            logger.error(f"upsert_projects_fahcqmu: {e}")
-            raise
+        except Exception:
+            pass
+        rows_original = [r for r in rows if isinstance(r, dict)]
+        cur = conn.cursor()
+
+        cols = [
+            "url", "title", "category", "info_type", "business_type", "org_unit",
+            "publish_date", "publish_date_raw", "content_preview", "full_content",
+            "budget", "bid_amount", "deadline", "opening_date",
+            "region", "industry", "tender_type", "project_overview",
+            "bidder_requirements", "submission_deadline", "submission_location",
+            "contact_name", "contact_phone", "contact_email",
+            "attachments_count", "attachments", "keywords_matched",
+            "source_url", "scraped_at", "scraped_by",
+            "contract_amount", "planned_publish_date", "tender_content",
+            "project_no",
+        ]
+        null_cols = {'deadline', 'publish_date', 'attachments_count',
+                     'opening_date', 'scraped_at'}
+
+        def _val(r, c):
+            from psycopg2.extras import Json
+            v = r.get(c)
+            # JSONB: 空 dict/list/str → None (修 bug: `{} or ""` 给 JSONB 喂 '')
+            # 非空 dict/list → Json() 适配器 (psycopg2 cursor 不会自动 dict→JSONB)
+            if c == "attachments":
+                if v in (None, "", [], {}):
+                    return None
+                return Json(v)
+            if v is None or v == "":
+                return None
+            return v if c in null_cols else (v or "")
+
+        # ===== Phase 1: dry-run INSERT (新建行) =====
+        insert_sql = (f"INSERT INTO projects_fahcqmu ({','.join(cols)}) "
+                      f"VALUES ({','.join(['%s']*len(cols))}) "
+                      f"ON CONFLICT (url) DO NOTHING")
+        p1_ok = p1_fail = 0
+        for r in rows_original:
+            url = r.get("url")
+            try:
+                cur.execute("SAVEPOINT sp_p1")
+                cur.execute(insert_sql, [_val(r, c) for c in cols])
+                cur.execute("RELEASE SAVEPOINT sp_p1")
+                p1_ok += 1
+            except Exception as e:
+                cur.execute("ROLLBACK TO SAVEPOINT sp_p1")
+                p1_fail += 1
+                logger.warning(f"fahcqmu P1 fail url={url}: {e}")
+        conn.commit()
+        logger.debug(f"upsert_projects_fahcqmu P1: ok={p1_ok} fail={p1_fail}/{len(rows_original)}")
+
+        # ===== Phase 2: UPDATE (刷新详情) =====
+        # 2026-07-21 修: 加 timestamp_protected, scraped_at 不能被 NULL 覆盖 (避免 pipeline 不带 scraped_at 时把老值刷成 NULL)
+        text_protected = {"full_content", "content_preview"}
+        timestamp_protected = {"scraped_at"}
+        set_parts = []
+        for c in cols[1:]:
+            if c in text_protected:
+                set_parts.append(f"{c}=CASE WHEN %s IS NOT NULL AND %s<>'' THEN %s ELSE {c} END")
+            elif c in timestamp_protected:
+                set_parts.append(f"{c}=CASE WHEN %s IS NOT NULL THEN %s ELSE {c} END")
+            else:
+                set_parts.append(f"{c}=%s")
+        update_sql = f"UPDATE projects_fahcqmu SET {', '.join(set_parts)} WHERE url=%s"
+
+        p2_ok = p2_fail = 0
+        for r in rows_original:
+            url = r.get("url")
+            params = []
+            for c in cols[1:]:
+                v = _val(r, c)
+                if c in text_protected:
+                    params.extend([v, v, v])
+                elif c in timestamp_protected:
+                    params.extend([v, v])
+                else:
+                    params.append(v)
+            params.append(url)
+            try:
+                cur.execute("SAVEPOINT sp_p2")
+                cur.execute(update_sql, params)
+                cur.execute("RELEASE SAVEPOINT sp_p2")
+                p2_ok += 1
+            except Exception as e:
+                cur.execute("ROLLBACK TO SAVEPOINT sp_p2")
+                p2_fail += 1
+                logger.warning(f"fahcqmu P2 fail url={url}: {e}")
+        conn.commit()
+        logger.debug(f"upsert_projects_fahcqmu P2: ok={p2_ok} fail={p2_fail}/{len(rows_original)}")
+
+        cur.close()
 
         # 联动写入 projects + project_records 关联表
         try:
