@@ -240,6 +240,63 @@ def _is_quiet_hour(now: "datetime | None" = None) -> bool:
     return h >= s or h < e
 
 
+def _parse_iso_local(s: "str | None") -> "datetime | None":
+    """解析 collector 返回的 ISO 时间字符串 'YYYY-MM-DDTHH:MM:SS' (本地时区).
+
+    用途: watchdog 计算 "上次成功采集到现在的有效活跃小时数" (用户拍板 2026-07-22 08:53).
+    Returns:
+        datetime (本地时区, 无 tzinfo) 或 None (解析失败).
+    """
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
+    except (ValueError, TypeError):
+        return None
+
+
+def _effective_active_age_h(last_crawl_iso: "str | None", now: "datetime | None" = None) -> "float | None":
+    """计算从 last_crawl_at 到现在, 期间累积的非静默期小时数.
+
+    7-22 watchdog 改进 (用户拍板 2026-07-22 08:53):
+      痛点: 21:00 成功采集后到次日 08:04 (静默期结束 4min 后) watchdog 巡检,
+            last_crawl_age=11.1h > 2.5h 阈值 → 误报. 实际 21:00→08:00 是夜间静默期,
+            本来就不应该跑采集, "停滞 11h" 大部分时间是预期的.
+      解决: 不只看 last_crawl_age 总时长, 而是计算 "期间累积的活跃期小时数".
+            只有活跃期累积 > 阈值才算真正停滞.
+
+    Edge cases:
+      - last_crawl_iso 解析失败 → 返回 None (让上层回退到原始 age 判断)
+      - 静默期未启用 → 返回 None (等同禁用)
+      - last_dt >= now → 0.0 (未来时间, 防御)
+
+    Args:
+        last_crawl_iso: collector 返回的 last_crawl_at ISO 字符串.
+        now: 当前时间 (测试可注入); 默认 datetime.now() (本地时区).
+    Returns:
+        活跃期累积小时数 (float), 或 None (无法判断).
+    """
+    if not WATCHDOG_QUIET_ENABLED or not last_crawl_iso:
+        return None
+    last_dt = _parse_iso_local(last_crawl_iso)
+    if last_dt is None:
+        return None
+    now = now or datetime.now()
+    if last_dt >= now:
+        return 0.0
+
+    # 按整点切片扫描, 累计非静默期时长
+    total_active_s = 0.0
+    cursor = last_dt
+    while cursor < now:
+        next_hour = cursor.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        segment_end = min(next_hour, now)
+        if not _is_quiet_hour(cursor):
+            total_active_s += (segment_end - cursor).total_seconds()
+        cursor = segment_end
+    return total_active_s / 3600.0
+
+
 def _fetch_collector_state() -> dict | None:
     """拉取 collector 容器 health 状态 (urllib 同步, 3s 超时).
 
@@ -292,6 +349,8 @@ def job_watchdog_check():
         return
 
     # 7-07 quiet-hours: 静默期内主采集不运行, 不告警 (用户拍板 2026-07-07 01:11)
+    # 7-22: 这里只防 "当前在静默期内" 的告警; 跨日静默边界 (08:00 静默刚结束)
+    #       仍可能误报, 见下方 _effective_active_age_h 二次抑制.
     if _is_quiet_hour():
         logger.debug(f"[Watchdog] quiet hours ({WATCHDOG_QUIET_HOUR_START}:00-{WATCHDOG_QUIET_HOUR_END}:00), skip stale alert age={state.get('last_crawl_age_s')}s")
         return
@@ -299,6 +358,17 @@ def job_watchdog_check():
     # 检查 stale
     age = state.get("last_crawl_age_s")
     if age is not None and age > WATCHDOG_STALE_SECONDS:
+        # 7-22 二次抑制: 跨日静默边界抑制 (用户拍板 2026-07-22 08:53)
+        #   例: last_crawl=21:00 (已进静默), now=08:04 (刚出静默 4min)
+        #       总 age=11.1h 触发阈值, 但有效活跃期仅 4min, 不算停滞.
+        active_h = _effective_active_age_h(state.get("last_crawl_at"))
+        if active_h is not None and active_h * 3600 <= WATCHDOG_STALE_SECONDS:
+            logger.debug(
+                f"[Watchdog] stale suppressed by quiet hours: "
+                f"total_gap={round(age/3600, 1)}h, active_only={round(active_h, 1)}h "
+                f"(last_crawl={state.get('last_crawl_at')}, quiet={WATCHDOG_QUIET_HOUR_START}-{WATCHDOG_QUIET_HOUR_END})"
+            )
+            return
         if time.time() - _last_watchdog_alert_at < WATCHDOG_ALERT_COOLDOWN:
             return
         try:
