@@ -356,3 +356,29 @@ git log -1 --format='%ai' e1a484c
 1. **PR merge 后必须** `docker compose build --no-cache $service && docker compose up -d $service`. **不能依赖 CI 自动重建** - CI 流程缺失/不稳定.
 2. **新增爬虫修复必须同时加部署校验指纹** - 在 `deployment_check.py` 的 `REQUIRED_PATTERNS` 追加 (file, pattern, pr, desc), 不加 = 允许下次重犯.
 3. **历史 cp/fc 空 ≠ 本次 bug 受害者** - 用 URL 是否带 `_N` + 是否数字 infoid 区分. 数字 infoid 是本次 bug 直接受害者, UUID/HTML 路径是历史不可抓 (不在本次修复范围).
+
+---
+
+## xlsx 是历史快照, SQL UPDATE 不会反向更新 (2026-07-22 13:17)
+
+### Bug: 我 13:02 说 "修复完成" 但漏了一个关键事实
+- **现象**: 用户 13:17 又报 "很多项目信息 因为链接增加了 _1 无法直接打开"
+- **根因**: 12:01 中午汇报 (#28869) 引用的 `chongqing_tender_v3_20260722_101757.xlsx` 是 **10:17 hot-patch 之前生成的历史快照**, 里面 74/311 URL (23.8%) 带 `_1`. **我 13:00 SQL UPDATE 只改了 DB 里的 url, 不会反向更新 10:17 生成的这个 xlsx 文件本身** → 用户中午看的就是这文件 → 跳错页.
+- **用户实际看到的错版 URL 样本**:
+  ```
+  https://www.cqggzy.com/trade/014005/1655907306313134080_1?categoryNum=014005001
+  ```
+
+### 修复 (scripts/fix_xlsx_url_suffix_2026-07-22.py, commit 待 push)
+- 从 DB 干净 url 重写 xlsx 第16列「链接」, 保留其他列不变
+- 策略: DB `(infoid, categoryNum) -> url` 索引, xlsx 按 (infoid 剥_N, categoryNum) 关联, normalize BASE/trade_id 不变
+- 输出: 74/74 修复, 0 跳过, 新 xlsx **0% 带 `_N`**
+- 备份原文件: `output/chongqing_tender_v3_20260722_101757.xlsx.bak-20260722_132632`
+- 容器内跑: `docker exec tender-scraper-collector python /app/scripts/fix_xlsx_url_suffix_2026-07-22.py` (DB host 是 `postgres` 不是 `localhost`)
+- 默认值从 .env 读: DB_HOST=localhost, DB_NAME=tender_scraper, DB_USER=root, DB_PASSWORD=root123 (docker 网络里 host=postgres)
+
+### 教训总结 (4 条铁律, 增加这条)
+4. **导出文件 (xlsx/json/JSON) 是历史快照, SQL UPDATE 不会反向更新文件**. 任何导出类文件修复必须:
+   - 要么写脚本从 DB 重写文件 (`fix_xlsx_url_suffix_*.py`)
+   - 要么触发下一次采集让 collector 自然重新生成
+   - 不能假设改 DB 后用户马上看到新链接 → 必须明确告诉用户 "xlsx 文件已修复, 文件名不变, 重新打开"
