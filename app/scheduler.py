@@ -14,6 +14,12 @@
 - 20:00 日报: 今日 cron 触发/成功/失败/新增项目数
 - collector 死了 → 告警
 - collector 失败 3 次 → 主动告警 (collector 自己发, watchdog 也会发, 重复告警去重)
+
+7-22 部署版本校验 (用户拍板 2026-07-22 12:44 + 12:45):
+- 痛点: PR #87 改了爬虫代码但 collector 容器未重建 (镜像 2026-07-15, PR 2026-07-21)
+  → 跑旧代码 → 24500+ 错版 _1 URL 写入 DB → 用户点击链接看到空壳
+- 修复: app/utils/deployment_check.py 启动钩子检查爬虫代码指纹
+- 铁律: PR merge 后必须 docker compose build --no-cache + up -d, 不然后续会被部署校验抓到
 """
 import json
 import os
@@ -685,6 +691,15 @@ def main():
         misfire_grace_time=3600,
     )
 
+    # 7-22: 部署版本校验 (每日 9:00, 防 PR merge ≠ 容器部署再发生, 用户拍板 2026-07-22 12:44 + 12:45)
+    scheduler.add_job(
+        job_deploy_check_daily,
+        CronTrigger(minute="0", hour="9", timezone="Asia/Shanghai"),
+        id="deploy_check_daily",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
     logger.info("[Scheduler] 定时采集调度器已启动")
     logger.info("  - CQGGZY  每 2 小时一次: 08/10/12/14/16/18/20:00")
     logger.info("  - fahcqmu 每日 21:00")
@@ -723,6 +738,39 @@ def main():
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
         logger.info("[Scheduler] 已停止")
+
+
+# 7-22 部署版本校验启动钩子 (用户拍板 2026-07-22 12:44 + 12:45)
+# 防 PR merge 后容器未重建 (PR #87 历史教训). 在 scheduler 启动时 + 每天 9:00 检查.
+if os.getenv("DEPLOY_CHECK_ENABLED", "true").lower() in ("1", "true", "yes"):
+    try:
+        from app.utils.deployment_check import warn_if_stale, check_crawler_version
+        warn_if_stale()
+    except Exception as e:
+        logger.debug(f"[DeployCheck] 启动检查异常 (non-fatal): {e}")
+
+
+def job_deploy_check_daily():
+    """7-22: 每天 9:00 检查爬虫代码指纹, 防止 PR merge 后容器未重建."""
+    try:
+        from app.utils.deployment_check import check_crawler_version
+        ok, missing = check_crawler_version()
+        if not ok:
+            msg = "⚠️ 部署版本落后, 缺以下修复:\n" + "\n".join(missing)
+            msg += "\n\n→ docker compose build --no-cache collector && docker compose up -d collector"
+            logger.warning(f"[DeployCheck] {msg}")
+            try:
+                from app.utils.alerts import send_alert
+                send_alert(
+                    level="warning",
+                    title="部署版本落后 (爬虫代码未含最新 PR 修复)",
+                    body=msg,
+                    source="deploy-check-daily",
+                )
+            except Exception as e:
+                logger.debug(f"[DeployCheck] send_alert 失败 (non-fatal): {e}")
+    except Exception as e:
+        logger.debug(f"[DeployCheck] job_deploy_check_daily 异常 (non-fatal): {e}")
 
 
 if __name__ == "__main__":
