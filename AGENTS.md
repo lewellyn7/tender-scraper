@@ -297,3 +297,62 @@ def _effective_active_age_h(last_crawl_iso, now=None):
 
 ### 教训总结
 > **周期性的"不做事"窗口** (静默期/周末/节假日) 用 watchdog 监控时, 一定要做"窗口态"判断, 不要只看"点态". 否则每个周期边界都会误报一次. 修正成本 = 误报次数 × 用户信任损失.
+
+---
+
+## PR merge ≠ 容器代码更新: 部署校验强制 (2026-07-22, commit b5d957b)
+
+### Bug: PR #87 代码进了 git 但 collector 容器未重建
+- **现象**: 用户拍板 2026-07-22 12:44 + 12:45: '还有很多项目 因为增加了 _1导致无法采集到数据 或者链接点击后无法跳转到正确页面'
+- **根因**: PR #87 (e1a484c, 2026-07-21 16:24:47) 加了 `raw_catnum.startswith('014005004')` 守卫 (只有采购结果公告加 `_1`),
+  **但 collector 容器镜像构建于 2026-07-15T09:18:20Z (PR merge **之前 6 天**)**, 跑的是旧代码 (无条件补 `_1`).
+  7 类白名单 (014001001/002/003/004/019 + 014005001/002) 全部错版 `_1` URL 写入 DB (~24500 条).
+- **用户反馈**: '不是需要补 `_1` 而是正确链接没有 `_1`' - 明确说明代码加错了, 不是 URL 应该带 `_1`.
+
+### 验证流程 (复现用)
+```bash
+# 1. 看哪些容器是新代码 (PR #87 守卫存在)
+for c in tender-scraper-collector tender-scraper-web tender-scraper-scheduler; do
+  docker exec $c grep -c "raw_catnum.startswith..014005004.." \
+    /app/app/crawlers/cqggzy.py 2>/dev/null
+done
+# 期望: collector ≥ 1, web ≥ 1, scheduler ≥ 1 (实际: collector=0, web=1, scheduler=0)
+
+# 2. 看镜像构建时间 vs PR merge 时间
+docker inspect tender-scraper-collector --format '{{.Created}}'
+git log -1 --format='%ai' e1a484c
+# 镜像早于 PR → 必然跑旧代码
+```
+
+### 修复 (5 步流程)
+1. **本地代码已正确** (git HEAD 含 PR #87 守卫)
+2. **备份容器旧代码**: `docker exec $c cp /app/app/.../cqggzy.py /app/.../cqggzy.py.bak-$(date +%Y%m%d)`
+3. **docker cp 新代码**: `docker cp app/crawlers/cqggzy.py $c:/app/app/crawlers/cqggzy.py`
+4. **restart 容器** (Python 进程内存里的旧代码必须 reload): `docker restart $c`
+5. **验证**: 进容器手动 grep + 看 health endpoint
+
+### 部署校验 (commit b5d957b, 防再发生)
+- `app/utils/deployment_check.py`: REQUIRED_PATTERNS 列表, 每项 (file, pattern, pr, desc)
+  - 当前含 PR #87 的 `raw_catnum.startswith('014005004')` x2 (cqggzy.py + cqggzy_curl.py)
+  - 加新检查: 在列表里追加三元组
+- `app/scheduler.py` 集成:
+  - 模块启动钩子: `if __name__` 前调 `warn_if_stale()`
+  - `job_deploy_check_daily()` 函数: 每天 9:00 检查
+  - cron: `CronTrigger(minute='0', hour='9', tz='Asia/Shanghai')`
+- 缺指纹行为: WARNING 日志 + Telegram 告警 (best-effort, 不 fatal, 避免重启失败)
+
+### DB 现状 (2026-07-22 12:55)
+- 错版 `_1` URL 量化 (按 URL 里 categoryNum):
+  - 014005001 (采购公告): 16623 条带 `_1` ❌ → 已剥
+  - 014005002 (变更公告): 7864 条带 `_1` ❌ → 已剥
+  - 014005004 (采购结果公告): 16810 条带 `_1` ✅ (保留, API 真实返 _N)
+  - **剥完后剩 `_N` URL 全是 014005004 (正确)**
+- backfill 脚本: `scripts/backfill_cqggzy_url_strip_2026-07-22.py`
+  - LIMIT=20 collector 测试: 75% 成功率 (15/20)
+  - 失败 5 条都是 selector 不匹配 (UUID/HTML 路径历史不可抓项目)
+  - **不接受全量 5h 后台跑** - 让自然 cron 覆盖 (PR #88 修了 'cp 从 fc 计算', 新采集不会再有 cp 空)
+
+### 教训总结 (3 条铁律)
+1. **PR merge 后必须** `docker compose build --no-cache $service && docker compose up -d $service`. **不能依赖 CI 自动重建** - CI 流程缺失/不稳定.
+2. **新增爬虫修复必须同时加部署校验指纹** - 在 `deployment_check.py` 的 `REQUIRED_PATTERNS` 追加 (file, pattern, pr, desc), 不加 = 允许下次重犯.
+3. **历史 cp/fc 空 ≠ 本次 bug 受害者** - 用 URL 是否带 `_N` + 是否数字 infoid 区分. 数字 infoid 是本次 bug 直接受害者, UUID/HTML 路径是历史不可抓 (不在本次修复范围).
